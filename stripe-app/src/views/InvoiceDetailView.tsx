@@ -35,8 +35,11 @@ type InvoiceDetails = {
   };
   sequence_status?: {
     emails_sent?: number;
+    emailsSent?: number;
     last_send_date?: string | null;
+    lastSendDate?: string | null;
     next_scheduled?: string | null;
+    nextScheduled?: string | null;
     active?: boolean;
     paused?: boolean;
   };
