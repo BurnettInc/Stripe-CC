@@ -14,11 +14,17 @@ const getBusinessName = createServerFn({ method: "GET" }).handler(async () => {
   }
 });
 
-const PRICE_IDS: Record<string, string> = {
-  standard: "price_1TyiJ9AD4cJGS9CrgoI4TzX4",
-  pro: "price_1TyiJAAD4cJGS9CrBUJ8XjwN",
-};
-
+/**
+ * Checkout sessions are created by the backend API (app), not here — it owns
+ * the price IDs, merchant attribution, and the billing webhooks. This server
+ * function only resolves the current merchant (the same way the backend does,
+ * via its /merchant endpoint) and forwards the request, so there is a single
+ * checkout implementation and the metadata drift that silently broke billing
+ * can't happen again.
+ *
+ * APP_API_URL must point at the backend in production, e.g.
+ * APP_API_URL=https://api.example.com. Defaults to the local backend.
+ */
 const createCheckout = createServerFn({ method: "POST" })
   .validator((data: unknown) => {
     const d = data as { tier?: string };
@@ -28,28 +34,44 @@ const createCheckout = createServerFn({ method: "POST" })
     return d as { tier: "standard" | "pro" };
   })
   .handler(async ({ data }) => {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) {
-      return { error: "Billing not configured" };
+    const apiUrl = (process.env.APP_API_URL || "http://localhost:3001").replace(/\/+$/, "");
+    const siteBase = process.env.BASE_URL || "http://localhost:3000";
+
+    // Resolve the current merchant from the backend before creating the
+    // session so the billing webhook can attribute the subscription. Never
+    // hardcode a merchant id here — if none is available, fail the checkout
+    // rather than create a session the backend will reject.
+    let merchantId: number;
+    try {
+      const res = await fetch(`${apiUrl}/merchant`, { signal: AbortSignal.timeout(10_000) });
+      const json = await res.json() as { id?: number };
+      if (!res.ok || typeof json.id !== "number") throw new Error("no merchant id returned");
+      merchantId = json.id;
+    } catch (err) {
+      console.error(`[checkout] Could not resolve merchant from ${apiUrl}/merchant:`, err instanceof Error ? err.message : String(err));
+      return { error: "Checkout is temporarily unavailable — billing is not configured. Please try again later." };
     }
-    const params = new URLSearchParams({
-      "line_items[0][price]": PRICE_IDS[data.tier],
-      "line_items[0][quantity]": "1",
-      mode: "subscription",
-      success_url: `${process.env.BASE_URL || "http://localhost:3000"}/?subscribed=true`,
-      cancel_url: `${process.env.BASE_URL || "http://localhost:3000"}/?cancelled=true`,
-    });
-    const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: params.toString(),
-    });
-    const json = await res.json() as { url?: string; error?: { message: string } };
-    if (json.url) return { url: json.url };
-    return { error: json.error?.message || "Checkout failed" };
+
+    try {
+      const res = await fetch(`${apiUrl}/billing/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tier: data.tier,
+          merchantId,
+          successUrl: `${siteBase}/?subscribed=true`,
+          cancelUrl: `${siteBase}/?cancelled=true`,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const json = await res.json() as { url?: string; error?: string };
+      if (res.ok && json.url) return { url: json.url };
+      console.error("[checkout] Backend checkout failed:", JSON.stringify(json));
+      return { error: json.error || "Checkout failed" };
+    } catch (err) {
+      console.error(`[checkout] Could not reach backend checkout at ${apiUrl}/billing/checkout:`, err instanceof Error ? err.message : String(err));
+      return { error: "Checkout is temporarily unavailable. Please try again later." };
+    }
   });
 
 export const Route = createFileRoute("/")({
@@ -184,27 +206,28 @@ function Home() {
       <section className="bg-gray-50 py-20">
         <div className="max-w-4xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
-            You decide how much autonomy to give
+            Most AI collections tools give you one choice: full auto, or nothing.
           </h2>
           <p className="text-center text-gray-600 max-w-xl mx-auto mb-14">
-            The biggest barrier to AI collections isn't technical — it's trust. Start
-            in Draft Mode and graduate to Full Auto when you're ready.
+            That's a hard sell when it's your customers on the other end of the email.
+            So we built it differently — you start exactly as hands-on as you want, and
+            earn your way to hands-off.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
               {
                 mode: "Draft",
-                desc: "AI writes every email. You approve before send. Full control, zero risk.",
+                desc: "Every email is written and queued for your approval. Nothing sends without you. This is where most people start, and it's how you find out what our AI actually sounds like before it ever touches a customer relationship.",
                 color: "bg-blue-50 border-blue-200",
               },
               {
                 mode: "Semi-Auto",
-                desc: "Stage 1 reminders (days 1–6) auto-send. Firmer follow-ups still need your approval.",
+                desc: "Friendly early reminders (Day 1–3) send automatically. Anything firmer still waits for your sign-off. You stop babysitting the polite nudges, keep control of the harder conversations.",
                 color: "bg-amber-50 border-amber-200",
               },
               {
                 mode: "Full Auto",
-                desc: "Complete hands-off. Every stage auto-sends. You get notified, not bothered.",
+                desc: "The entire sequence runs without you. You're notified when something happens — payment received, sequence escalated — never bothered to make it happen.",
                 color: "bg-green-50 border-green-200",
               },
             ].map((tier) => (
@@ -219,6 +242,9 @@ function Home() {
               </div>
             ))}
           </div>
+          <p className="text-center text-gray-500 text-sm mt-8">
+            Switch modes any time, per-customer if you want. Nothing here is locked in.
+          </p>
         </div>
       </section>
 
