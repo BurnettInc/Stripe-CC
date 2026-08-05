@@ -25,6 +25,15 @@ export function getEscalationLabel(stage: number): string {
   }
 }
 
+export function getStageLabel(stage: number): string {
+  switch (stage) {
+    case 1: return "Day 1 - friendly";
+    case 2: return "Day 7 - firm";
+    case 3: return "Day 14 - final notice";
+    default: return "Reminder";
+  }
+}
+
 export function getStageSubjectPrefix(stage: number): string {
   switch (stage) {
     case 1: return "Quick reminder";

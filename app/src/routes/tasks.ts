@@ -49,7 +49,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
 
     // Step 1: Draft
     pipelineLog.push("Step 1: Drafting email...");
-    const draft = draftEmail(task, invoice);
+    const draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
     db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
       draft.subject,
       draft.body,

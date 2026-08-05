@@ -241,6 +241,52 @@ export function getAllTasks(db: Database) {
   `).all();
 }
 
+export interface CustomerHistory {
+  relationship_length: string;
+  payment_history_summary: string;
+  typical_amount: string;
+  amount_delta: string;
+}
+
+/** Compute compact, server-side customer context for the drafter. */
+export function getCustomerHistory(
+  db: Database,
+  merchantId: number,
+  customerName: string,
+  customerEmail: string,
+  currentInvoiceId?: number,
+  currentAmountCents?: number,
+): CustomerHistory {
+  const invoices = db.query(`SELECT id, amount_cents, status, due_date, created_at
+    FROM invoices WHERE merchant_id=? AND (customer_email=? OR (?='' AND customer_name=?))
+    ORDER BY created_at ASC`).all(merchantId, customerEmail, customerEmail, customerName) as Array<{
+      id: number; amount_cents: number; status: string; due_date: string; created_at: string;
+    }>;
+  const prior = invoices.filter(i => i.id !== currentInvoiceId);
+  if (invoices.length === 0) {
+    return { relationship_length: "new customer — insufficient history", payment_history_summary: "new customer — insufficient history", typical_amount: "no baseline", amount_delta: "first invoice — no baseline" };
+  }
+  const first = new Date(invoices[0].created_at).getTime();
+  const months = Math.max(0, Math.floor((Date.now() - first) / (30.44 * 86400000)));
+  const relationship = `${months} month${months === 1 ? "" : "s"}, ${prior.length} prior invoice${prior.length === 1 ? "" : "s"}`;
+  if (prior.length === 0) return { relationship_length: relationship, payment_history_summary: "first late payment on record", typical_amount: "no baseline", amount_delta: "first invoice — no baseline" };
+  const recent = prior.slice(-10);
+  const amounts = recent.map(i => i.amount_cents);
+  const average = amounts.reduce((a, b) => a + b, 0) / amounts.length;
+  const typical = `$${(average / 100).toFixed(2)}`;
+  const current = currentAmountCents ?? 0;
+  const difference = average ? ((current - average) / average) * 100 : 0;
+  const delta = Math.abs(difference) < 10 ? "in line with typical invoices" : `${Math.abs(Math.round(difference))}% ${difference > 0 ? "larger" : "smaller"} than usual`;
+  const sentCounts = recent.map(i => Number((db.query("SELECT COUNT(*) AS n FROM reminder_tasks WHERE invoice_id=? AND status='sent'").get(i.id) as { n: number }).n));
+  const chronic = sentCounts.filter(n => n >= 2).length;
+  let summary: string;
+  if (chronic > 0) summary = `chronically late — ${chronic} of last ${recent.length} invoices needed 2+ reminders`;
+  else if (recent.every(i => i.status === "paid")) summary = "always pays promptly";
+  else if (recent.some(i => i.status === "paid")) summary = "typically pays within a few days of reminder";
+  else summary = "first late payment on record";
+  return { relationship_length: relationship, payment_history_summary: summary, typical_amount: typical, amount_delta: delta };
+}
+
 // ── Types ──
 
 export interface Merchant {
