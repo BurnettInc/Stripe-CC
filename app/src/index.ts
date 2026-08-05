@@ -1,4 +1,4 @@
-import { getDb, ensureDefaultMerchant, resolveMerchant } from "./db";
+import { getDb, ensureDefaultMerchant } from "./db";
 import { handleWebhook } from "./routes/webhook";
 import { handleTasks } from "./routes/tasks";
 import { handleSettings } from "./routes/settings";
@@ -183,13 +183,6 @@ async function handleRequest(req: Request): Promise<Response> {
         const response = await handleSettings(db, req, auth.merchant_id);
         for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
         return response;
-      }
-
-      // GET /merchant — default merchant identity for checkout
-      if (path === "/merchant" && req.method === "GET") {
-        const merchant = resolveMerchant(db);
-        if (!merchant) return new Response(JSON.stringify({ error: "No merchant found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify({ id: merchant.id, email: merchant.email }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // GET/PUT /invoices/:id and /invoices/:id/trust-mode

@@ -676,18 +676,21 @@
       btn.innerHTML = '<span class="spinner"></span> Redirecting...';
 
       try {
-        var settingsRes = await fetch('/settings');
-        if (!settingsRes.ok) throw new Error('Could not load merchant info');
-        var settings = await settingsRes.json();
-
         var res = await fetch('/billing/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tier: tier, merchantId: settings.id }),
+          body: JSON.stringify({ tier: tier }),
         });
 
         var data = await res.json();
 
+        if (res.status === 401) {
+          errorEl.textContent = '\u2717 Connect your Stripe account before subscribing';
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = originalText;
+          return;
+        }
         if (res.ok && data.url) {
           window.location.href = data.url;
         } else {

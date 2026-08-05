@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { readFile } from "node:fs/promises";
 import { useState } from "react";
 
@@ -17,10 +18,8 @@ const getBusinessName = createServerFn({ method: "GET" }).handler(async () => {
 /**
  * Checkout sessions are created by the backend API (app), not here — it owns
  * the price IDs, merchant attribution, and the billing webhooks. This server
- * function only resolves the current merchant (the same way the backend does,
- * via its /merchant endpoint) and forwards the request, so there is a single
- * checkout implementation and the metadata drift that silently broke billing
- * can't happen again.
+ * function only forwards the request with the visitor's session cookie so the
+ * backend can attribute the subscription to the authenticated merchant.
  *
  * APP_API_URL must point at the backend in production, e.g.
  * APP_API_URL=https://api.example.com. Defaults to the local backend.
@@ -37,28 +36,28 @@ const createCheckout = createServerFn({ method: "POST" })
     const apiUrl = (process.env.APP_API_URL || "http://localhost:3001").replace(/\/+$/, "");
     const siteBase = process.env.BASE_URL || "http://localhost:3000";
 
-    // Resolve the current merchant from the backend before creating the
-    // session so the billing webhook can attribute the subscription. Never
-    // hardcode a merchant id here — if none is available, fail the checkout
-    // rather than create a session the backend will reject.
-    let merchantId: number;
-    try {
-      const res = await fetch(`${apiUrl}/merchant`, { signal: AbortSignal.timeout(10_000) });
-      const json = await res.json() as { id?: number };
-      if (!res.ok || typeof json.id !== "number") throw new Error("no merchant id returned");
-      merchantId = json.id;
-    } catch (err) {
-      console.error(`[checkout] Could not resolve merchant from ${apiUrl}/merchant:`, err instanceof Error ? err.message : String(err));
-      return { error: "Checkout is temporarily unavailable — billing is not configured. Please try again later." };
+    // Forward the visitor's session cookie to the backend so its
+    // requireSession() gate can attribute the subscription. This is a
+    // server-to-server call, so a manually forwarded Cookie header works
+    // regardless of domain — no browser same-origin restrictions apply.
+    // The backend sets `session=...` with Path=/ and no Domain attribute
+    // (host-only for the backend origin), which is exactly what the visitor's
+    // browser sends back here on every path.
+    const incomingReq = getRequest();
+    const cookieHeader = incomingReq?.headers.get("cookie") ?? "";
+    if (!cookieHeader.split(";").some((part) => part.trim().startsWith("session="))) {
+      return { error: "Connect your Stripe account before subscribing" };
     }
 
     try {
       const res = await fetch(`${apiUrl}/billing/checkout`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: cookieHeader,
+        },
         body: JSON.stringify({
           tier: data.tier,
-          merchantId,
           successUrl: `${siteBase}/?subscribed=true`,
           cancelUrl: `${siteBase}/?cancelled=true`,
         }),
@@ -67,6 +66,9 @@ const createCheckout = createServerFn({ method: "POST" })
       const json = await res.json() as { url?: string; error?: string };
       if (res.ok && json.url) return { url: json.url };
       console.error("[checkout] Backend checkout failed:", JSON.stringify(json));
+      if (res.status === 401) {
+        return { error: "Connect your Stripe account before subscribing" };
+      }
       return { error: json.error || "Checkout failed" };
     } catch (err) {
       console.error(`[checkout] Could not reach backend checkout at ${apiUrl}/billing/checkout:`, err instanceof Error ? err.message : String(err));
