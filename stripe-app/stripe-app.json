@@ -8,7 +8,7 @@
     "views": [
       {
         "viewport": "stripe.dashboard.drawer.default",
-        "component": "SettingsView"
+        "component": "DrawerRootView"
       },
       {
         "viewport": "stripe.dashboard.invoice.detail",
