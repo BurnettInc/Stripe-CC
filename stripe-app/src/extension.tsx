@@ -1,3 +1,3 @@
-import SettingsView from './views/SettingsView';
+import DrawerRootView from './views/DrawerRootView';
 import InvoiceDetailView from './views/InvoiceDetailView';
-export { SettingsView, InvoiceDetailView };
+export { DrawerRootView, InvoiceDetailView };
