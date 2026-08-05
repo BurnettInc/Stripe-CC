@@ -178,6 +178,25 @@ export function getSubscriptionByMerchantId(db: Database, merchantId: number) {
     .get(merchantId) as Subscription | null;
 }
 
+/** Whether the merchant's most recent subscription is currently active. */
+export function hasActiveSubscription(db: Database, merchantId: number): boolean {
+  const sub = getSubscriptionByMerchantId(db, merchantId);
+  return sub?.status === "active";
+}
+
+const FREE_DRAFT_LIMIT = 5;
+
+/** Number of free drafts still available (an all-time, merchant-scoped cap). */
+export function freeDraftsRemaining(db: Database, merchantId: number): number {
+  const row = db.query(`
+    SELECT COUNT(DISTINCT rt.id) AS count
+    FROM reminder_tasks rt
+    JOIN invoices i ON i.id = rt.invoice_id
+    WHERE i.merchant_id = ? AND rt.status IN ('drafted', 'reviewed', 'sent')
+  `).get(merchantId) as { count: number };
+  return Math.max(0, FREE_DRAFT_LIMIT - Number(row.count));
+}
+
 export function getSubscriptionByStripeId(db: Database, stripeSubscriptionId: string) {
   return db
     .query("SELECT * FROM subscriptions WHERE stripe_subscription_id=?")

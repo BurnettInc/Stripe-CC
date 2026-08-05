@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant } from "../db";
+import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining } from "../db";
 import { getEscalationStage } from "./escalation";
 
 export interface WebhookEvent {
@@ -61,6 +61,10 @@ export function handleWebhookEvent(db: Database, event: WebhookEvent): { action:
         (Date.now() - new Date(dueDate).getTime()) / (1000 * 60 * 60 * 24)
       );
       const stage = getEscalationStage(daysOverdue);
+      if (!hasActiveSubscription(db, merchantId) && freeDraftsRemaining(db, merchantId) <= 0) {
+        console.log(`Skipping task creation for merchant ${merchantId}: free draft limit reached, no subscription`);
+        return { action: `skipped reminder task for invoice ${stripeInvoiceId}: free draft limit reached` , invoiceId };
+      }
       const taskId = createReminderTask(db, invoiceId, stage);
 
       return { action: `created reminder task for invoice ${stripeInvoiceId} at stage ${stage}`, invoiceId, taskId };
