@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   ensureDefaultMerchant,
   createSubscription,
@@ -42,9 +42,12 @@ function verifyStripeSignature(payload: string, signatureHeader: string, secret:
   const signedPayload = `${timestamp}.${payload}`;
   const computedSig = createHmac("sha256", secret)
     .update(signedPayload)
-    .digest("hex");
+    .digest();
+  const expectedBuf = Buffer.from(expectedSig, "hex");
 
-  if (computedSig !== expectedSig) {
+  // Constant-time comparison — plain string comparison leaks timing
+  // information and is a known timing-attack vector.
+  if (computedSig.length !== expectedBuf.length || !timingSafeEqual(computedSig, expectedBuf)) {
     console.error(`[billing] Signature mismatch`);
     return false;
   }

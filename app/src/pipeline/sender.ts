@@ -21,6 +21,12 @@ export async function sendEmailForReal(
   toEmail: string,
   fromEmail?: string,
 ): Promise<SendResult> {
+  // Payment guard runs on the real-send path too: never send a dunning
+  // email for an invoice that has been paid since review. (Previously this
+  // check only lived in the stub fallback `sendEmail()`.)
+  const paidSkip = checkPaidAndSkip(db, task);
+  if (paidSkip) return paidSkip;
+
   const from = fromEmail || process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
   const subject = draft.subject;
   const body = draft.body;
@@ -118,34 +124,8 @@ export function sendEmail(
   draft: EmailDraft
 ): SendResult {
   // Fix 5: Check payment status before sending — skip if already paid
-  if (task) {
-    if (checkPaymentStatus(db, task.invoice_id)) {
-      const invoice = db
-        .query("SELECT customer_name, stripe_invoice_id FROM invoices WHERE id = ?")
-        .get(task.invoice_id) as { customer_name: string; stripe_invoice_id: string } | null;
-
-      const custName = invoice?.customer_name || "Customer";
-      const invId = invoice?.stripe_invoice_id || `#${task.invoice_id}`;
-
-      // Log the skip
-      const skipMsg = `Invoice ${task.invoice_id} is already paid — skipping send`;
-      logSend(db, task.id, "skipped", skipMsg);
-
-      // Also log a simulated "thank you" note for the pipeline log
-      const thankYouMsg = [
-        `[THANK YOU NOTE] Would send to ${custName}:`,
-        `  Subject: Thanks for your payment — ${invId}`,
-        `  Body: Hi ${custName}, just wanted to say thanks for taking care of invoice ${invId}. We appreciate your prompt payment!`,
-      ].join("\n");
-      logSend(db, task.id, "success", thankYouMsg, "reminder");
-
-      return {
-        success: false,
-        message: skipMsg,
-        logId: 0,
-      };
-    }
-  }
+  const paidSkip = checkPaidAndSkip(db, task);
+  if (paidSkip) return paidSkip;
 
   const message = [
     `[STUB SEND] Would send email:`,
@@ -177,4 +157,40 @@ export function checkPaymentStatus(db: Database, invoiceId: number): boolean {
     .query("SELECT status FROM invoices WHERE id = ?")
     .get(invoiceId) as Invoice | null;
   return invoice?.status === "paid";
+}
+
+/**
+ * Shared payment guard for both send paths (real provider and stub).
+ * If the invoice is already paid, logs the skip plus a simulated thank-you
+ * note and returns a SendResult describing the skip. Returns null when the
+ * send may proceed (no task, or invoice is not paid).
+ */
+function checkPaidAndSkip(db: Database, task: ReminderTask | null): SendResult | null {
+  if (!task) return null;
+  if (!checkPaymentStatus(db, task.invoice_id)) return null;
+
+  const invoice = db
+    .query("SELECT customer_name, stripe_invoice_id FROM invoices WHERE id = ?")
+    .get(task.invoice_id) as { customer_name: string; stripe_invoice_id: string } | null;
+
+  const custName = invoice?.customer_name || "Customer";
+  const invId = invoice?.stripe_invoice_id || `#${task.invoice_id}`;
+
+  // Log the skip
+  const skipMsg = `Invoice ${task.invoice_id} is already paid — skipping send`;
+  logSend(db, task.id, "skipped", skipMsg);
+
+  // Also log a simulated "thank you" note for the pipeline log
+  const thankYouMsg = [
+    `[THANK YOU NOTE] Would send to ${custName}:`,
+    `  Subject: Thanks for your payment — ${invId}`,
+    `  Body: Hi ${custName}, just wanted to say thanks for taking care of invoice ${invId}. We appreciate your prompt payment!`,
+  ].join("\n");
+  logSend(db, task.id, "success", thankYouMsg, "reminder");
+
+  return {
+    success: false,
+    message: skipMsg,
+    logId: 0,
+  };
 }

@@ -1,9 +1,11 @@
 import type { Database } from "bun:sqlite";
-import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant } from "../db";
+import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant } from "../db";
 import { getEscalationStage } from "./escalation";
 
 export interface WebhookEvent {
   type: string;
+  /** Stripe connected-account ID the event belongs to (top-level `account` field). */
+  account?: string;
   data: {
     object: {
       id: string;
@@ -25,8 +27,11 @@ export interface WebhookEvent {
 export function handleWebhookEvent(db: Database, event: WebhookEvent): { action: string; invoiceId?: number; taskId?: number } {
   ensureDefaultMerchant(db);
 
-  const merchant = db.query("SELECT id FROM merchants LIMIT 1").get() as { id: number };
-  const merchantId = merchant.id;
+  // Attribute the event to the merchant that owns the Stripe account it came
+  // from — never blindly "row 1". Falls back to the default merchant when the
+  // account isn't (yet) in stripe_connections.
+  const merchant = resolveMerchant(db, event.account);
+  const merchantId = merchant?.id ?? 1;
 
   switch (event.type) {
     case "invoice.overdue":

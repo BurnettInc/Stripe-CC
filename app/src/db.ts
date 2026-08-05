@@ -190,6 +190,40 @@ export function getMerchantById(db: Database, id: number) {
   return db.query("SELECT * FROM merchants WHERE id = ?").get(id) as Merchant | null;
 }
 
+/**
+ * Resolve the merchant for a request.
+ *
+ * Priority:
+ * 1. A Stripe account ID (from a webhook event, OAuth callback, etc.) —
+ *    joined through stripe_connections to the owning merchant.
+ * 2. The merchant owning the most recently updated stripe_connections row
+ *    (covers requests with no account context, e.g. /settings).
+ * 3. The default merchant (lowest id) — legacy single-merchant fallback.
+ *
+ * Never assumes "row 1" when a Stripe account ID is available.
+ */
+export function resolveMerchant(db: Database, accountId?: string | null): Merchant | null {
+  if (accountId) {
+    const conn = db
+      .query("SELECT merchant_id FROM stripe_connections WHERE id = ?")
+      .get(accountId) as { merchant_id: number } | null;
+    if (conn) {
+      const merchant = getMerchantById(db, conn.merchant_id);
+      if (merchant) return merchant;
+    }
+  }
+
+  const conn = db
+    .query("SELECT merchant_id FROM stripe_connections ORDER BY updated_at DESC LIMIT 1")
+    .get() as { merchant_id: number } | null;
+  if (conn) {
+    const merchant = getMerchantById(db, conn.merchant_id);
+    if (merchant) return merchant;
+  }
+
+  return db.query("SELECT * FROM merchants ORDER BY id ASC LIMIT 1").get() as Merchant | null;
+}
+
 export function getInvoiceById(db: Database, id: number) {
   return db.query("SELECT * FROM invoices WHERE id = ?").get(id) as Invoice | null;
 }
@@ -227,6 +261,7 @@ export interface Invoice {
   currency: string;
   due_date: string;
   status: string;
+  trust_mode_override: string | null;
   created_at: string;
 }
 

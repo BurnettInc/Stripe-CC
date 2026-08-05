@@ -1,9 +1,33 @@
 import type { Database } from "bun:sqlite";
-import { ensureDefaultMerchant, getMerchantById } from "../db";
+import { randomBytes } from "node:crypto";
+import { ensureDefaultMerchant, resolveMerchant } from "../db";
 import { saveStripeConnection, getStripeConnection } from "../middleware/auth";
 
 const STRIPE_CONNECT_TOKEN_URL = "https://connect.stripe.com/oauth/token";
 const STRIPE_CONNECT_AUTHORIZE_URL = "https://connect.stripe.com/express/oauth/authorize";
+
+// ── OAuth CSRF state store ──
+// Single-use, in-memory, TTL 10 minutes. Binds an OAuth callback to the
+// authorize request that started it and to the merchant who initiated it,
+// preventing CSRF attacks where an attacker tricks a user into linking the
+// attacker's Stripe account.
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const oauthStates = new Map<string, { merchantId: number; expiresAt: number }>();
+
+function createOAuthState(merchantId: number): string {
+  const state = randomBytes(16).toString("hex");
+  oauthStates.set(state, { merchantId, expiresAt: Date.now() + OAUTH_STATE_TTL_MS });
+  return state;
+}
+
+/** Validate and consume a state value. Returns null when missing/unknown/expired. */
+function consumeOAuthState(state: string | null): { merchantId: number } | null {
+  if (!state) return null;
+  const entry = oauthStates.get(state);
+  oauthStates.delete(state); // single-use regardless of outcome
+  if (!entry || entry.expiresAt < Date.now()) return null;
+  return { merchantId: entry.merchantId };
+}
 
 /**
  * GET /stripe/connect — Redirect the merchant to Stripe's OAuth authorization page.
@@ -14,12 +38,19 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
   const clientId = process.env.STRIPE_CLIENT_ID;
   const baseUrl = process.env.BASE_URL || "http://localhost:3001";
 
+  // Capture the merchant initiating the flow so the callback can attribute
+  // the connection to the right merchant (and the CSRF `state` binds the
+  // callback to this initiation).
+  const merchant = resolveMerchant(db);
+  const state = createOAuthState(merchant?.id ?? 1);
+
   // Build the OAuth authorize URL
   const params = new URLSearchParams({
     response_type: "code",
     client_id: clientId || "PLACEHOLDER_CLIENT_ID",
     scope: "read_write",
     redirect_uri: `${baseUrl}/stripe/oauth/callback`,
+    state,
   });
 
   const authorizeUrl = `${STRIPE_CONNECT_AUTHORIZE_URL}?${params.toString()}`;
@@ -41,6 +72,21 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
 export async function handleStripeOAuthCallback(db: Database, req: Request): Promise<Response> {
   const baseUrl = process.env.BASE_URL || "http://localhost:3001";
   const url = new URL(req.url);
+
+  // Validate the CSRF state BEFORE doing anything else — reject callbacks
+  // that don't carry a state we issued (prevents login CSRF / account linking
+  // attacks). Single-use, so a replayed callback also fails here.
+  const stateEntry = consumeOAuthState(url.searchParams.get("state"));
+  if (!stateEntry) {
+    console.error("[oauth] Missing or invalid CSRF state in OAuth callback");
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: `${baseUrl}/?error=invalid_state`,
+      },
+    });
+  }
+
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
   const errorDescription = url.searchParams.get("error_description");
@@ -127,8 +173,15 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
     }
 
     ensureDefaultMerchant(db);
-    const merchant = db.query("SELECT id FROM merchants LIMIT 1").get() as { id: number };
-    const merchantId = merchant.id;
+
+    // Attribute the connection to the right merchant: prefer the merchant
+    // that already owns this Stripe account (reconnect case), otherwise the
+    // merchant who initiated this OAuth flow (captured in the CSRF state) —
+    // never blindly "row 1".
+    const existingConn = db
+      .query("SELECT merchant_id FROM stripe_connections WHERE id = ?")
+      .get(stripeAccountId) as { merchant_id: number } | null;
+    const merchantId = existingConn?.merchant_id ?? stateEntry.merchantId;
 
     // Store the OAuth connection
     saveStripeConnection(db, {
@@ -166,8 +219,10 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
 export async function handleStripeConnectionStatus(db: Database): Promise<Response> {
   ensureDefaultMerchant(db);
 
-  const merchant = db.query("SELECT id FROM merchants LIMIT 1").get() as { id: number };
-  const conn = getStripeConnection(db, merchant.id);
+  // Resolve the merchant without assuming "row 1": the connected merchant
+  // (most recent connection) wins, default merchant is the fallback.
+  const merchant = resolveMerchant(db);
+  const conn = merchant ? getStripeConnection(db, merchant.id) : null;
 
   return new Response(
     JSON.stringify(conn

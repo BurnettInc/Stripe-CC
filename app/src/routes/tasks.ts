@@ -71,9 +71,11 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
 
     // Step 3: Send — gated by review approval and Trust Mode
     if (review.approved) {
-      // Fix 3: Enforce Trust Mode
+      // Fix 3: Enforce Trust Mode — per-invoice override wins over the
+      // merchant-level default (null override falls back to merchant setting).
       const merchant = getMerchantById(db, invoice.merchant_id);
-      const trustMode = merchant?.trust_mode || "draft";
+      const merchantTrustMode = merchant?.trust_mode || "draft";
+      const trustMode = invoice.trust_mode_override ?? merchantTrustMode;
 
       if (trustMode === "draft") {
         // Draft mode: stop after review, do NOT send

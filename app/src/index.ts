@@ -1,4 +1,4 @@
-import { getDb, ensureDefaultMerchant } from "./db";
+import { getDb, ensureDefaultMerchant, resolveMerchant } from "./db";
 import { handleWebhook } from "./routes/webhook";
 import { handleTasks } from "./routes/tasks";
 import { handleSettings } from "./routes/settings";
@@ -158,9 +158,9 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // GET /merchant — default merchant identity for checkout
       if (path === "/merchant" && req.method === "GET") {
-        const merchant = db.query("SELECT id, email FROM merchants LIMIT 1").get() as { id: number; email: string } | null;
+        const merchant = resolveMerchant(db);
         if (!merchant) return new Response(JSON.stringify({ error: "No merchant found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        return new Response(JSON.stringify(merchant), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ id: merchant.id, email: merchant.email }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // GET/PUT /invoices/:id and /invoices/:id/trust-mode
@@ -173,7 +173,7 @@ async function handleRequest(req: Request): Promise<Response> {
       // GET /subscription — current merchant subscription
       if (path === "/subscription" && req.method === "GET") {
         const { getSubscriptionByMerchantId } = await import("./db");
-        const merchant = db.query("SELECT id FROM merchants LIMIT 1").get() as { id: number } | null;
+        const merchant = resolveMerchant(db);
         const sub = merchant ? getSubscriptionByMerchantId(db, merchant.id) : null;
         return new Response(JSON.stringify(sub || { tier: null, status: "none" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
