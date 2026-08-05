@@ -333,7 +333,7 @@ function Home() {
               {plan.free ? (
                 <a
                   href="https://dashboard.stripe.com/apps/com.stripecollectionscopilot.app"
-                  className="mt-8 block w-full rounded-lg bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                  className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   {plan.cta}
                 </a>
