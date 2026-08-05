@@ -29,11 +29,11 @@ export default function OnboardingView() {
   const subscribe = async (tier: Tier) => {
     setCheckoutTier(tier); setError(null);
     try {
-      const merchantResponse = await fetch(`${BASE_URL}/merchant`);
-      if (!merchantResponse.ok) throw new Error('Unable to identify your merchant account.');
-      const merchant = (await merchantResponse.json()) as { id?: number };
-      if (typeof merchant.id !== 'number') throw new Error('Merchant account is unavailable.');
-      const response = await fetch(`${BASE_URL}/billing/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier, merchantId: merchant.id }) });
+      // The backend attributes the subscription to the session-authenticated
+      // merchant, so no merchant id is needed here — the old /merchant lookup
+      // was removed along with the route.
+      const response = await fetch(`${BASE_URL}/billing/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier }) });
+      if (response.status === 401) throw new Error('Connect your Stripe account before subscribing.');
       if (!response.ok) throw new Error('Could not start checkout. Please try again.');
       const result = (await response.json()) as { url?: string };
       if (!result.url) throw new Error('Checkout did not return a valid URL.');
