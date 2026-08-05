@@ -1,0 +1,15 @@
+{
+  "name": "stripe-collections-copilot",
+  "version": "0.1.0",
+  "description": "AI collections assistant for solo Stripe users",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

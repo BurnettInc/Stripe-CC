@@ -1,0 +1,128 @@
+/// <reference types="vite/client" />
+
+import { useCallback, useEffect, useState } from 'react';
+import { Box, Button, ContextView, Select, Spinner, Banner } from '@stripe/ui-extension-sdk/ui';
+import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
+
+const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
+
+type TrustMode = 'draft' | 'semi' | 'full';
+
+const modes: Array<{ value: TrustMode; label: string; description: string }> = [
+  { value: 'draft', label: 'Draft', description: 'You approve every email before it is sent.' },
+  { value: 'semi', label: 'Semi-Auto', description: 'Stage 1 reminders send automatically; later stages need approval.' },
+  { value: 'full', label: 'Full Auto', description: 'Fully hands-off follow-ups across every escalation stage.' },
+];
+
+interface SettingsResponse { trust_mode: TrustMode }
+interface ConnectionResponse { connected: boolean; account_name?: string }
+
+export default function SettingsView(props?: { oauthContext?: ExtensionContextValue['oauthContext'] }) {
+  const oauthContext = props?.oauthContext;
+  const [trustMode, setTrustMode] = useState<TrustMode | null>(null);
+  const [connection, setConnection] = useState<ConnectionResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [settingsRes, connRes] = await Promise.all([
+        fetch(`${BASE_URL}/settings`),
+        fetch(`${BASE_URL}/stripe/connection`),
+      ]);
+      if (!settingsRes.ok || !connRes.ok) throw new Error('Unable to load Copilot settings.');
+      setTrustMode(((await settingsRes.json()) as SettingsResponse).trust_mode);
+      setConnection((await connRes.json()) as ConnectionResponse);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to load settings.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const save = async (value: TrustMode) => {
+    const previous = trustMode;
+    setTrustMode(value);
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch(`${BASE_URL}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trust_mode: value }),
+      });
+      if (!response.ok) throw new Error('Could not save Trust Mode.');
+      setTrustMode(((await response.json()) as SettingsResponse).trust_mode ?? value);
+    } catch (cause) {
+      setTrustMode(previous);
+      setError(cause instanceof Error ? cause.message : 'Could not save Trust Mode.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const accountName = connection?.account_name;
+
+  return (
+    <ContextView title="Collections Copilot">
+      <Box css={{ stack: 'y', gap: 'medium' }}>
+        {/* Connection status */}
+        <Box css={{ stack: 'y', gap: 'xsmall' }}>
+          <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Stripe connection</Box>
+          {loading ? (
+            <Spinner />
+          ) : connection?.connected || oauthContext ? (
+            <Box css={{ color: 'primary' }}>Connected as {accountName || 'your Stripe account'}</Box>
+          ) : (
+            <Box css={{ color: 'secondary' }}>Not connected — connect your Stripe account</Box>
+          )}
+        </Box>
+
+        {/* Trust Mode selector */}
+        <Box css={{ stack: 'y', gap: 'xsmall' }}>
+          <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Trust Mode</Box>
+          <Box css={{ color: 'secondary' }}>
+            Control how autonomous Copilot is when handling overdue invoices.
+          </Box>
+          {loading ? (
+            <Spinner />
+          ) : (
+            <Select
+              value={trustMode ?? undefined}
+              disabled={saving}
+              onChange={(event) => {
+                void save(event.target.value as TrustMode);
+              }}
+            >
+              {modes.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          )}
+          {trustMode && (
+            <Box css={{ color: 'secondary', font: 'caption' }}>
+              {modes.find((mode) => mode.value === trustMode)?.description}
+            </Box>
+          )}
+        </Box>
+
+        {/* Error banner */}
+        {error && (
+          <Banner
+            type="critical"
+            title="Something went wrong"
+            description={error}
+            actions={<Button onPress={() => { void load(); }}>Retry</Button>}
+          />
+        )}
+      </Box>
+    </ContextView>
+  );
+}

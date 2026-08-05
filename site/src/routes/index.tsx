@@ -1,0 +1,344 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { createServerFn } from "@tanstack/react-start";
+import { readFile } from "node:fs/promises";
+import { useState } from "react";
+
+const getBusinessName = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    const cfg = JSON.parse(await readFile("site.json", "utf8")) as {
+      businessName?: string;
+    };
+    return cfg.businessName?.trim() ?? "";
+  } catch {
+    return "";
+  }
+});
+
+const PRICE_IDS: Record<string, string> = {
+  standard: "price_1TyiJ9AD4cJGS9CrgoI4TzX4",
+  pro: "price_1TyiJAAD4cJGS9CrBUJ8XjwN",
+};
+
+const createCheckout = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const d = data as { tier?: string };
+    if (!d.tier || !["standard", "pro"].includes(d.tier)) {
+      throw new Error("Invalid tier");
+    }
+    return d as { tier: "standard" | "pro" };
+  })
+  .handler(async ({ data }) => {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) {
+      return { error: "Billing not configured" };
+    }
+    const params = new URLSearchParams({
+      "line_items[0][price]": PRICE_IDS[data.tier],
+      "line_items[0][quantity]": "1",
+      mode: "subscription",
+      success_url: `${process.env.BASE_URL || "http://localhost:3000"}/?subscribed=true`,
+      cancel_url: `${process.env.BASE_URL || "http://localhost:3000"}/?cancelled=true`,
+    });
+    const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+    const json = await res.json() as { url?: string; error?: { message: string } };
+    if (json.url) return { url: json.url };
+    return { error: json.error?.message || "Checkout failed" };
+  });
+
+export const Route = createFileRoute("/")({
+  loader: () => getBusinessName(),
+  component: Home,
+});
+
+function SubscribeButton({ tier, label, highlight }: { tier: string; label: string; highlight?: boolean }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleClick = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await createCheckout({ data: { tier: tier as "standard" | "pro" } });
+      if (result.url) {
+        window.location.href = result.url;
+      } else {
+        setError(result.error || "Something went wrong");
+      }
+    } catch {
+      setError("Something went wrong");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div>
+      <button
+        onClick={handleClick}
+        disabled={loading}
+        className={`mt-8 block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors disabled:opacity-50 ${
+          highlight
+            ? "bg-indigo-600 text-white hover:bg-indigo-700"
+            : "border border-gray-300 text-gray-700 hover:bg-gray-50"
+        }`}
+      >
+        {loading ? "Redirecting..." : label}
+      </button>
+      {error && <p className="mt-2 text-xs text-red-600 text-center">{error}</p>}
+    </div>
+  );
+}
+
+function Home() {
+  const businessName = Route.useLoaderData();
+  return (
+    <div className="min-h-dvh">
+      {/* Nav */}
+      <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
+        <span className="font-bold text-lg text-indigo-600">
+          {businessName || "Stripe Collections Copilot"}
+        </span>
+        <a
+          href="https://dashboard.stripe.com/apps/com.stripecollectionscopilot.app"
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+        >
+          Install on Stripe
+        </a>
+      </nav>
+
+      {/* Hero */}
+      <section className="max-w-4xl mx-auto px-6 pt-20 pb-16 text-center">
+        <span className="inline-block rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700 mb-6">
+          Stripe-native · Zero setup
+        </span>
+        <h1 className="text-4xl font-bold tracking-tight sm:text-6xl text-gray-900">
+          Recover invoices faster
+        </h1>
+        <p className="mt-6 max-w-xl mx-auto text-lg text-gray-600 leading-relaxed">
+          The simplest AI collections assistant for solo Stripe users. Connect your
+          Stripe account in one click, and we'll chase overdue invoices with
+          personalized, escalating reminders — so you get paid without lifting a
+          finger.
+        </p>
+        <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+          <a
+            href="#pricing"
+            className="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm"
+          >
+            Start recovering invoices →
+          </a>
+          <a
+            href="#how-it-works"
+            className="rounded-lg border border-gray-300 px-6 py-3 text-base font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            How it works
+          </a>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how-it-works" className="max-w-5xl mx-auto px-6 py-20">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-16">
+          Set it and forget it
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+          {[
+            {
+              step: "1",
+              title: "Connect Stripe",
+              desc: "One click. No config files, no webhook setup, no API keys to copy. We handle everything.",
+            },
+            {
+              step: "2",
+              title: "Pick your Trust Mode",
+              desc: "Draft (you approve), Semi-Auto (friendly reminders auto-send), or Full Auto (hands-off). You're always in control.",
+            },
+            {
+              step: "3",
+              title: "Get paid",
+              desc: "When an invoice goes overdue, we send personalized, polite reminders that escalate naturally. Payment detected? Sequence stops instantly.",
+            },
+          ].map((item) => (
+            <div key={item.step} className="text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 font-bold text-lg">
+                {item.step}
+              </div>
+              <h3 className="mt-5 text-lg font-semibold text-gray-900">
+                {item.title}
+              </h3>
+              <p className="mt-3 text-sm text-gray-600 leading-relaxed">
+                {item.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Trust Mode */}
+      <section className="bg-gray-50 py-20">
+        <div className="max-w-4xl mx-auto px-6">
+          <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
+            You decide how much autonomy to give
+          </h2>
+          <p className="text-center text-gray-600 max-w-xl mx-auto mb-14">
+            The biggest barrier to AI collections isn't technical — it's trust. Start
+            in Draft Mode and graduate to Full Auto when you're ready.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                mode: "Draft",
+                desc: "AI writes every email. You approve before send. Full control, zero risk.",
+                color: "bg-blue-50 border-blue-200",
+              },
+              {
+                mode: "Semi-Auto",
+                desc: "Stage 1 reminders (days 1–6) auto-send. Firmer follow-ups still need your approval.",
+                color: "bg-amber-50 border-amber-200",
+              },
+              {
+                mode: "Full Auto",
+                desc: "Complete hands-off. Every stage auto-sends. You get notified, not bothered.",
+                color: "bg-green-50 border-green-200",
+              },
+            ].map((tier) => (
+              <div
+                key={tier.mode}
+                className={`rounded-xl border p-6 ${tier.color}`}
+              >
+                <h3 className="text-lg font-bold text-gray-900">{tier.mode} Mode</h3>
+                <p className="mt-2 text-sm text-gray-700 leading-relaxed">
+                  {tier.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="max-w-4xl mx-auto px-6 py-20">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
+          Simple pricing
+        </h2>
+        <p className="text-center text-gray-600 max-w-lg mx-auto mb-14">
+          Unlimited invoice sequences on both plans. Upgrade anytime — no contracts,
+          cancel in one click.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl mx-auto">
+          {[
+            {
+              name: "Standard",
+              price: "$15",
+              period: "/month",
+              tier: "standard",
+              features: [
+                "Up to 50 overdue invoices tracked",
+                "3-stage escalation ladder",
+                "Custom sender branding",
+                "Weekly recovery reports",
+                "Trust Mode selector",
+              ],
+              cta: "Subscribe to Standard",
+              highlight: false,
+            },
+            {
+              name: "Pro",
+              price: "$29",
+              period: "/month",
+              tier: "pro",
+              features: [
+                "Everything in Standard",
+                "Unlimited overdue invoices",
+                "Custom escalation timing",
+                "Late-fee automation",
+                "Priority support",
+              ],
+              cta: "Subscribe to Pro",
+              highlight: true,
+            },
+          ].map((plan) => (
+            <div
+              key={plan.name}
+              className={`rounded-2xl border p-8 ${
+                plan.highlight
+                  ? "border-indigo-300 ring-2 ring-indigo-600 shadow-lg"
+                  : "border-gray-200"
+              }`}
+            >
+              <h3 className="text-xl font-bold text-gray-900">{plan.name}</h3>
+              <p className="mt-4">
+                <span className="text-4xl font-bold text-gray-900">
+                  {plan.price}
+                </span>
+                <span className="text-gray-500">{plan.period}</span>
+              </p>
+              <ul className="mt-6 space-y-3">
+                {plan.features.map((f) => (
+                  <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
+                    <span className="text-green-500 mt-0.5">✓</span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <SubscribeButton tier={plan.tier} label={plan.cta} highlight={plan.highlight} />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="bg-gray-900 py-20">
+        <div className="max-w-3xl mx-auto px-6 text-center">
+          <h2 className="text-3xl font-bold text-white mb-4">
+            Ready to stop chasing payments?
+          </h2>
+          <p className="text-gray-400 max-w-lg mx-auto mb-8">
+            Connect your Stripe account and let Stripe Collections Copilot handle the
+            follow-ups. Polite, personalized, and persistent — without you lifting a
+            finger.
+          </p>
+          <a
+            href="#pricing"
+            className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
+          >
+            View plans →
+          </a>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-gray-200 py-8 text-center text-sm text-gray-500">
+        <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-2 mb-3">
+          <a href="/privacy" className="hover:text-gray-700 transition-colors">
+            Privacy Policy
+          </a>
+          <a href="/terms" className="hover:text-gray-700 transition-colors">
+            Terms of Service
+          </a>
+          <a
+            href="mailto:stripecopilot@outlook.com"
+            className="hover:text-gray-700 transition-colors"
+          >
+stripecopilot@outlook.com
+          </a>
+        </div>
+        <p>
+          {businessName || "Stripe Collections Copilot"} · Built on{" "}
+          <a
+            href="https://cto.new"
+            className="underline hover:text-gray-700"
+          >
+            cto.new
+          </a>
+        </p>
+      </footer>
+    </div>
+  );
+}

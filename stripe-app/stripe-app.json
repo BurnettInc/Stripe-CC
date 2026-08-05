@@ -1,0 +1,30 @@
+{
+  "$schema": "https://stripe.com/stripe-app.schema.json",
+  "id": "com.stripecollectionscopilot.app",
+  "name": "Stripe Collections Copilot",
+  "version": "0.1.0",
+  "icon": "./icon.png",
+  "ui_extension": {
+    "views": [
+      {
+        "viewport": "stripe.dashboard.drawer.default",
+        "component": "SettingsView"
+      },
+      {
+        "viewport": "stripe.dashboard.invoice.detail",
+        "component": "InvoiceDetailView"
+      }
+    ]
+  },
+  "extensions": null,
+  "permissions": [
+    {
+      "permission": "invoice_read",
+      "purpose": ""
+    },
+    {
+      "permission": "customer_read",
+      "purpose": ""
+    }
+  ]
+}

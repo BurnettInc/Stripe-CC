@@ -1,0 +1,35 @@
+/**
+ * Escalation ladder: determines which stage an overdue invoice is at
+ * based on the number of days past due.
+ *
+ * Stage 1: 1–6 days  — friendly reminder
+ * Stage 2: 7–20 days — firmer follow-up
+ * Stage 3: 21+ days  — final notice
+ */
+
+export function getEscalationStage(daysOverdue: number): 1 | 2 | 3 {
+  if (daysOverdue <= 0) {
+    return 1; // treat current / future as stage 1
+  }
+  if (daysOverdue <= 6) return 1;
+  if (daysOverdue <= 20) return 2;
+  return 3;
+}
+
+export function getEscalationLabel(stage: number): string {
+  switch (stage) {
+    case 1: return "Friendly reminder";
+    case 2: return "Follow-up";
+    case 3: return "Final notice";
+    default: return "Unknown";
+  }
+}
+
+export function getStageSubjectPrefix(stage: number): string {
+  switch (stage) {
+    case 1: return "Quick reminder";
+    case 2: return "Following up";
+    case 3: return "Final notice";
+    default: return "Reminder";
+  }
+}

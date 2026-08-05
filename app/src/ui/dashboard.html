@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⚡ Stripe Collections Copilot</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --primary: #4f46e5;
+      --primary-light: #eef2ff;
+      --primary-hover: #4338ca;
+      --danger: #ef4444;
+      --success: #10b981;
+      --success-light: #ecfdf5;
+      --warning: #f59e0b;
+      --warning-light: #fffbeb;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 32px 24px 48px;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header-left h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+    .header-left p {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .server-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      background: var(--success-light);
+      color: #065f46;
+    }
+    .server-status .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 0 2px rgba(16,185,129,0.2);
+    }
+    .server-status.offline {
+      background: #fef2f2;
+      color: #991b1b;
+    }
+    .server-status.offline .dot {
+      background: var(--danger);
+      box-shadow: 0 0 0 2px rgba(239,68,68,0.2);
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 18px 16px;
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+    .stat-card .stat-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1.2;
+    }
+    .stat-card .stat-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+    .stat-card .stat-sub {
+      font-size: 0.72rem;
+      color: #94a3b8;
+      margin-top: 2px;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .card .subtitle {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+    }
+
+    /* Trust Mode pills */
+    .trust-pills {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .trust-pill {
+      flex: 1;
+      min-width: 180px;
+      padding: 18px 16px;
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      position: relative;
+    }
+    .trust-pill:hover {
+      border-color: #a5b4fc;
+      background: var(--primary-light);
+    }
+    .trust-pill.selected {
+      border-color: var(--primary);
+      background: var(--primary-light);
+      box-shadow: 0 0 0 1px var(--primary);
+    }
+    .trust-pill input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .trust-pill .pill-icon {
+      font-size: 1.5rem;
+      margin-bottom: 6px;
+    }
+    .trust-pill .pill-label {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .trust-pill .pill-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      margin-top: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-draft { background: #fef3c7; color: #92400e; }
+    .badge-semi  { background: #dbeafe; color: #1e40af; }
+    .badge-full  { background: #d1fae5; color: #065f46; }
+    .trust-pill .pill-desc {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    /* Buttons */
+    button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 22px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    button:hover { background: var(--primary-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.btn-outline {
+      background: white;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+    }
+    button.btn-outline:hover {
+      background: var(--primary-light);
+    }
+
+    #save-status {
+      font-size: 0.85rem;
+      margin-left: 12px;
+    }
+
+    /* Pipeline */
+    .pipeline-steps {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 12px;
+      gap: 4px;
+    }
+    .step {
+      flex: 1;
+      text-align: center;
+      padding: 10px 4px;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--muted);
+      border-top: 3px solid var(--border);
+      position: relative;
+    }
+    .step.active {
+      color: var(--primary);
+      border-color: var(--primary);
+    }
+    .step.done {
+      color: var(--success);
+      border-color: var(--success);
+    }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      padding: 12px 16px;
+      background: #f9fafb;
+      border-radius: var(--radius-sm);
+      margin-top: 16px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+
+    /* Subscription */
+    .tier-cards {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .tier-card {
+      flex: 1;
+      min-width: 240px;
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      text-align: center;
+      transition: opacity 0.2s;
+    }
+    .tier-card h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .tier-card .price {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 14px;
+    }
+    .tier-card .price span {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .tier-card ul {
+      list-style: none;
+      padding: 0;
+      margin-bottom: 18px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-align: left;
+    }
+    .tier-card ul li {
+      padding: 5px 0;
+    }
+    .tier-card button {
+      width: 100%;
+      justify-content: center;
+    }
+    .tier-card.featured {
+      border-color: var(--primary);
+      background: var(--primary-light);
+    }
+    .tier-card.featured .price {
+      color: var(--primary-hover);
+    }
+    .sub-active-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      background: var(--success-light);
+      color: #065f46;
+    }
+
+    /* Footer */
+    .footer-card {
+      text-align: center;
+      padding: 16px 24px;
+    }
+    .footer-card p {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .updated-at {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+
+    /* Loading spinner */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="header-left">
+        <h1>⚡ Stripe Collections Copilot</h1>
+        <p>AI-powered overdue invoice follow-ups — automated, personalized, humane.</p>
+      </div>
+      <div class="server-status" id="server-status">
+        <span class="dot"></span>
+        <span id="server-status-text">Healthy</span>
+      </div>
+    </header>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-invoices">—</div>
+        <div class="stat-label">Invoices</div>
+        <div class="stat-sub" id="stat-paid">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-reminders">—</div>
+        <div class="stat-label">Reminders Sent</div>
+        <div class="stat-sub" id="stat-emails">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-active">—</div>
+        <div class="stat-label">Active</div>
+        <div class="stat-sub">Sequences</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-uptime">—</div>
+        <div class="stat-label">Uptime</div>
+        <div class="stat-sub" id="stat-started">—</div>
+      </div>
+    </div>
+
+    <!-- Stripe Connect -->
+    <div class="card" id="stripe-connect-card">
+      <h2>🔗 Stripe Account</h2>
+      <p class="subtitle">
+        Connect your Stripe account via OAuth — no manual API keys needed.
+      </p>
+      <div id="stripe-connect-status">
+        <p style="color: var(--muted); font-size: 0.85rem;">Loading connection status...</p>
+      </div>
+      <div id="stripe-connect-action" style="margin-top: 16px;"></div>
+    </div>
+
+    <!-- Trust Mode -->
+    <div class="card">
+      <h2>🔐 Trust Mode</h2>
+      <p class="subtitle">
+        Control how autonomous the Copilot is when handling overdue invoices.
+      </p>
+      <div class="trust-pills" id="trust-mode-group">
+        <label class="trust-pill selected" data-mode="draft">
+          <input type="radio" name="trust_mode" value="draft" checked>
+          <div class="pill-icon">✏️</div>
+          <div class="pill-label">Draft Only</div>
+          <span class="pill-badge badge-draft">Safe</span>
+          <div class="pill-desc">AI writes emails. You review and send manually. Full control.</div>
+        </label>
+        <label class="trust-pill" data-mode="semi">
+          <input type="radio" name="trust_mode" value="semi">
+          <div class="pill-icon">⚖️</div>
+          <div class="pill-label">Semi-Auto</div>
+          <span class="pill-badge badge-semi">Balanced</span>
+          <div class="pill-desc">Stage 1 auto-sends. Stage 2+ needs your approval.</div>
+        </label>
+        <label class="trust-pill" data-mode="full">
+          <input type="radio" name="trust_mode" value="full">
+          <div class="pill-icon">🤖</div>
+          <div class="pill-label">Full Auto</div>
+          <span class="pill-badge badge-full">Autonomous</span>
+          <div class="pill-desc">End-to-end: drafts, reviews, and sends automatically.</div>
+        </label>
+      </div>
+      <div style="margin-top: 20px;">
+        <button id="save-btn" onclick="saveSettings()">Save Settings</button>
+        <span id="save-status"></span>
+      </div>
+    </div>
+
+    <!-- Subscription -->
+    <div class="card">
+      <h2>💳 Subscription</h2>
+      <div id="sub-status" style="margin-bottom: 20px;">
+        <p style="color: var(--muted); font-size: 0.85rem;">Loading subscription status...</p>
+      </div>
+      <div class="tier-cards">
+        <!-- Standard Tier -->
+        <div class="tier-card">
+          <h3>Standard</h3>
+          <div class="price">$15<span>/mo</span></div>
+          <ul>
+            <li>✓ Up to 50 overdue invoices tracked</li>
+            <li>✓ 3-stage escalation ladder</li>
+            <li>✓ AI-drafted reminder emails</li>
+            <li>✓ Draft &amp; Semi-Auto modes</li>
+          </ul>
+          <button onclick="subscribe('standard')" id="btn-standard" class="btn-outline">
+            Subscribe to Standard
+          </button>
+        </div>
+        <!-- Pro Tier -->
+        <div class="tier-card featured">
+          <h3>Pro <span style="font-size:0.7rem;background:var(--primary);color:white;padding:2px 10px;border-radius:10px;">Popular</span></h3>
+          <div class="price">$29<span>/mo</span></div>
+          <ul>
+            <li>✓ Unlimited overdue invoices</li>
+            <li>✓ 3-stage escalation ladder</li>
+            <li>✓ AI-drafted reminder emails</li>
+            <li>✓ Full Auto mode</li>
+            <li>✓ Weekly summary reports</li>
+            <li>✓ Priority support</li>
+          </ul>
+          <button onclick="subscribe('pro')" id="btn-pro">
+            Subscribe to Pro
+          </button>
+        </div>
+      </div>
+      <div id="sub-error" style="margin-top: 14px; font-size: 0.85rem; display: none;"></div>
+    </div>
+
+    <!-- Pipeline Status -->
+    <div class="card">
+      <h2>📊 Pipeline Status</h2>
+      <div class="pipeline-steps">
+        <div class="step" id="step-watch">🔍 Watch</div>
+        <div class="step" id="step-draft">✏️ Draft</div>
+        <div class="step" id="step-review">✅ Review</div>
+        <div class="step" id="step-send">📨 Send</div>
+      </div>
+      <div class="status-bar">
+        <span class="status-dot"></span>
+        <span id="pipeline-message">System ready — waiting for webhook events</span>
+      </div>
+    </div>
+
+    <!-- Footer / Meta -->
+    <div class="card footer-card">
+      <p>Stripe Collections Copilot v0.1.0 — MVP</p>
+      <div class="updated-at" id="last-updated">Loading...</div>
+    </div>
+  </div>
+
+  <script>
+    // ── Health check ──
+    async function checkHealth() {
+      var statusEl = document.getElementById('server-status');
+      var statusText = document.getElementById('server-status-text');
+      try {
+        var res = await fetch('/health');
+        if (res.ok) {
+          var data = await res.json();
+          statusEl.classList.remove('offline');
+          statusText.textContent = 'Healthy';
+        } else {
+          throw new Error('unhealthy');
+        }
+      } catch (e) {
+        statusEl.classList.add('offline');
+        statusText.textContent = 'Offline';
+      }
+    }
+
+    // ── Load Stats ──
+    async function loadStats() {
+      try {
+        var res = await fetch('/stats');
+        if (res.ok) {
+          var s = await res.json();
+          document.getElementById('stat-invoices').textContent = s.totalInvoices || 0;
+          document.getElementById('stat-paid').textContent = (s.paidInvoices || 0) + ' paid';
+          document.getElementById('stat-reminders').textContent = s.remindersSent || 0;
+          document.getElementById('stat-emails').textContent = (s.emailsSent || 0) + ' real sends';
+          document.getElementById('stat-active').textContent = s.activeSequences || 0;
+          document.getElementById('stat-uptime').textContent = s.uptimeFormatted || '—';
+          document.getElementById('stat-started').textContent = 'Since ' + new Date(s.startedAt).toLocaleString();
+        }
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+      }
+    }
+
+    // Update "last updated" timestamp
+    function updateTimestamp() {
+      var now = new Date();
+      document.getElementById('last-updated').textContent =
+        'Last updated: ' + now.toLocaleTimeString();
+    }
+
+    // ── Trust Mode ──
+    async function loadSettings() {
+      try {
+        var res = await fetch('/settings');
+        if (res.ok) {
+          var data = await res.json();
+          var radio = document.querySelector('input[value="' + data.trust_mode + '"]');
+          if (radio) {
+            radio.checked = true;
+            updateSelectedStyle(data.trust_mode);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+      }
+    }
+
+    function updateSelectedStyle(mode) {
+      document.querySelectorAll('.trust-pill').forEach(function(pill) {
+        pill.classList.toggle('selected', pill.getAttribute('data-mode') === mode);
+      });
+    }
+
+    document.querySelectorAll('.trust-pill').forEach(function(pill) {
+      pill.addEventListener('click', function() {
+        pill.querySelector('input').checked = true;
+        updateSelectedStyle(pill.getAttribute('data-mode'));
+      });
+    });
+
+    async function saveSettings() {
+      var selected = document.querySelector('input[name="trust_mode"]:checked');
+      if (!selected) return;
+
+      var statusEl = document.getElementById('save-status');
+      var btn = document.getElementById('save-btn');
+      statusEl.textContent = 'Saving...';
+      statusEl.style.color = 'var(--muted)';
+      btn.disabled = true;
+
+      try {
+        var res = await fetch('/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trust_mode: selected.value }),
+        });
+        if (res.ok) {
+          statusEl.textContent = '✓ Saved!';
+          statusEl.style.color = 'var(--success)';
+        } else {
+          var err = await res.json();
+          statusEl.textContent = '✗ ' + (err.error || 'Save failed');
+          statusEl.style.color = 'var(--danger)';
+        }
+      } catch (e) {
+        statusEl.textContent = '✗ Network error';
+        statusEl.style.color = 'var(--danger)';
+      } finally {
+        btn.disabled = false;
+        setTimeout(function() { statusEl.textContent = ''; }, 3000);
+      }
+      updateTimestamp();
+    }
+
+    // ── Subscription handling ──
+
+    async function loadSubscription() {
+      var statusEl = document.getElementById('sub-status');
+      try {
+        var res = await fetch('/subscription');
+        if (res.ok) {
+          var sub = await res.json();
+          if (sub.tier && sub.status === 'active') {
+            var price = sub.tier === 'pro' ? '29' : '15';
+            var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
+            var dateStr = new Date(sub.created_at).toLocaleDateString();
+            statusEl.innerHTML =
+              '<div class="sub-active-badge">' +
+              '<span style="width:9px;height:9px;border-radius:50%;background:var(--success);"></span>' +
+              tierName + ' plan ($' + price + '/mo) — Since ' + dateStr +
+              '</div>';
+            document.querySelectorAll('.tier-card').forEach(function(card) {
+              card.style.opacity = '0.55';
+            });
+            document.querySelectorAll('.tier-card button').forEach(function(btn) {
+              btn.disabled = true;
+              btn.textContent = 'Current Plan';
+            });
+          } else if (sub.status === 'cancelled') {
+            statusEl.innerHTML =
+              '<div style="display:flex;align-items:center;gap:10px;">' +
+              '<span class="pill-badge badge-draft" style="font-size:0.75rem;">Cancelled</span>' +
+              '<span style="color:var(--muted);">Your subscription has ended. Resubscribe below.</span>' +
+              '</div>';
+          } else {
+            statusEl.innerHTML =
+              '<p style="color:var(--muted);font-size:0.85rem;">No active subscription. Choose a plan below to get started.</p>';
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load subscription:', e);
+      }
+    }
+
+    async function subscribe(tier) {
+      var errorEl = document.getElementById('sub-error');
+      errorEl.style.display = 'none';
+      errorEl.style.color = 'var(--danger)';
+
+      var btnId = tier === 'standard' ? 'btn-standard' : 'btn-pro';
+      var btn = document.getElementById(btnId);
+      var originalText = btn.textContent;
+
+      // Loading state
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Redirecting...';
+
+      try {
+        var settingsRes = await fetch('/settings');
+        if (!settingsRes.ok) throw new Error('Could not load merchant info');
+        var settings = await settingsRes.json();
+
+        var res = await fetch('/billing/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier: tier, merchantId: settings.id }),
+        });
+
+        var data = await res.json();
+
+        if (res.ok && data.url) {
+          window.location.href = data.url;
+        } else {
+          errorEl.textContent = '✗ ' + (data.error || 'Checkout failed');
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      } catch (e) {
+        errorEl.textContent = '✗ Network error — could not reach billing';
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+
+    // ── Stripe Connect ──
+    async function loadStripeConnection() {
+      var statusEl = document.getElementById('stripe-connect-status');
+      var actionEl = document.getElementById('stripe-connect-action');
+      try {
+        var res = await fetch('/stripe/connection');
+        if (res.ok) {
+          var data = await res.json();
+          if (data.connected) {
+            statusEl.innerHTML =
+              '<div class="sub-active-badge">' +
+              '<span style="width:9px;height:9px;border-radius:50%;background:var(--success);"></span>' +
+              '✓ Connected as ' + (data.account_id || 'Stripe Account') +
+              '</div>';
+            actionEl.innerHTML = '';
+          } else {
+            statusEl.innerHTML =
+              '<p style="color:var(--muted);font-size:0.85rem;">No Stripe account connected. Connect via OAuth for automatic setup.</p>';
+            actionEl.innerHTML =
+              '<a href="/stripe/connect" style="display:inline-flex;align-items:center;gap:8px;padding:10px 22px;background:#635BFF;color:white;border:none;border-radius:8px;font-size:0.9rem;font-weight:500;text-decoration:none;">' +
+              '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.204 2.632c.425-.442 1.167-.442 1.592 0l5.368 5.579c.07.073.11.17.11.273v4.766a.75.75 0 01-.75.75h-3.5a.75.75 0 01-.75-.75V9.5H6.726v3.75a.75.75 0 01-.75.75h-3.5a.75.75 0 01-.75-.75V8.484a.387.387 0 01.11-.273l5.368-5.58z" fill="white"/></svg>' +
+              'Connect with Stripe' +
+              '</a>';
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load Stripe connection:', e);
+        statusEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load connection status</p>';
+      }
+    }
+
+    // ── Initialize ──
+    loadSubscription();
+    loadSettings();
+    loadStripeConnection();
+    loadStats();
+    checkHealth();
+    updateTimestamp();
+
+    // Periodic refresh
+    setInterval(checkHealth, 30000);
+    setInterval(loadStats, 60000);
+    setInterval(updateTimestamp, 10000);
+  </script>
+</body>
+</html>
