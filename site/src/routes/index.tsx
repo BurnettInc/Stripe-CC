@@ -285,7 +285,7 @@ function Home() {
                 "Trust Mode selector + sending",
               ],
               cta: "Subscribe to Standard",
-              highlight: false,
+              highlight: true,
               free: false,
             },
             {
