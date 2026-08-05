@@ -256,31 +256,44 @@ function Home() {
           Simple pricing
         </h2>
         <p className="text-center text-gray-600 max-w-lg mx-auto mb-14">
-          Unlimited invoice sequences on both plans. Upgrade anytime — no contracts,
-          cancel in one click.
+          Draft up to 5 real overdue invoices for free. Subscribe when you're ready to
+          unlock sending — no contracts, cancel in one click.
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
+            {
+              name: "Free — Draft Mode",
+              price: "Free forever, no card required",
+              period: "",
+              body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Nothing sends until you subscribe.",
+              features: [],
+              cta: "Connect your Stripe account",
+              highlight: false,
+              free: true,
+            },
             {
               name: "Standard",
               price: "$15",
               period: "/month",
               tier: "standard",
+              body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
               features: [
                 "Up to 50 overdue invoices tracked",
                 "3-stage escalation ladder",
                 "Custom sender branding",
                 "Weekly recovery reports",
-                "Trust Mode selector",
+                "Trust Mode selector + sending",
               ],
               cta: "Subscribe to Standard",
               highlight: false,
+              free: false,
             },
             {
               name: "Pro",
               price: "$29",
               period: "/month",
               tier: "pro",
+              body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
               features: [
                 "Everything in Standard",
                 "Unlimited overdue invoices",
@@ -290,6 +303,7 @@ function Home() {
               ],
               cta: "Subscribe to Pro",
               highlight: true,
+              free: false,
             },
           ].map((plan) => (
             <div
@@ -301,12 +315,13 @@ function Home() {
               }`}
             >
               <h3 className="text-xl font-bold text-gray-900">{plan.name}</h3>
-              <p className="mt-4">
-                <span className="text-4xl font-bold text-gray-900">
+              <p className={`mt-4 ${plan.free ? "text-lg font-semibold" : ""}`}>
+                <span className={plan.free ? "text-xl font-bold text-gray-900" : "text-4xl font-bold text-gray-900"}>
                   {plan.price}
                 </span>
                 <span className="text-gray-500">{plan.period}</span>
               </p>
+              <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
               <ul className="mt-6 space-y-3">
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
@@ -315,7 +330,16 @@ function Home() {
                   </li>
                 ))}
               </ul>
-              <SubscribeButton tier={plan.tier} label={plan.cta} highlight={plan.highlight} />
+              {plan.free ? (
+                <a
+                  href="https://dashboard.stripe.com/apps/com.stripecollectionscopilot.app"
+                  className="mt-8 block w-full rounded-lg bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition-colors hover:bg-indigo-700"
+                >
+                  {plan.cta}
+                </a>
+              ) : (
+                <SubscribeButton tier={plan.tier!} label={plan.cta} highlight={plan.highlight} />
+              )}
             </div>
           ))}
         </div>

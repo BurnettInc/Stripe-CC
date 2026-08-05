@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { getAllTasks, getTaskById, getInvoiceById, getMerchantById } from "../db";
+import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, freeDraftsRemaining } from "../db";
 import { getStripeKey } from "../middleware/auth";
 import { draftEmail } from "../pipeline/drafter";
 import { reviewDraft } from "../pipeline/reviewer";
@@ -51,9 +51,16 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       );
     }
 
+    const subscribed = hasActiveSubscription(db, merchantId);
     const pipelineLog: string[] = [];
 
-    // Step 1: Draft
+    // Step 1: Draft — free merchants may create up to five drafts total.
+    if (!subscribed && freeDraftsRemaining(db, merchantId) <= 0) {
+      return new Response(JSON.stringify({
+        error: "free_limit_reached",
+        message: "You've used your 5 free drafts. Subscribe to keep drafting and start sending.",
+      }), { status: 402, headers });
+    }
     pipelineLog.push("Step 1: Drafting email...");
     const draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
     db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
@@ -122,7 +129,13 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
         // stage 1: fall through to send
       }
 
-      // Full Auto (or Semi stage 1): send
+      // Full Auto (or Semi stage 1): send. Sending is always subscriber-only.
+      if (!subscribed) {
+        return new Response(JSON.stringify({
+          error: "subscription_required",
+          message: "An active subscription is required to send reminders. Subscribe to continue.",
+        }), { status: 402, headers });
+      }
       pipelineLog.push("Step 3: Sending email...");
 
       // Try real send first, fall back to stub

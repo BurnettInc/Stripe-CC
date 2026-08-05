@@ -396,6 +396,11 @@
         <div class="stat-sub">Sequences</div>
       </div>
       <div class="stat-card">
+        <div class="stat-value" id="stat-free-drafts">—</div>
+        <div class="stat-label">Free Drafts</div>
+        <div class="stat-sub">of 5 remaining</div>
+      </div>
+      <div class="stat-card">
         <div class="stat-value" id="stat-uptime">—</div>
         <div class="stat-label">Uptime</div>
         <div class="stat-sub" id="stat-started">—</div>
@@ -543,6 +548,7 @@
           document.getElementById('stat-reminders').textContent = s.remindersSent || 0;
           document.getElementById('stat-emails').textContent = (s.emailsSent || 0) + ' real sends';
           document.getElementById('stat-active').textContent = s.activeSequences || 0;
+          document.getElementById('stat-free-drafts').textContent = (s.free_drafts_remaining ?? 0) + ' of 5';
           document.getElementById('stat-uptime').textContent = s.uptimeFormatted || '—';
           document.getElementById('stat-started').textContent = 'Since ' + new Date(s.startedAt).toLocaleString();
         }
@@ -623,6 +629,24 @@
     }
 
     // ── Subscription handling ──
+
+    // Process an overdue task and surface paywall responses distinctly.
+    // Invoice/task views can call this helper when a merchant clicks Process.
+    async function processTask(taskId) {
+      var res = await fetch('/tasks/' + encodeURIComponent(taskId) + '/process', { method: 'POST' });
+      var data = await res.json();
+      if (res.status === 402) {
+        var errorEl = document.getElementById('sub-error');
+        errorEl.innerHTML = (data.message || 'A subscription is required.') +
+          ' <a href="#pricing" style="color:var(--primary);font-weight:600;">View plans</a>';
+        errorEl.style.display = 'block';
+        errorEl.style.color = 'var(--warning)';
+        return data;
+      }
+      if (!res.ok) throw new Error(data.error || 'Could not process task');
+      loadStats();
+      return data;
+    }
 
     async function loadSubscription() {
       var statusEl = document.getElementById('sub-status');

@@ -1,4 +1,4 @@
-import { getDb, ensureDefaultMerchant } from "./db";
+import { getDb, ensureDefaultMerchant, freeDraftsRemaining } from "./db";
 import { handleWebhook } from "./routes/webhook";
 import { handleTasks } from "./routes/tasks";
 import { handleSettings } from "./routes/settings";
@@ -116,6 +116,7 @@ async function handleRequest(req: Request): Promise<Response> {
         // Total invoices processed (any status)
         const totalInvoicesRow = db.query("SELECT COUNT(*) as count FROM invoices WHERE merchant_id=?").get(merchantId) as { count: number };
         const totalInvoices = totalInvoicesRow.count;
+        const freeDrafts = freeDraftsRemaining(db, merchantId);
 
         // Total reminders sent (send_logs with type='reminder' and status='success')
         const remindersSentRow = db.query(
@@ -155,6 +156,7 @@ async function handleRequest(req: Request): Promise<Response> {
           summaryEmailsSent,
           activeSequences,
           paidInvoices,
+          free_drafts_remaining: freeDrafts,
           uptime,
           uptimeFormatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`,
           startedAt: new Date(START_TIME).toISOString(),
