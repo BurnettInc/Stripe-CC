@@ -14,12 +14,12 @@ function resolveInvoice(db: Database, rawId: string) {
 
 function notFound() { return new Response(JSON.stringify({ error: "Invoice not found" }), { status: 404, headers: jsonHeaders }); }
 
-export async function handleInvoices(db: Database, req: Request, rawPath: string): Promise<Response> {
+export async function handleInvoices(db: Database, req: Request, rawPath: string, merchantId: number): Promise<Response> {
   const match = rawPath.match(/^\/([^/]+)(?:\/trust-mode)?$/);
   if (!match) return notFound();
   const rawId = decodeURIComponent(match[1]);
   const invoice = resolveInvoice(db, rawId);
-  if (!invoice) return notFound();
+  if (!invoice || invoice.merchant_id !== merchantId) return notFound();
   const id = invoice.id as number;
   const isTrustMode = rawPath.endsWith("/trust-mode");
 

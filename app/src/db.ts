@@ -232,13 +232,14 @@ export function getTaskById(db: Database, id: number) {
   return db.query("SELECT * FROM reminder_tasks WHERE id = ?").get(id) as ReminderTask | null;
 }
 
-export function getAllTasks(db: Database) {
+export function getAllTasks(db: Database, merchantId: number) {
   return db.query(`
     SELECT rt.*, i.stripe_invoice_id, i.customer_name, i.customer_email, i.amount_cents, i.currency, i.due_date, i.status as invoice_status
     FROM reminder_tasks rt
     JOIN invoices i ON rt.invoice_id = i.id
+    WHERE i.merchant_id = ?
     ORDER BY rt.created_at DESC
-  `).all();
+  `).all(merchantId);
 }
 
 export interface CustomerHistory {

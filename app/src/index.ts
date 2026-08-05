@@ -7,6 +7,7 @@ import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionS
 import { handleInvoices } from "./routes/invoices";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { requireSession } from "./middleware/session";
 
 const PORT = 3001;
 const START_TIME = Date.now();
@@ -107,40 +108,43 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // GET /stats — usage statistics
       if (path === "/stats" && req.method === "GET") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        const merchantId = auth.merchant_id;
         const uptime = Math.floor((Date.now() - START_TIME) / 1000);
 
         // Total invoices processed (any status)
-        const totalInvoicesRow = db.query("SELECT COUNT(*) as count FROM invoices").get() as { count: number };
+        const totalInvoicesRow = db.query("SELECT COUNT(*) as count FROM invoices WHERE merchant_id=?").get(merchantId) as { count: number };
         const totalInvoices = totalInvoicesRow.count;
 
         // Total reminders sent (send_logs with type='reminder' and status='success')
         const remindersSentRow = db.query(
-          "SELECT COUNT(*) as count FROM send_logs WHERE type='reminder' AND status='success'"
-        ).get() as { count: number };
+          "SELECT COUNT(*) as count FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id=rt.id JOIN invoices i ON rt.invoice_id=i.id WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=?"
+        ).get(merchantId) as { count: number };
         const remindersSent = remindersSentRow.count;
 
         // Total emails actually sent (non-stub — we check for provider_message NOT containing '[STUB SEND]')
         const emailsSentRow = db.query(
-          "SELECT COUNT(*) as count FROM send_logs WHERE status='success' AND type='reminder' AND provider_message NOT LIKE '%[STUB SEND]%'"
-        ).get() as { count: number };
+          "SELECT COUNT(*) as count FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id=rt.id JOIN invoices i ON rt.invoice_id=i.id WHERE sl.status='success' AND sl.type='reminder' AND sl.provider_message NOT LIKE '%[STUB SEND]%' AND i.merchant_id=?"
+        ).get(merchantId) as { count: number };
         const emailsSent = emailsSentRow.count;
 
         // Weekly summary emails sent
         const summaryEmailsRow = db.query(
-          "SELECT COUNT(*) as count FROM send_logs WHERE type='weekly_summary' AND status='success'"
-        ).get() as { count: number };
+          "SELECT COUNT(*) as count FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id=rt.id JOIN invoices i ON rt.invoice_id=i.id WHERE sl.type='weekly_summary' AND sl.status='success' AND i.merchant_id=?"
+        ).get(merchantId) as { count: number };
         const summaryEmailsSent = summaryEmailsRow.count;
 
         // Active sequences (tasks in pending/drafted/reviewed)
         const activeSeqRow = db.query(
-          "SELECT COUNT(*) as count FROM reminder_tasks WHERE status IN ('pending', 'drafted', 'reviewed')"
-        ).get() as { count: number };
+          "SELECT COUNT(*) as count FROM reminder_tasks rt JOIN invoices i ON rt.invoice_id=i.id WHERE rt.status IN ('pending', 'drafted', 'reviewed') AND i.merchant_id=?"
+        ).get(merchantId) as { count: number };
         const activeSequences = activeSeqRow.count;
 
         // Paid invoices count
         const paidRow = db.query(
-          "SELECT COUNT(*) as count FROM invoices WHERE status='paid'"
-        ).get() as { count: number };
+          "SELECT COUNT(*) as count FROM invoices WHERE status='paid' AND merchant_id=?"
+        ).get(merchantId) as { count: number };
         const paidInvoices = paidRow.count;
 
         return new Response(JSON.stringify({
@@ -167,12 +171,16 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // GET/POST /tasks... — task management
       if (path.startsWith("/tasks")) {
-        return handleTasks(db, req, path.slice("/tasks".length));
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        return handleTasks(db, req, path.slice("/tasks".length), auth.merchant_id);
       }
 
       // GET/PUT /settings — merchant settings
       if (path === "/settings") {
-        const response = await handleSettings(db, req);
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        const response = await handleSettings(db, req, auth.merchant_id);
         for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
         return response;
       }
@@ -186,16 +194,19 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // GET/PUT /invoices/:id and /invoices/:id/trust-mode
       if (path.startsWith("/invoices/")) {
-        const response = await handleInvoices(db, req, path.slice("/invoices".length));
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        const response = await handleInvoices(db, req, path.slice("/invoices".length), auth.merchant_id);
         for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
         return response;
       }
 
       // GET /subscription — current merchant subscription
       if (path === "/subscription" && req.method === "GET") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
         const { getSubscriptionByMerchantId } = await import("./db");
-        const merchant = resolveMerchant(db);
-        const sub = merchant ? getSubscriptionByMerchantId(db, merchant.id) : null;
+        const sub = getSubscriptionByMerchantId(db, auth.merchant_id);
         return new Response(JSON.stringify(sub || { tier: null, status: "none" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -203,7 +214,9 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // POST /billing/checkout — create Stripe Checkout Session
       if (path === "/billing/checkout" && req.method === "POST") {
-        const response = await handleBilling(db, req, "checkout");
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        const response = await handleBilling(db, req, "checkout", auth.merchant_id);
         for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
         return response;
       }
@@ -232,8 +245,10 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // GET /summary?merchantId=1 — weekly summary stats (default merchantId=1)
       if (path === "/summary" && req.method === "GET") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
         const { generateWeeklySummary } = await import("./pipeline/summary");
-        const merchantId = parseInt(url.searchParams.get("merchantId") || "1", 10);
+        const merchantId = auth.merchant_id;
         const summary = generateWeeklySummary(db, merchantId);
         return new Response(JSON.stringify(summary), {
           status: 200,
@@ -243,12 +258,14 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // POST /summary/send — generate summary, send it, return formatted email
       if (path === "/summary/send" && req.method === "POST") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
         const { generateWeeklySummary } = await import("./pipeline/summary");
         const { formatSummaryEmail } = await import("./pipeline/summary-email");
         const { getMerchantById, logSend } = await import("./db");
         const { sendEmailForReal } = await import("./pipeline/sender");
 
-        const merchantId = parseInt(url.searchParams.get("merchantId") || "1", 10);
+        const merchantId = auth.merchant_id;
         const merchant = getMerchantById(db, merchantId);
         if (!merchant) {
           return new Response(JSON.stringify({ error: "Merchant not found" }), {

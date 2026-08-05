@@ -24,6 +24,7 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unauthenticated, setUnauthenticated] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,6 +34,10 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
         fetch(`${BASE_URL}/settings`),
         fetch(`${BASE_URL}/stripe/connection`),
       ]);
+      if (settingsRes.status === 401 || connRes.status === 401) {
+        setUnauthenticated(true);
+        return;
+      }
       if (!settingsRes.ok || !connRes.ok) throw new Error('Unable to load Copilot settings.');
       setTrustMode(((await settingsRes.json()) as SettingsResponse).trust_mode);
       setConnection((await connRes.json()) as ConnectionResponse);
@@ -71,6 +76,14 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
   return (
     <ContextView title="Collections Copilot">
       <Box css={{ stack: 'y', gap: 'medium' }}>
+        {unauthenticated ? (
+          <Box css={{ stack: 'y', gap: 'small' }}>
+            <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
+            <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to access Collections Copilot settings.</Box>
+            <Button onPress={() => { window.location.href = `${BASE_URL}/stripe/connect`; }}>Connect Stripe</Button>
+          </Box>
+        ) : null}
+        {!unauthenticated && (<>
         {/* Connection status */}
         <Box css={{ stack: 'y', gap: 'xsmall' }}>
           <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Stripe connection</Box>
@@ -122,6 +135,7 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
             actions={<Button onPress={() => { void load(); }}>Retry</Button>}
           />
         )}
+        </>)}
       </Box>
     </ContextView>
   );
