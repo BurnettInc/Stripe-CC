@@ -20,84 +20,119 @@ function Privacy() {
       </nav>
       <main className="max-w-3xl mx-auto px-6 py-12 prose prose-gray">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Privacy Policy</h1>
-        <p className="text-sm text-gray-500 mb-8">Last updated: July 2026</p>
+        <p className="text-sm text-gray-500 mb-8">Last updated: August 2026</p>
+
+        <p className="text-gray-700 leading-relaxed">
+          Stripe Collections Copilot is operated by Cody Burnett, a sole proprietor
+          based in Texas, USA. This policy explains what data the app collects, how
+          it's used, and who it's shared with.
+        </p>
 
         <h2 className="text-xl font-semibold text-gray-900 mt-8">1. What we collect</h2>
         <p className="text-gray-700 leading-relaxed">
-          When you connect your Stripe account to Stripe Collections Copilot, we access:
+          When you connect your Stripe account via Stripe Connect OAuth, we access:
         </p>
         <ul className="list-disc pl-6 text-gray-700 space-y-1">
-          <li>Invoice data (amounts, due dates, customer names, customer email addresses)</li>
-          <li>Payment status information</li>
-          <li>Your Stripe account email address</li>
+          <li>Invoice data — amounts, due dates, status, customer names, and customer email addresses</li>
+          <li>Payment status information for tracked invoices</li>
+          <li>Your Stripe account's display name and email address</li>
         </ul>
         <p className="text-gray-700 leading-relaxed">
-          We do NOT store your Stripe API keys. Authentication is handled via Stripe Connect OAuth.
+          We also store an OAuth access token so the app can monitor your invoices
+          on your behalf. This token is encrypted at rest (see Security below). We do
+          not store your Stripe login credentials or your Stripe API keys.
+        </p>
+
+        <p className="text-gray-700 leading-relaxed mt-4">
+          The app sets a single session cookie (<code>session</code>) when you sign in
+          via Stripe. It is HttpOnly, Secure, and SameSite=Lax, and expires after 30
+          days. We set no other cookies and we do not use analytics scripts, tracking
+          pixels, localStorage, or sessionStorage anywhere in the app or on our
+          marketing site.
         </p>
 
         <h2 className="text-xl font-semibold text-gray-900 mt-8">2. How we use your data</h2>
         <p className="text-gray-700 leading-relaxed">
-          We use invoice data solely to:
+          We use your invoice data only to provide the service:
         </p>
         <ul className="list-disc pl-6 text-gray-700 space-y-1">
           <li>Detect overdue invoices</li>
-          <li>Generate and send personalized email reminders to your customers</li>
-          <li>Track payment status to stop reminder sequences when invoices are paid</li>
-          <li>Generate weekly summary reports for you</li>
+          <li>Draft and send personalized reminder emails to your customers</li>
+          <li>Stop reminder sequences when an invoice is paid</li>
+          <li>Generate weekly recovery summaries for you</li>
         </ul>
         <p className="text-gray-700 leading-relaxed">
-          We do NOT sell, share, or use your invoice data or customer data for any other purpose.
+          We do not sell your data or your customers' data. We do not use it for
+          advertising, profiling, or any purpose other than the reminder service you
+          signed up for.
         </p>
 
-        <h2 className="text-xl font-semibold text-gray-900 mt-8">3. Email sending</h2>
+        <h2 className="text-xl font-semibold text-gray-900 mt-8">3. Third-party services</h2>
         <p className="text-gray-700 leading-relaxed">
-          When reminders are sent, they are dispatched via your connected email provider (Gmail/SendGrid).
-          We send emails only to the customer email addresses associated with overdue invoices in your
-          Stripe account. We do not email your customers for any other reason.
+          The app uses the following services, each only when configured:
+        </p>
+        <ul className="list-disc pl-6 text-gray-700 space-y-1">
+          <li>
+            <strong>Stripe</strong> — for OAuth authentication, invoice data access,
+            and subscription billing. Stripe processes data according to its own
+            privacy policy.
+          </li>
+          <li>
+            <strong>An AI provider</strong> (e.g. OpenAI) — drafts reminder emails.
+            The AI receives the customer's name, invoice amount and number, due date,
+            days overdue, escalation stage, and a summary of payment history. The
+            customer's <em>email address is never sent to the AI</em>.
+          </li>
+          <li>
+            <strong>SendGrid or Resend</strong> — delivers the reminder emails. The
+            email provider receives the customer's email address, the email subject,
+            body, and sender address. Either provider is used only when its API key
+            is configured; if neither is set, emails are not sent.
+          </li>
+        </ul>
+        <p className="text-gray-700 leading-relaxed">
+          No other third parties receive your data.
         </p>
 
         <h2 className="text-xl font-semibold text-gray-900 mt-8">4. Data retention</h2>
         <p className="text-gray-700 leading-relaxed">
-          Invoice and reminder data is retained for as long as your account is active. If you cancel
-          your subscription, your data is deleted within 30 days. You may request immediate deletion
-          by contacting support.
+          Invoice and reminder data is kept for as long as your account is active. If
+          you cancel your subscription, your data is deleted within 30 days. You can
+          request immediate deletion at any time by contacting us.
         </p>
 
-        <h2 className="text-xl font-semibold text-gray-900 mt-8">5. Third-party services</h2>
+        <h2 className="text-xl font-semibold text-gray-900 mt-8">5. Security</h2>
         <p className="text-gray-700 leading-relaxed">
-          Stripe Collections Copilot integrates with:
+          Stripe OAuth access and refresh tokens are encrypted at rest using
+          AES-256-GCM. The database file is locked to owner-only permissions (chmod
+          600). All communication between the app and Stripe uses HTTPS.
         </p>
-        <ul className="list-disc pl-6 text-gray-700 space-y-1">
-          <li>Stripe (payment processing, invoicing data)</li>
-          <li>Your chosen email provider (Gmail or SendGrid)</li>
-        </ul>
-        <p className="text-gray-700 leading-relaxed">
-          Each of these services has its own privacy policy governing how they handle data.
-        </p>
-
-        <h2 className="text-xl font-semibold text-gray-900 mt-8">6. Security</h2>
-        <p className="text-gray-700 leading-relaxed">
-          All data transmission uses HTTPS. We do not store payment method details or Stripe API keys.
-          Access to your data is limited to the automated reminder pipeline.
+        <p className="text-gray-700 leading-relaxed mt-2">
+          That said, no online service is completely immune to security risk. If you
+          discover a vulnerability, please notify us immediately.
         </p>
 
-        <h2 className="text-xl font-semibold text-gray-900 mt-8">7. Your rights</h2>
+        <h2 className="text-xl font-semibold text-gray-900 mt-8">6. Your rights</h2>
         <p className="text-gray-700 leading-relaxed">
-          You may:
+          You can:
         </p>
         <ul className="list-disc pl-6 text-gray-700 space-y-1">
           <li>Disconnect your Stripe account at any time</li>
           <li>Pause or cancel active reminder sequences</li>
-          <li>Request deletion of your data</li>
-          <li>Export your reminder history</li>
+          <li>Request a copy of your stored data</li>
+          <li>Request correction or deletion of your data</li>
         </ul>
+        <p className="text-gray-700 leading-relaxed mt-2">
+          To exercise any of these rights, contact us at the email below. We'll
+          respond within 30 days.
+        </p>
 
-        <h2 className="text-xl font-semibold text-gray-900 mt-8">8. Contact</h2>
+        <h2 className="text-xl font-semibold text-gray-900 mt-8">7. Contact</h2>
         <p className="text-gray-700 leading-relaxed">
-          For privacy questions or data requests, contact us at{" "}
+          Cody Burnett, sole proprietor — Texas, USA.{" "}
           <a href="mailto:stripecopilot@outlook.com" className="text-indigo-600 underline">
             stripecopilot@outlook.com
-          </a>.
+          </a>
         </p>
       </main>
     </div>
