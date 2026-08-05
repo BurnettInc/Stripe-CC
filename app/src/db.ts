@@ -56,13 +56,20 @@ function runMigrations(db: Database) {
     db.exec("PRAGMA foreign_keys=ON");
   }
 
-  // Run SQL migration files from the migrations/ directory
+  // Run SQL migration files from the migrations/ directory, each at most once.
+  // (Files contain non-idempotent DDL like ALTER TABLE, so track what ran.)
   const migrationsDir = join(import.meta.dirname, "..", "migrations");
   if (existsSync(migrationsDir)) {
+    db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (file TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))");
+    const applied = new Set(
+      (db.query("SELECT file FROM schema_migrations").all() as { file: string }[]).map(r => r.file)
+    );
     const files = readdirSync(migrationsDir).filter(f => f.endsWith(".sql")).sort();
     for (const file of files) {
+      if (applied.has(file)) continue;
       const sql = readFileSync(join(migrationsDir, file), "utf-8");
       db.exec(sql);
+      db.run("INSERT INTO schema_migrations (file) VALUES (?)", [file]);
     }
   }
 }
@@ -188,13 +195,9 @@ const FREE_DRAFT_LIMIT = 5;
 
 /** Number of free drafts still available (an all-time, merchant-scoped cap). */
 export function freeDraftsRemaining(db: Database, merchantId: number): number {
-  const row = db.query(`
-    SELECT COUNT(DISTINCT rt.id) AS count
-    FROM reminder_tasks rt
-    JOIN invoices i ON i.id = rt.invoice_id
-    WHERE i.merchant_id = ? AND rt.status IN ('drafted', 'reviewed', 'sent')
-  `).get(merchantId) as { count: number };
-  return Math.max(0, FREE_DRAFT_LIMIT - Number(row.count));
+  const merchant = db.query("SELECT drafts_used FROM merchants WHERE id = ?").get(merchantId) as { drafts_used: number } | null;
+  const used = merchant?.drafts_used ?? 0;
+  return Math.max(0, FREE_DRAFT_LIMIT - used);
 }
 
 export function getSubscriptionByStripeId(db: Database, stripeSubscriptionId: string) {
@@ -314,6 +317,7 @@ export interface Merchant {
   stripe_account_id: string;
   email: string;
   trust_mode: string;
+  drafts_used: number;
   created_at: string;
 }
 
