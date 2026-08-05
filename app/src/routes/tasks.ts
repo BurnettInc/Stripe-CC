@@ -68,6 +68,10 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       draft.body,
       taskId,
     ]);
+    // Durable freemium counter: one lifetime draft used per successful draft.
+    // Only reached when the draft was actually written (draftEmail succeeded),
+    // and only once — escalation re-runs create new tasks, not new counts.
+    db.run("UPDATE merchants SET drafts_used = drafts_used + 1 WHERE id = ?", [invoice.merchant_id]);
     pipelineLog.push(`  Drafted: ${draft.subject}`);
 
     // Step 2: Review
