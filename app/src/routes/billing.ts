@@ -63,17 +63,18 @@ function verifyStripeSignature(payload: string, signatureHeader: string, secret:
 export async function handleBilling(
   db: Database,
   req: Request,
-  action: "checkout" | "webhook"
+  action: "checkout" | "webhook",
+  sessionMerchantId?: number,
 ): Promise<Response> {
   if (action === "checkout") {
-    return handleCheckout(db, req);
+    return handleCheckout(db, req, sessionMerchantId);
   }
   return handleBillingWebhook(db, req);
 }
 
 // ── Checkout Session creation ──
 
-async function handleCheckout(db: Database, req: Request): Promise<Response> {
+async function handleCheckout(db: Database, req: Request, sessionMerchantId?: number): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
 
   let body: { tier?: string; merchantId?: number; successUrl?: string; cancelUrl?: string };
@@ -84,7 +85,7 @@ async function handleCheckout(db: Database, req: Request): Promise<Response> {
   }
 
   const tier = body.tier;
-  const merchantId = body.merchantId;
+  const merchantId = sessionMerchantId;
 
   if (!tier || !["standard", "pro"].includes(tier)) {
     return new Response(

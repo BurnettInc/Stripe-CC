@@ -5,12 +5,12 @@ import { draftEmail } from "../pipeline/drafter";
 import { reviewDraft } from "../pipeline/reviewer";
 import { sendEmail, sendEmailForReal } from "../pipeline/sender";
 
-export async function handleTasks(db: Database, req: Request, pathSuffix: string): Promise<Response> {
+export async function handleTasks(db: Database, req: Request, pathSuffix: string, merchantId: number): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
 
   // GET /tasks — list all tasks
   if (req.method === "GET" && pathSuffix === "") {
-    const tasks = getAllTasks(db);
+    const tasks = getAllTasks(db, merchantId);
     return new Response(JSON.stringify(tasks), { status: 200, headers });
   }
 
@@ -21,6 +21,12 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     const task = getTaskById(db, taskId);
 
     if (!task) {
+      return new Response(JSON.stringify({ error: "Task not found" }), { status: 404, headers });
+    }
+
+    // Never process a task belonging to another merchant.
+    const taskOwner = db.query("SELECT merchant_id FROM invoices WHERE id=?").get(task.invoice_id) as { merchant_id: number } | null;
+    if (!taskOwner || taskOwner.merchant_id !== merchantId) {
       return new Response(JSON.stringify({ error: "Task not found" }), { status: 404, headers });
     }
 

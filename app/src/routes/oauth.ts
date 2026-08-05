@@ -193,13 +193,21 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
       stripe_publishable_key: publishableKey,
     });
 
+    // Establish the authenticated merchant session after connection succeeds.
+    const sessionToken = randomBytes(32).toString("hex");
+    db.run(
+      "INSERT INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))",
+      [sessionToken, merchantId],
+    );
+
     console.log(`[oauth] Stripe Connect successful! Account: ${stripeAccountId}, Merchant: ${merchantId}`);
 
-    // Redirect back to dashboard with success
+    // Redirect back to dashboard with a secure, 30-day session cookie.
     return new Response(null, {
       status: 302,
       headers: {
         Location: `${baseUrl}/?connected=true&account=${encodeURIComponent(stripeAccountId)}`,
+        "Set-Cookie": `session=${encodeURIComponent(sessionToken)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
       },
     });
   } catch (err: unknown) {
