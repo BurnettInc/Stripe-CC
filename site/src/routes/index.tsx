@@ -129,7 +129,7 @@ function Home() {
           {businessName || "Stripe Collections Copilot"}
         </span>
         <a
-          href="https://dashboard.stripe.com/apps/com.stripecollectionscopilot.app"
+          href="#pricing"
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
         >
           Install on Stripe
@@ -332,7 +332,7 @@ function Home() {
               </ul>
               {plan.free ? (
                 <a
-                  href="https://dashboard.stripe.com/apps/com.stripecollectionscopilot.app"
+                  href="#pricing"
                   className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   {plan.cta}
