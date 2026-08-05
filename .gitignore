@@ -9,3 +9,4 @@ package-lock.json
 app.db*
 *.db-shm
 *.db-wal
+Stripe Collections Copilot/
