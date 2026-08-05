@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { ensureDefaultMerchant } from "../db";
+import { ensureDefaultMerchant, resolveMerchant } from "../db";
 
 export async function handleSettings(db: Database, req: Request): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
@@ -8,7 +8,7 @@ export async function handleSettings(db: Database, req: Request): Promise<Respon
 
   // GET /settings — return merchant settings
   if (req.method === "GET") {
-    const merchant = db.query("SELECT * FROM merchants LIMIT 1").get() as Record<string, unknown> | null;
+    const merchant = resolveMerchant(db);
     if (!merchant) {
       return new Response(JSON.stringify({ error: "No merchant found" }), { status: 404, headers });
     }
@@ -37,7 +37,7 @@ export async function handleSettings(db: Database, req: Request): Promise<Respon
       );
     }
 
-    const merchant = db.query("SELECT id FROM merchants LIMIT 1").get() as { id: number } | null;
+    const merchant = resolveMerchant(db);
     if (!merchant) {
       return new Response(JSON.stringify({ error: "No merchant found" }), { status: 404, headers });
     }

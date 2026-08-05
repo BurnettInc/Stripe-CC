@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { handleWebhookEvent } from "../pipeline/watcher";
 import { getStripeKey } from "../middleware/auth";
 
@@ -35,10 +35,13 @@ function verifyStripeSignature(payload: string, signatureHeader: string, secret:
   const signedPayload = `${timestamp}.${payload}`;
   const computedSig = createHmac("sha256", secret)
     .update(signedPayload)
-    .digest("hex");
+    .digest();
+  const expectedBuf = Buffer.from(expectedSig, "hex");
 
-  if (computedSig !== expectedSig) {
-    console.error(`[webhook] Signature mismatch: computed ${computedSig.substring(0, 12)}... vs expected ${expectedSig.substring(0, 12)}...`);
+  // Constant-time comparison — plain string comparison leaks timing
+  // information and is a known timing-attack vector.
+  if (computedSig.length !== expectedBuf.length || !timingSafeEqual(computedSig, expectedBuf)) {
+    console.error(`[webhook] Signature mismatch: computed ${computedSig.toString("hex").substring(0, 12)}... vs expected ${expectedSig.substring(0, 12)}...`);
     return false;
   }
 
@@ -94,7 +97,7 @@ export async function handleWebhook(db: Database, req: Request): Promise<Respons
     });
   }
 
-  const event = body as { type?: string; data?: { object?: Record<string, unknown> } };
+  const event = body as { type?: string; account?: string; data?: { object?: Record<string, unknown> } };
   if (!event.type || !event.data?.object) {
     return new Response(JSON.stringify({ error: "Invalid webhook payload: missing type or data.object" }), {
       status: 400,
@@ -103,6 +106,8 @@ export async function handleWebhook(db: Database, req: Request): Promise<Respons
   }
 
   try {
+    // Pass the top-level `account` (connected Stripe account ID) through so
+    // the pipeline can attribute the event to the correct merchant.
     const result = handleWebhookEvent(db, event as Parameters<typeof handleWebhookEvent>[1]);
     return new Response(JSON.stringify(result), {
       status: 200,

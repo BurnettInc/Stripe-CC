@@ -25,7 +25,7 @@ export async function handleInvoices(db: Database, req: Request, rawPath: string
 
   if (!isTrustMode && req.method === "GET") {
     const task = db.query("SELECT * FROM reminder_tasks WHERE invoice_id=? ORDER BY created_at DESC, id DESC LIMIT 1").get(id) as Record<string, unknown> | null;
-    const sent = db.query("SELECT COUNT(*) as count, MAX(created_at) as last_send_date FROM send_logs WHERE reminder_task_id=? AND type='reminder' AND status='success'").get(task?.id ?? -1) as { count: number; last_send_date: string | null };
+    const sent = db.query("SELECT COUNT(*) as count, MAX(created_at) as last_send_date FROM send_logs WHERE reminder_task_id=? AND type='reminder' AND status='success'").get((task?.id as number | undefined) ?? -1) as { count: number; last_send_date: string | null };
     const sequenceStatus = task ? { emails_sent: sent.count, last_send_date: sent.last_send_date, next_scheduled: null, active: !["cancelled", "paused"].includes(String(task.status)), paused: task.status === "paused", stage: task.stage, status: task.status } : null;
     return new Response(JSON.stringify({ ...invoice, sequence_status: sequenceStatus }), { headers: jsonHeaders });
   }
