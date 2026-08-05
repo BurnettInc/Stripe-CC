@@ -83,6 +83,8 @@ export async function handleWebhook(db: Database, req: Request): Promise<Respons
       });
     }
   } else {
+    // Skipping verification is only reachable on localhost: index.ts refuses
+    // to boot without STRIPE_WEBHOOK_SECRET when not running on localhost.
     console.log("[webhook] No STRIPE_WEBHOOK_SECRET set — skipping signature verification (test mode)");
   }
 

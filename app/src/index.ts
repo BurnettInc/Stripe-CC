@@ -51,7 +51,28 @@ if (sendgridKey) {
 if (process.env.STRIPE_WEBHOOK_SECRET) {
   console.log(`   Webhook verification: enabled`);
 } else {
+  // In production (or any non-localhost deployment) webhook endpoints MUST
+  // verify Stripe signatures — otherwise anyone can forge payment events and
+  // drive the email pipeline. Refuse to boot without the secret outside local
+  // development instead of silently running unverified.
+  const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+  const isLocalDev = baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
+  const isProduction = process.env.NODE_ENV === "production";
+  if (isProduction || !isLocalDev) {
+    console.error(`   FATAL: STRIPE_WEBHOOK_SECRET is not set and this server is not running on localhost.`);
+    console.error(`   (NODE_ENV=${process.env.NODE_ENV || "unset"}, BASE_URL=${baseUrl})`);
+    console.error(`   Webhook signature verification would be disabled in production — refusing to boot.`);
+    console.error(`   Set STRIPE_WEBHOOK_SECRET (from: stripe listen --forward-to localhost:3001/webhook) and retry.`);
+    process.exit(1);
+  }
   console.log(`   Webhook verification: disabled (test mode)`);
+}
+
+// Token encryption status (OAuth tokens at rest)
+if (process.env.TOKEN_ENCRYPTION_KEY) {
+  console.log(`   Token encryption: enabled (AES-256-GCM)`);
+} else {
+  console.log(`   Token encryption: disabled (tokens stored in plaintext)`);
 }
 
 async function handleRequest(req: Request): Promise<Response> {

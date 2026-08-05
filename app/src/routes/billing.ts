@@ -76,7 +76,7 @@ export async function handleBilling(
 async function handleCheckout(db: Database, req: Request): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
 
-  let body: { tier?: string; merchantId?: number };
+  let body: { tier?: string; merchantId?: number; successUrl?: string; cancelUrl?: string };
   try {
     body = await req.json();
   } catch {
@@ -114,14 +114,26 @@ async function handleCheckout(db: Database, req: Request): Promise<Response> {
   const priceId = PRICE_IDS[tier];
   const baseUrl = process.env.BASE_URL || `http://localhost:3001`;
 
+  // Optional redirect overrides let other surfaces (e.g. the marketing site)
+  // reuse this single checkout implementation while keeping their own
+  // success/cancel pages. Only http(s) URLs are accepted.
+  const isHttpUrl = (u: unknown): u is string =>
+    typeof u === "string" && (u.startsWith("http://") || u.startsWith("https://"));
+  const successUrl = isHttpUrl(body.successUrl)
+    ? body.successUrl
+    : `${baseUrl}/?session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl = isHttpUrl(body.cancelUrl)
+    ? body.cancelUrl
+    : `${baseUrl}/?cancelled=true`;
+
   const params = new URLSearchParams({
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
     mode: "subscription",
     "metadata[merchant_id]": String(merchantId),
     "metadata[tier]": tier,
-    success_url: `${baseUrl}/?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${baseUrl}/?cancelled=true`,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
   });
 
   try {
@@ -194,6 +206,8 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
       });
     }
   } else {
+    // Skipping verification is only reachable on localhost: index.ts refuses
+    // to boot without STRIPE_WEBHOOK_SECRET when not running on localhost.
     console.log("[billing] No STRIPE_WEBHOOK_SECRET set — skipping signature verification (test mode)");
   }
 

@@ -135,6 +135,7 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code,
+        client_secret: clientSecret,
       }).toString(),
     });
 
