@@ -31,7 +31,7 @@ export default function DrawerRootView(props?: { oauthContext?: ExtensionContext
     setError(null);
     setUnauthenticated(false);
     try {
-      const response = await fetch(`${BASE_URL}/subscription`);
+      const response = await fetch(`${BASE_URL}/subscription`, { credentials: 'include' });
       if (response.status === 401) {
         setUnauthenticated(true);
         return;

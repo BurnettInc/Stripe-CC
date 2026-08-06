@@ -19,7 +19,7 @@ export default function OnboardingView() {
   const loadSubscription = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const response = await fetch(`${BASE_URL}/subscription`);
+      const response = await fetch(`${BASE_URL}/subscription`, { credentials: 'include' });
       if (!response.ok) throw new Error('Unable to check your subscription.');
       setSubscription((await response.json()) as SubscriptionResponse);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to check your subscription.'); }
@@ -32,7 +32,7 @@ export default function OnboardingView() {
       // The backend attributes the subscription to the session-authenticated
       // merchant, so no merchant id is needed here — the old /merchant lookup
       // was removed along with the route.
-      const response = await fetch(`${BASE_URL}/billing/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier }) });
+      const response = await fetch(`${BASE_URL}/billing/checkout`, { credentials: 'include', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier }) });
       if (response.status === 401) throw new Error('Connect your Stripe account before subscribing.');
       if (!response.ok) throw new Error('Could not start checkout. Please try again.');
       const result = (await response.json()) as { url?: string };

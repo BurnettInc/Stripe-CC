@@ -207,7 +207,7 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
       status: 302,
       headers: {
         Location: `${baseUrl}/?connected=true&account=${encodeURIComponent(stripeAccountId)}`,
-        "Set-Cookie": `session=${encodeURIComponent(sessionToken)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+        "Set-Cookie": `session=${encodeURIComponent(sessionToken)}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=2592000`,
       },
     });
   } catch (err: unknown) {
