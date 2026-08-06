@@ -99,8 +99,8 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
     setError(null);
     try {
       const [invoiceResponse, modeResponse] = await Promise.all([
-        fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}`),
-        fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}/trust-mode`),
+        fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}`, { credentials: 'include' }),
+        fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}/trust-mode`, { credentials: 'include' }),
       ]);
       if (!invoiceResponse.ok || !modeResponse.ok) throw new Error('Unable to load invoice collection status.');
       const invoicePayload = (await invoiceResponse.json()) as InvoiceDetails | { invoice?: InvoiceDetails };
@@ -125,6 +125,7 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
     setError(null);
     try {
       const response = await fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}/trust-mode`, {
+        credentials: 'include',
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trust_mode: value === 'global' ? null : value }),

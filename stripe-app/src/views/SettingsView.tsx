@@ -31,8 +31,8 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
     setError(null);
     try {
       const [settingsRes, connRes] = await Promise.all([
-        fetch(`${BASE_URL}/settings`),
-        fetch(`${BASE_URL}/stripe/connection`),
+        fetch(`${BASE_URL}/settings`, { credentials: 'include' }),
+        fetch(`${BASE_URL}/stripe/connection`, { credentials: 'include' }),
       ]);
       if (settingsRes.status === 401 || connRes.status === 401) {
         setUnauthenticated(true);
@@ -57,6 +57,7 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
     setError(null);
     try {
       const response = await fetch(`${BASE_URL}/settings`, {
+        credentials: 'include',
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trust_mode: value }),

@@ -11,11 +11,24 @@ import { requireSession } from "./middleware/session";
 
 const PORT = 3001;
 const START_TIME = Date.now();
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+const allowedOrigins = new Set([
+  "https://stripecollectionscopilot.ctonew.app",
+  "https://dashboard.stripe.com",
+]);
+
+function corsHeadersFor(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin");
+  const allowedOrigin = origin && allowedOrigins.has(origin)
+    ? origin
+    : "https://stripecollectionscopilot.ctonew.app";
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Vary": "Origin",
+  };
+}
 
 // Load the dashboard HTML once at startup
 const dashboardHtml = readFileSync(join(import.meta.dirname, "ui", "dashboard.html"), "utf-8");
@@ -77,7 +90,7 @@ if (process.env.TOKEN_ENCRYPTION_KEY) {
 }
 
 async function handleRequest(req: Request): Promise<Response> {
-    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeadersFor(req) });
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -183,7 +196,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         const response = await handleSettings(db, req, auth.merchant_id);
-        for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
+        for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;
       }
 
@@ -192,7 +205,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         const response = await handleInvoices(db, req, path.slice("/invoices".length), auth.merchant_id);
-        for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
+        for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;
       }
 
@@ -203,7 +216,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const { getSubscriptionByMerchantId } = await import("./db");
         const sub = getSubscriptionByMerchantId(db, auth.merchant_id);
         return new Response(JSON.stringify(sub || { tier: null, status: "none" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
         });
       }
 
@@ -212,7 +225,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         const response = await handleBilling(db, req, "checkout", auth.merchant_id);
-        for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
+        for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;
       }
 
@@ -234,7 +247,7 @@ async function handleRequest(req: Request): Promise<Response> {
       // GET /stripe/connection — current connection status
       if (path === "/stripe/connection" && req.method === "GET") {
         const response = await handleStripeConnectionStatus(db);
-        for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
+        for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;
       }
 
@@ -325,7 +338,7 @@ const server = Bun.serve({
   port: PORT,
   fetch: async (req) => {
     const response = await handleRequest(req);
-    for (const [key, value] of Object.entries(corsHeaders)) response.headers.set(key, value);
+    for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
     return response;
   },
 });
