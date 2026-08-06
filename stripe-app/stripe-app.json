@@ -17,7 +17,7 @@
     ],
     "content_security_policy": {
       "connect-src": [
-        "https://stripecollectionscopilot.ctonew.app/app/*"
+        "https://stripecollectionscopilot.ctonew.app/app/"
       ],
       "purpose": "Connect to Stripe Collections Copilot backend for automated invoice follow-ups."
     }
