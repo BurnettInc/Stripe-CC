@@ -14,7 +14,13 @@
         "viewport": "stripe.dashboard.invoice.detail",
         "component": "InvoiceDetailView"
       }
-    ]
+    ],
+    "content_security_policy": {
+      "connect-src": [
+        "https://stripecollectionscopilot.ctonew.app"
+      ],
+      "purpose": "Connect to Stripe Collections Copilot backend for automated invoice follow-ups."
+    }
   },
   "extensions": null,
   "permissions": [
@@ -26,10 +32,5 @@
       "permission": "customer_read",
       "purpose": ""
     }
-  ],
-  "content_security_policy": {
-    "connect-src": [
-      "https://stripecollectionscopilot.ctonew.app"
-    ]
-  }
+  ]
 }
