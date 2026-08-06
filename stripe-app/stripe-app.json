@@ -26,5 +26,10 @@
       "permission": "customer_read",
       "purpose": ""
     }
-  ]
+  ],
+  "content_security_policy": {
+    "connect-src": [
+      "https://stripecollectionscopilot.ctonew.app"
+    ]
+  }
 }

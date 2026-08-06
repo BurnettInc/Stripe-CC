@@ -6,7 +6,7 @@ import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import SettingsView from './SettingsView';
 import OnboardingView from './OnboardingView';
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
+const BASE_URL = (import.meta as any).env?.VITE_BACKEND_URL ?? 'https://stripecollectionscopilot.ctonew.app/app';
 
 type Tier = 'standard' | 'pro';
 interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none' }

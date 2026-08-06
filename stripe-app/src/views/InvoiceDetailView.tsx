@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Select, Spinner } from '@stripe/ui-extension-sdk/ui';
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
+const BASE_URL = (import.meta as any).env?.VITE_BACKEND_URL ?? 'https://stripecollectionscopilot.ctonew.app/app';
 
 type TrustMode = 'draft' | 'semi' | 'full';
 type TrustModeValue = TrustMode | 'global';
