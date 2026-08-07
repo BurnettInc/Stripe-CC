@@ -22,8 +22,7 @@
     ],
     "content_security_policy": {
       "connect-src": [
-        "https://collectionscopilot.ctonew.app/app/",
-        "https://cdn.stripeextensions.com/*"
+        "https://collectionscopilot.ctonew.app/app/"
       ],
       "purpose": "Connect to CollectionsCopilot backend for automated invoice follow-ups."
     }
