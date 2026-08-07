@@ -50,6 +50,17 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
 
   useEffect(() => { void load(); }, [load]);
 
+  // Listen for OAuth popup completion signal
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data === 'oauth-complete') {
+        void load();
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [load]);
+
   const save = async (value: TrustMode) => {
     const previous = trustMode;
     setTrustMode(value);
@@ -81,7 +92,21 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
           <Box css={{ stack: 'y', gap: 'small' }}>
             <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
             <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to access Collections Copilot settings.</Box>
-            <Button onPress={() => { window.location.href = `${BASE_URL}/stripe/connect`; }}>Connect Stripe</Button>
+            <Button
+              onPress={() => {
+                const width = 800;
+                const height = 700;
+                const left = (window.screen.width - width) / 2;
+                const top = (window.screen.height - height) / 2;
+                window.open(
+                  `${BASE_URL}/stripe/connect`,
+                  'stripe-connect',
+                  `width=${width},height=${height},left=${left},top=${top}`,
+                );
+              }}
+            >
+              Connect Stripe
+            </Button>
           </Box>
         ) : null}
         {!unauthenticated && (<>

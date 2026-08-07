@@ -2,8 +2,13 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "Stripe Collections Copilot",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "icon": "./icon.png",
+  "stripe_api_access_type": "oauth",
+  "distribution_type": "public",
+  "allowed_redirect_uris": [
+    "https://stripecollectionscopilot.ctonew.app/stripe/oauth/callback"
+  ],
   "ui_extension": {
     "views": [
       {

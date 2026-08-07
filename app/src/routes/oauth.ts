@@ -202,11 +202,18 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
 
     console.log(`[oauth] Stripe Connect successful! Account: ${stripeAccountId}, Merchant: ${merchantId}`);
 
-    // Redirect back to dashboard with a secure, 30-day session cookie.
-    return new Response(null, {
-      status: 302,
+    // Return a page that signals completion and auto-closes the popup.
+    const html = `<!DOCTYPE html>
+    <html><head><title>Connected</title></head>
+    <body style="font-family:system-ui,sans-serif;text-align:center;padding-top:80px;">
+    <h2>✅ Stripe account connected!</h2>
+    <p>You can close this window and return to the Stripe Dashboard.</p>
+    <script>try { window.opener?.postMessage('oauth-complete', '*'); } catch(_) {} setTimeout(function(){ window.close(); }, 1500);</script>
+    </body></html>`;
+    return new Response(html, {
+      status: 200,
       headers: {
-        Location: `${baseUrl}/?connected=true&account=${encodeURIComponent(stripeAccountId)}`,
+        "Content-Type": "text/html; charset=utf-8",
         "Set-Cookie": `session=${encodeURIComponent(sessionToken)}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=2592000`,
       },
     });
