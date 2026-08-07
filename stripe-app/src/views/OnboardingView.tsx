@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-sdk/ui';
 
-const BASE_URL = (import.meta as any).env?.VITE_BACKEND_URL ?? 'https://stripecollectionscopilot.ctonew.app/app';
+const BASE_URL = (import.meta as any).env?.VITE_BACKEND_URL ?? 'https://collectionscopilot.ctonew.app/app';
 type Tier = 'standard' | 'pro';
 interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none' }
 const plans: Array<{ tier: Tier; name: string; price: string; features: string[] }> = [
