@@ -2,7 +2,7 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "Stripe Collections Copilot",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "icon": "./icon.png",
   "stripe_api_access_type": "oauth",
   "distribution_type": "public",
@@ -22,7 +22,8 @@
     ],
     "content_security_policy": {
       "connect-src": [
-        "https://stripecollectionscopilot.ctonew.app/app/"
+        "https://stripecollectionscopilot.ctonew.app/app/",
+        "https://cdn.stripeextensions.com"
       ],
       "purpose": "Connect to Stripe Collections Copilot backend for automated invoice follow-ups."
     }
