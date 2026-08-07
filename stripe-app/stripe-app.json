@@ -1,13 +1,13 @@
 {
   "$schema": "https://stripe.com/stripe-app.schema.json",
-  "id": "com.stripecollectionscopilot.app",
-  "name": "Stripe Collections Copilot",
+  "id": "com.collectionscopilot.app",
+  "name": "CollectionsCopilot",
   "version": "0.1.7",
   "icon": "./icon.png",
   "stripe_api_access_type": "oauth",
   "distribution_type": "public",
   "allowed_redirect_uris": [
-    "https://stripecollectionscopilot.ctonew.app/stripe/oauth/callback"
+    "https://collectionscopilot.ctonew.app/oauth/callback"
   ],
   "ui_extension": {
     "views": [
@@ -22,10 +22,10 @@
     ],
     "content_security_policy": {
       "connect-src": [
-        "https://stripecollectionscopilot.ctonew.app/app/",
+        "https://collectionscopilot.ctonew.app/app/",
         "https://cdn.stripeextensions.com"
       ],
-      "purpose": "Connect to Stripe Collections Copilot backend for automated invoice follow-ups."
+      "purpose": "Connect to CollectionsCopilot backend for automated invoice follow-ups."
     }
   },
   "extensions": null,
