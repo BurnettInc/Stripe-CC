@@ -309,6 +309,16 @@ async function handleRequest(req: Request): Promise<Response> {
         });
       }
 
+      // GET /aggregate — cross-merchant aggregate recovery stats (internal dashboard, no auth)
+      if (path === "/aggregate" && req.method === "GET") {
+        const { handleAggregate } = await import("./routes/aggregate");
+        const stats = handleAggregate(db);
+        return new Response(JSON.stringify(stats), {
+          status: 200,
+          headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
+        });
+      }
+
       // 404 — return JSON, not plain text
       return new Response(JSON.stringify({
         error: "Not found",
