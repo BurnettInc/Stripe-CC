@@ -31,6 +31,11 @@ function consumeOAuthState(state: string | null): { merchantId: number } | null 
 
 /**
  * GET /stripe/connect — Redirect the merchant to Stripe's OAuth authorization page.
+ *
+ * The redirect_uri sent to Stripe must match one of the `allowed_redirect_uris`
+ * in the Stripe App manifest AND route through the site server's /api or /app
+ * proxy to reach this backend. We use the /api prefix so the proxy forwards the
+ * callback to port 3001, where it arrives as /stripe/oauth/callback (prefix stripped).
  */
 export async function handleStripeConnect(db: Database, req: Request): Promise<Response> {
   ensureDefaultMerchant(db);
@@ -44,12 +49,16 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
   const merchant = resolveMerchant(db);
   const state = createOAuthState(merchant?.id ?? 1);
 
-  // Build the OAuth authorize URL
+  // Build the OAuth authorize URL.
+  // redirect_uri: /api/oauth/callback → proxy strips /api → backend sees /oauth/callback
+  // (matches the manifest's allowed_redirect_uris; backend handles both /oauth/callback and /stripe/oauth/callback)
+  const redirectUri = `${baseUrl}/api/oauth/callback`;
+
   const params = new URLSearchParams({
     response_type: "code",
     client_id: clientId || "PLACEHOLDER_CLIENT_ID",
     scope: "read_write",
-    redirect_uri: `${baseUrl}/stripe/oauth/callback`,
+    redirect_uri: redirectUri,
     state,
   });
 

@@ -12,7 +12,7 @@ import { requireSession } from "./middleware/session";
 const PORT = 3001;
 const START_TIME = Date.now();
 const allowedOrigins = new Set([
-  "https://stripecollectionscopilot.ctonew.app",
+  "https://collectionscopilot.ctonew.app",
   "https://dashboard.stripe.com",
 ]);
 
@@ -20,7 +20,7 @@ function corsHeadersFor(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin");
   const allowedOrigin = origin && allowedOrigins.has(origin)
     ? origin
-    : "https://stripecollectionscopilot.ctonew.app";
+    : "https://collectionscopilot.ctonew.app";
   return {
     "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Credentials": "true",
@@ -240,7 +240,8 @@ async function handleRequest(req: Request): Promise<Response> {
       }
 
       // GET /stripe/oauth/callback — Stripe Connect OAuth callback
-      if (path === "/stripe/oauth/callback" && req.method === "GET") {
+      // GET /oauth/callback — alias (matches manifest's allowed_redirect_uris as well)
+      if ((path === "/stripe/oauth/callback" || path === "/oauth/callback") && req.method === "GET") {
         return handleStripeOAuthCallback(db, req);
       }
 
