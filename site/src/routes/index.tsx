@@ -144,6 +144,9 @@ function Home() {
         <span className="inline-block rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700 mb-6">
           Stripe-native · Zero setup
         </span>
+        <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-700 mb-6 ml-2">
+          We never sell your data
+        </span>
         <h1 className="text-4xl font-bold tracking-tight sm:text-6xl text-gray-900">
           Recover invoices faster
         </h1>
@@ -357,6 +360,45 @@ function Home() {
         </div>
       </section>
 
+      {/* Email Preview */}
+      <section className="py-16">
+        <div className="max-w-4xl mx-auto px-6">
+          <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">
+            See the difference
+          </h2>
+          <p className="text-center text-gray-600 max-w-lg mx-auto mb-10">
+            Same invoice, two very different follow-ups.
+          </p>
+          <div className="grid gap-8 md:grid-cols-2">
+            <div className="rounded-xl border border-gray-300 bg-white p-6">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">
+                Typical automated reminder
+              </p>
+              <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700 space-y-2">
+                <p className="font-medium">Subject: Invoice #1024 is overdue</p>
+                <p>Dear Client,</p>
+                <p>Your invoice #1024 for $450.00 is now 5 days overdue. Please remit payment at your earliest convenience.</p>
+                <p>Thank you,<br />ACME Services</p>
+              </div>
+            </div>
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-6 relative">
+              <span className="absolute -top-3 right-4 rounded-full bg-indigo-600 px-3 py-0.5 text-xs font-semibold text-white">
+                CollectionsCopilot
+              </span>
+              <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wide mb-4">
+                Personalized, relationship-aware
+              </p>
+              <div className="rounded-lg bg-white p-4 text-sm text-gray-700 space-y-2 shadow-sm">
+                <p className="font-medium">Subject: Quiet nudge — invoice #1024</p>
+                <p>Hi Sarah,</p>
+                <p>Hope the new site launch went well this week. Just a quick heads-up that invoice #1024 for the landing page redesign ($450) passed its due date — no rush if it's just slipped your mind.</p>
+                <p>Let me know if anything looks off. Cheers,<br />Alex at ACME Services</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Trust & Transparency */}
       <section id="trust" className="bg-gray-50 py-20">
         <div className="max-w-4xl mx-auto px-6">
@@ -534,6 +576,11 @@ function Home() {
               ) : (
                 <SubscribeButton tier={plan.tier!} label={plan.cta} highlight={plan.highlight} />
               )}
+              {plan.name === "Pro" && (
+                <p className="mt-4 text-xs text-gray-400 leading-relaxed">
+                  Late fee legality and limits vary by state/country — you're responsible for confirming your late fee terms comply with applicable law before enabling this feature.
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -564,6 +611,14 @@ function Home() {
             {
               q: "Can I try it before paying?",
               a: "Yes — Free Draft Mode is free forever, no card required. Connect your Stripe account and see real AI-drafted reminders for up to 5 of your overdue invoices. Nothing sends until you subscribe.",
+            },
+            {
+              q: "How is this different from Stripe's built-in reminders?",
+              a: "Stripe's native reminders send one-size-fits-all notifications — CollectionsCopilot escalates through multiple stages with personalized context, and gives you control over when and how each follow-up goes out. Stripe's tool reminds; ours recovers.",
+            },
+            {
+              q: "What if a customer disputes an invoice, or wants to stop getting reminders?",
+              a: "If a customer disputes an invoice, the sequence pauses immediately — you'll be notified and can decide how to proceed. If someone wants to opt out, they can use the unsubscribe link in any email we send, and we'll stop all automated follow-ups to them. You can also manually pause or cancel any sequence from the dashboard.",
             },
           ].map((item) => (
             <div
