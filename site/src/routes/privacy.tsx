@@ -9,7 +9,7 @@ function Privacy() {
     <div className="min-h-dvh bg-white">
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
         <a href="/" className="font-bold text-lg text-indigo-600">
-          Stripe Collections Copilot
+          CollectionsCopilot
         </a>
         <a
           href="/"
@@ -23,7 +23,7 @@ function Privacy() {
         <p className="text-sm text-gray-500 mb-8">Last updated: August 2026</p>
 
         <p className="text-gray-700 leading-relaxed">
-          Stripe Collections Copilot is operated by Cody Burnett, a sole proprietor
+          CollectionsCopilot is operated by Cody Burnett, a sole proprietor
           based in Texas, USA. This policy explains what data the app collects, how
           it's used, and who it's shared with.
         </p>

@@ -9,7 +9,7 @@ function Terms() {
     <div className="min-h-dvh bg-white">
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
         <a href="/" className="font-bold text-lg text-indigo-600">
-          Stripe Collections Copilot
+          CollectionsCopilot
         </a>
         <a
           href="/"
@@ -23,14 +23,14 @@ function Terms() {
         <p className="text-sm text-gray-500 mb-8">Last updated: August 2026</p>
 
         <p className="text-gray-700 leading-relaxed">
-          These terms govern your use of Stripe Collections Copilot ("the Service"),
+          These terms govern your use of CollectionsCopilot ("the Service"),
           operated by Cody Burnett, a sole proprietor based in Texas, USA. By using
           the Service, you agree to these terms.
         </p>
 
         <h2 className="text-xl font-semibold text-gray-900 mt-8">1. What the Service does</h2>
         <p className="text-gray-700 leading-relaxed">
-          Stripe Collections Copilot connects to your Stripe account, detects overdue
+          CollectionsCopilot connects to your Stripe account, detects overdue
           invoices, and sends automated, escalating reminder emails to your customers
           on your behalf. The Service operates according to the Trust Mode you select:
         </p>
