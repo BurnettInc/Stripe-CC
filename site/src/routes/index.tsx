@@ -141,10 +141,10 @@ function Home() {
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-6 pt-20 pb-16 text-center">
-        <span className="inline-block rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700 mb-6">
+        <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700 mb-6">
           Stripe-native · Zero setup
         </span>
-        <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-700 mb-6 ml-2">
+        <span className="inline-block rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700 mb-6 ml-2">
           We never sell your data
         </span>
         <h1 className="text-4xl font-bold tracking-tight sm:text-6xl text-gray-900">
@@ -344,22 +344,6 @@ function Home() {
         </div>
       </section>
 
-      {/* Reply handling */}
-      <section className="py-16">
-        <div className="max-w-4xl mx-auto px-6">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8">
-            <h2 className="text-xl font-bold text-gray-900">
-              What happens if a customer replies?
-            </h2>
-            <p className="mt-3 text-sm text-gray-700 leading-relaxed">
-              Right now, reply detection isn't automatic — if a customer replies to a reminder,
-              their message goes to your inbox, not ours. We recommend checking your inbox during
-              active sequences. Automatic reply detection and pausing is on our near-term roadmap.
-            </p>
-          </div>
-        </div>
-      </section>
-
       {/* Email Preview */}
       <section className="py-16">
         <div className="max-w-4xl mx-auto px-6">
@@ -481,6 +465,18 @@ function Home() {
               legal threats, never harassment. Our AI is explicitly instructed to
               preserve your customer relationships, not damage them. If you need formal
               debt collection, this isn't the tool for that.
+            </p>
+          </div>
+
+          {/* Reply handling */}
+          <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-8">
+            <h3 className="text-lg font-bold text-gray-900">
+              What happens if a customer replies?
+            </h3>
+            <p className="mt-3 text-sm text-gray-700 leading-relaxed">
+              Right now, reply detection isn't automatic — if a customer replies to a reminder,
+              their message goes to your inbox, not ours. We recommend checking your inbox during
+              active sequences. Automatic reply detection and pausing is on our near-term roadmap.
             </p>
           </div>
         </div>
@@ -649,7 +645,7 @@ function Home() {
             href="#pricing"
             className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
           >
-            View plans →
+            Get Started
           </a>
         </div>
       </section>
