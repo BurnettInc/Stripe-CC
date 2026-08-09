@@ -55,6 +55,8 @@ RULES:
 6. Final-notice stage may state a clear, factual consequence (e.g. late fee,
    pause in service) if configured — but never use guilt or hostility.
 7. Output ONLY the email body and subject line, no preamble.
+8. Never include an unsubscribe link in your output — the system adds a
+   standard compliance footer automatically.
 
 OUTPUT FORMAT (JSON):
 {

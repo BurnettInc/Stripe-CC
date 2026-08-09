@@ -1,4 +1,4 @@
-import { getDb, ensureDefaultMerchant, freeDraftsRemaining } from "./db";
+import { getDb, ensureDefaultMerchant, freeDraftsRemaining, recordUnsubscribe } from "./db";
 import { handleWebhook } from "./routes/webhook";
 import { handleTasks } from "./routes/tasks";
 import { handleSettings } from "./routes/settings";
@@ -250,6 +250,55 @@ async function handleRequest(req: Request): Promise<Response> {
         const response = await handleStripeConnectionStatus(db);
         for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;
+      }
+
+      // GET /unsubscribe (also /api/unsubscribe — the site proxy strips the
+      // /api prefix before forwarding to this backend) — CAN-SPAM opt-out.
+      if ((path === "/unsubscribe" || path === "/api/unsubscribe") && req.method === "GET") {
+        const unsubscribePage = (message: string, status = 200) =>
+          new Response(
+            `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unsubscribed — CollectionsCopilot</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f8fa; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.12); padding: 40px 48px; max-width: 460px; margin: 24px; text-align: center; }
+    h1 { font-size: 20px; margin: 0 0 12px; color: #1a1a2e; }
+    p { font-size: 15px; line-height: 1.6; color: #4a4a68; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Unsubscribed</h1>
+    <p>${message}</p>
+  </div>
+</body>
+</html>`,
+            { status, headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+
+        const merchantParam = url.searchParams.get("merchant");
+        const customerParam = url.searchParams.get("customer");
+        if (!merchantParam || !customerParam) {
+          return unsubscribePage("The unsubscribe link is invalid or incomplete. If you continue receiving emails, please reply to one to opt out.", 400);
+        }
+        const merchantId = Number.parseInt(merchantParam, 10);
+        if (Number.isNaN(merchantId) || merchantId <= 0) {
+          return unsubscribePage("The unsubscribe link is invalid. If you continue receiving emails, please reply to one to opt out.", 400);
+        }
+
+        // Only record the opt-out for a merchant we actually know — the FK on
+        // unsubscribes.merchant_id requires it, and garbage params shouldn't
+        // throw a 500. Unknown merchants still get the confirmation page.
+        const merchantExists = db.query("SELECT id FROM merchants WHERE id = ?").get(merchantId);
+        if (merchantExists) {
+          recordUnsubscribe(db, merchantId, customerParam);
+        }
+
+        return unsubscribePage("You've been unsubscribed from CollectionsCopilot reminders. No further emails will be sent for this invoice.");
       }
 
       // GET /summary?merchantId=1 — weekly summary stats (default merchantId=1)
