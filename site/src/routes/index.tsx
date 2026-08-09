@@ -125,9 +125,12 @@ function Home() {
     <div className="min-h-dvh">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
-        <span className="font-bold text-lg text-indigo-600">
-          {businessName || "CollectionsCopilot"}
-        </span>
+        <div className="flex items-center gap-3">
+          <img src="/icon.svg" alt="CollectionsCopilot" className="h-8 w-auto" />
+          <span className="font-bold text-lg text-indigo-600">
+            {businessName || "CollectionsCopilot"}
+          </span>
+        </div>
         <a
           href="#pricing"
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
