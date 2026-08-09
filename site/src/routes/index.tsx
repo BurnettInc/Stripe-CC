@@ -634,6 +634,9 @@ function Home() {
           <a href="/terms" className="hover:text-gray-700 transition-colors">
             Terms of Service
           </a>
+          <a href="/about" className="hover:text-gray-700 transition-colors">
+            About
+          </a>
           <a
             href="mailto:support@getcollectionscopilot.com"
             className="hover:text-gray-700 transition-colors"
