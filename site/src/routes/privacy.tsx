@@ -8,9 +8,12 @@ function Privacy() {
   return (
     <div className="min-h-dvh bg-white">
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
-        <a href="/" className="font-bold text-lg text-indigo-600">
-          CollectionsCopilot
-        </a>
+        <div className="flex items-center gap-3">
+          <a href="/" className="flex items-center gap-3">
+            <img src="/icon.svg" alt="CollectionsCopilot" className="h-8 w-auto" />
+            <span className="font-bold text-lg text-indigo-600">CollectionsCopilot</span>
+          </a>
+        </div>
         <a
           href="/"
           className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
