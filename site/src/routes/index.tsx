@@ -596,6 +596,36 @@ function Home() {
         </div>
       </section>
 
+      {/* About */}
+      <section className="max-w-4xl mx-auto px-6 py-20">
+        <div className="max-w-2xl mx-auto text-center">
+          <h2 className="text-3xl font-bold text-gray-900 mb-6">
+            About CollectionsCopilot
+          </h2>
+          <p className="text-gray-600 leading-relaxed">
+            CollectionsCopilot was built by Cody Burnett, a solo developer frustrated
+            with chasing down late invoice payments manually. Rather than another
+            all-or-nothing automation tool, it's designed around one idea: you should
+            be able to start cautious and earn your way to hands-off, on your own
+            timeline.
+          </p>
+          <p className="mt-4 text-sm text-gray-500">
+            Built on{" "}
+            <a href="https://cto.new" className="underline hover:text-gray-700">
+              cto.new
+            </a>
+            . Questions or feedback? Reach out at{" "}
+            <a
+              href="mailto:support@getcollectionscopilot.com"
+              className="underline hover:text-gray-700"
+            >
+              support@getcollectionscopilot.com
+            </a>{" "}
+            — I read every message.
+          </p>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className="border-t border-gray-200 py-8 text-center text-sm text-gray-500">
         <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-2 mb-3">
