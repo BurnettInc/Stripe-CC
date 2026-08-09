@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type { Invoice, ReminderTask } from "../db";
-import { logSend } from "../db";
+import { logSend, isUnsubscribed, resolveMerchant } from "../db";
 import type { EmailDraft } from "./drafter";
+import { appendCanspamFooter } from "./canspam";
 
 export interface SendResult {
   success: boolean;
@@ -21,6 +22,10 @@ export async function sendEmailForReal(
   toEmail: string,
   fromEmail?: string,
 ): Promise<SendResult> {
+  // CAN-SPAM: never email a customer who has opted out.
+  const optOutSkip = checkUnsubscribedAndSkip(db, task);
+  if (optOutSkip) return optOutSkip;
+
   // Payment guard runs on the real-send path too: never send a dunning
   // email for an invoice that has been paid since review. (Previously this
   // check only lived in the stub fallback `sendEmail()`.)
@@ -29,7 +34,10 @@ export async function sendEmailForReal(
 
   const from = fromEmail || process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
   const subject = draft.subject;
-  const body = draft.body;
+  // CAN-SPAM: append the compliance footer (opt-out link + physical address)
+  // to the AI-drafted or template-fallback body before it goes out.
+  const { merchantId, customerEmail } = resolveFooterContext(db, task, toEmail);
+  const body = appendCanspamFooter(draft.body, merchantId, customerEmail);
 
   const sendgridKey = process.env.SENDGRID_API_KEY;
   const resendKey = process.env.RESEND_API_KEY;
@@ -123,15 +131,23 @@ export function sendEmail(
   task: ReminderTask | null,
   draft: EmailDraft
 ): SendResult {
+  // CAN-SPAM: never email a customer who has opted out.
+  const optOutSkip = checkUnsubscribedAndSkip(db, task);
+  if (optOutSkip) return optOutSkip;
+
   // Fix 5: Check payment status before sending — skip if already paid
   const paidSkip = checkPaidAndSkip(db, task);
   if (paidSkip) return paidSkip;
+
+  // CAN-SPAM: the stub preview reflects what the real send would include.
+  const { merchantId, customerEmail } = resolveFooterContext(db, task);
+  const body = appendCanspamFooter(draft.body, merchantId, customerEmail);
 
   const message = [
     `[STUB SEND] Would send email:`,
     `  To: (customer from invoice)`,
     `  Subject: ${draft.subject}`,
-    `  Body preview: ${draft.body.substring(0, 100)}...`,
+    `  Body preview: ${body.substring(0, 100)}...`,
   ].join("\n");
 
   if (task) {
@@ -193,4 +209,50 @@ function checkPaidAndSkip(db: Database, task: ReminderTask | null): SendResult |
     message: skipMsg,
     logId: 0,
   };
+}
+
+/**
+ * CAN-SPAM: skip sends to customers who have opted out via the
+ * /api/unsubscribe endpoint. Returns a SendResult describing the skip when
+ * the customer is opted out, otherwise null (send may proceed).
+ */
+function checkUnsubscribedAndSkip(db: Database, task: ReminderTask | null): SendResult | null {
+  if (!task) return null;
+  const invoice = db
+    .query("SELECT merchant_id, customer_email FROM invoices WHERE id = ?")
+    .get(task.invoice_id) as { merchant_id: number; customer_email: string } | null;
+  if (!invoice || !invoice.customer_email) return null;
+  if (!isUnsubscribed(db, invoice.merchant_id, invoice.customer_email)) return null;
+
+  const msg = `Customer ${invoice.customer_email} has opted out of reminders — skipping send`;
+  logSend(db, task.id, "skipped", msg);
+  return { success: false, message: msg, logId: 0 };
+}
+
+/**
+ * Resolve the merchant + customer email needed for the CAN-SPAM footer.
+ * For reminder sends both come from the task's invoice; when there is no task
+ * (e.g. weekly summaries), falls back to the default merchant and the
+ * recipient's email address.
+ */
+function resolveFooterContext(
+  db: Database,
+  task: ReminderTask | null,
+  toEmail?: string,
+): { merchantId: number; customerEmail: string } {
+  let merchantId: number | null = null;
+  let customerEmail = toEmail ?? "";
+  if (task) {
+    const invoice = db
+      .query("SELECT merchant_id, customer_email FROM invoices WHERE id = ?")
+      .get(task.invoice_id) as { merchant_id: number; customer_email: string } | null;
+    if (invoice) {
+      merchantId = invoice.merchant_id;
+      if (invoice.customer_email) customerEmail = invoice.customer_email;
+    }
+  }
+  if (merchantId === null) {
+    merchantId = resolveMerchant(db)?.id ?? 0;
+  }
+  return { merchantId, customerEmail };
 }

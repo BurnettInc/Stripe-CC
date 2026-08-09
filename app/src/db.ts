@@ -147,6 +147,33 @@ export function logSend(db: Database, taskId: number, status: string, message: s
   );
 }
 
+// ── CAN-SPAM unsubscribe helpers ──
+
+/**
+ * Record a customer opt-out for a merchant. Idempotent — repeated clicks on
+ * the unsubscribe link are no-ops. Customer emails are stored lowercased so
+ * the sender-side skip check is case-insensitive.
+ */
+export function recordUnsubscribe(db: Database, merchantId: number, customerEmail: string): boolean {
+  const email = customerEmail.trim().toLowerCase();
+  if (!email) return false;
+  db.run(
+    `INSERT INTO unsubscribes (merchant_id, customer_email) VALUES (?, ?)
+     ON CONFLICT(merchant_id, customer_email) DO NOTHING`,
+    [merchantId, email]
+  );
+  return true;
+}
+
+/** Whether a customer has opted out of reminders for the given merchant. */
+export function isUnsubscribed(db: Database, merchantId: number, customerEmail: string): boolean {
+  const email = customerEmail.trim().toLowerCase();
+  if (!email) return false;
+  return !!db
+    .query("SELECT 1 FROM unsubscribes WHERE merchant_id = ? AND customer_email = ?")
+    .get(merchantId, email);
+}
+
 // ── Subscription helpers ──
 
 export function createSubscription(

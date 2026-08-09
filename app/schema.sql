@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS unsubscribes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+  customer_email TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(merchant_id, customer_email)
+);
+
 -- Index for fast lookups
 CREATE INDEX IF NOT EXISTS idx_invoices_merchant ON invoices(merchant_id);
 CREATE INDEX IF NOT EXISTS idx_reminder_tasks_invoice ON reminder_tasks(invoice_id);
