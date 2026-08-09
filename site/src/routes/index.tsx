@@ -600,7 +600,7 @@ function Home() {
       <section className="max-w-4xl mx-auto px-6 py-20">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-3xl font-bold text-gray-900 mb-6">
-            About CollectionsCopilot
+            About Collections Copilot
           </h2>
           <p className="text-gray-600 leading-relaxed">
             CollectionsCopilot was built by Cody Burnett, a solo developer frustrated
@@ -610,11 +610,7 @@ function Home() {
             timeline.
           </p>
           <p className="mt-4 text-sm text-gray-500">
-            Built on{" "}
-            <a href="https://cto.new" className="underline hover:text-gray-700">
-              cto.new
-            </a>
-            . Questions or feedback? Reach out at{" "}
+            Questions or feedback? Reach out at{" "}
             <a
               href="mailto:support@getcollectionscopilot.com"
               className="underline hover:text-gray-700"
