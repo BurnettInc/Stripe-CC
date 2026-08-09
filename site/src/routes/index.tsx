@@ -126,7 +126,7 @@ function Home() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
         <span className="font-bold text-lg text-indigo-600">
-          {businessName || "Stripe Collections Copilot"}
+          {businessName || "CollectionsCopilot"}
         </span>
         <a
           href="#pricing"
@@ -206,7 +206,7 @@ function Home() {
 
       {/* Trust Mode */}
       <section className="bg-gray-50 py-20">
-        <div className="max-w-4xl mx-auto px-6">
+        <div className="max-w-5xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
             Most AI collections tools give you one choice: full auto, or nothing.
           </h2>
@@ -215,38 +215,229 @@ function Home() {
             So we built it differently — you start exactly as hands-on as you want, and
             earn your way to hands-off.
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+          {/* Escalation ladder */}
+          <h3 className="text-lg font-semibold text-gray-900 text-center mb-6">
+            Every sequence escalates in three stages
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-14">
             {[
               {
-                mode: "Draft",
-                desc: "Every email is written and queued for your approval. Nothing sends without you. This is where most people start, and it's how you find out what our AI actually sounds like before it ever touches a customer relationship.",
-                color: "bg-blue-50 border-blue-200",
+                when: "Day 1–6",
+                stage: "Stage 1 · Friendly reminder",
+                example: "\u201cHey Alex, just a quick nudge that invoice #1042 for $450 was due yesterday…\u201d",
               },
               {
-                mode: "Semi-Auto",
-                desc: "Friendly early reminders (Day 1–3) send automatically. Anything firmer still waits for your sign-off. You stop babysitting the polite nudges, keep control of the harder conversations.",
-                color: "bg-amber-50 border-amber-200",
+                when: "Day 7–20",
+                stage: "Stage 2 · Firmer follow-up",
+                example: "\u201cFollowing up on invoice #1042 ($450, due Jun 1). It's now 9 days past due — is anything blocking payment on your end?\u201d",
               },
               {
-                mode: "Full Auto",
-                desc: "The entire sequence runs without you. You're notified when something happens — payment received, sequence escalated — never bothered to make it happen.",
-                color: "bg-green-50 border-green-200",
+                when: "Day 21+",
+                stage: "Stage 3 · Final notice",
+                example: "\u201cFinal notice before further follow-up. Please settle invoice #1042 at your earliest convenience.\u201d",
               },
-            ].map((tier) => (
+            ].map((s) => (
               <div
-                key={tier.mode}
-                className={`rounded-xl border p-6 ${tier.color}`}
+                key={s.when}
+                className="rounded-xl border border-gray-200 bg-white p-5"
               >
-                <h3 className="text-lg font-bold text-gray-900">{tier.mode} Mode</h3>
-                <p className="mt-2 text-sm text-gray-700 leading-relaxed">
-                  {tier.desc}
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs font-bold uppercase tracking-wide text-indigo-600 shrink-0">
+                    {s.when}
+                  </span>
+                  <span className="text-xs font-medium text-gray-500 text-right">
+                    {s.stage}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-600 italic leading-relaxed">
+                  {s.example}
                 </p>
               </div>
             ))}
           </div>
-          <p className="text-center text-gray-500 text-sm mt-8">
+
+          {/* What each mode sends, per stage */}
+          <h3 className="text-lg font-semibold text-gray-900 text-center mb-6">
+            What each mode sends, per stage
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+            {[
+              {
+                mode: "Draft",
+                tagline: "You approve everything",
+                color: "bg-blue-50 border-blue-200",
+                behavior: [
+                  { when: "Day 1–6", action: "Drafted & queued for your approval", auto: false },
+                  { when: "Day 7–20", action: "Drafted & queued for your approval", auto: false },
+                  { when: "Day 21+", action: "Drafted & queued for your approval", auto: false },
+                ],
+                note: "Every email is drafted and queued for your approval. Nothing sends without you — ever.",
+              },
+              {
+                mode: "Semi-Auto",
+                tagline: "Friendly reminders send themselves",
+                color: "bg-amber-50 border-amber-200",
+                behavior: [
+                  { when: "Day 1–6", action: "Auto-sends", auto: true },
+                  { when: "Day 7–20", action: "Waits for your approval", auto: false },
+                  { when: "Day 21+", action: "Waits for your approval", auto: false },
+                ],
+                note: "Stage 1 friendly reminders run on their own. Stages 2–3 still wait for your sign-off.",
+              },
+              {
+                mode: "Full Auto",
+                tagline: "Fully hands-off",
+                color: "bg-green-50 border-green-200",
+                behavior: [
+                  { when: "Day 1–6", action: "Auto-sends", auto: true },
+                  { when: "Day 7–20", action: "Auto-sends", auto: true },
+                  { when: "Day 21+", action: "Auto-sends", auto: true },
+                ],
+                note: "The whole sequence runs without you. You're notified when something happens — payment received, sequence escalated — never bothered to make it happen.",
+              },
+            ].map((mode) => (
+              <div
+                key={mode.mode}
+                className={`rounded-xl border p-6 ${mode.color}`}
+              >
+                <h3 className="text-lg font-bold text-gray-900">{mode.mode} Mode</h3>
+                <p className="mt-1 text-xs font-medium text-gray-500">{mode.tagline}</p>
+                <ul className="mt-4 space-y-2">
+                  {mode.behavior.map((b) => (
+                    <li
+                      key={b.when}
+                      className="flex items-start justify-between gap-3 text-sm"
+                    >
+                      <span className="font-medium text-gray-700 shrink-0">{b.when}</span>
+                      <span className={b.auto ? "text-green-700 font-medium text-right" : "text-gray-600 text-right"}>
+                        {b.auto ? "✓ " : ""}{b.action}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-4 text-sm text-gray-700 leading-relaxed">{mode.note}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Payment stop guarantee */}
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-6 text-center mb-6">
+            <p className="text-base font-semibold text-indigo-900">
+              The moment a payment is detected, the entire sequence stops — no exceptions.
+            </p>
+            <p className="mt-1 text-sm text-indigo-700">
+              Before every send, the pipeline re-checks the invoice. Paid? That customer's
+              sequence is done.
+            </p>
+          </div>
+
+          <p className="text-center text-gray-500 text-sm">
             Switch modes any time, per-customer if you want. Nothing here is locked in.
           </p>
+        </div>
+      </section>
+
+      {/* Reply handling */}
+      <section className="py-16">
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8">
+            <h2 className="text-xl font-bold text-gray-900">
+              What happens if a customer replies?
+            </h2>
+            <p className="mt-3 text-sm text-gray-700 leading-relaxed">
+              Right now, reply detection isn't automatic — if a customer replies to a reminder,
+              their message goes to your inbox, not ours. We recommend checking your inbox during
+              active sequences. Automatic reply detection and pausing is on our near-term roadmap.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Trust & Transparency */}
+      <section id="trust" className="bg-gray-50 py-20">
+        <div className="max-w-4xl mx-auto px-6">
+          <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
+            Trust &amp; Transparency
+          </h2>
+          <p className="text-center text-gray-600 max-w-xl mx-auto mb-14">
+            You're trusting us with your customers and your cash flow. Here's exactly
+            what we ask for — and what we never do.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            {/* Permissions we request */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-8">
+              <h3 className="text-lg font-bold text-gray-900">
+                Permissions we request
+              </h3>
+              <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+                Exactly two read-only permissions, nothing more, nothing hidden:
+              </p>
+              <ul className="mt-4 space-y-3">
+                <li className="flex items-start gap-3 text-sm">
+                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 shrink-0">
+                    invoice_read
+                  </code>
+                  <span className="text-gray-700">
+                    — so we can see which invoices are overdue.
+                  </span>
+                </li>
+                <li className="flex items-start gap-3 text-sm">
+                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 shrink-0">
+                    customer_read
+                  </code>
+                  <span className="text-gray-700">
+                    — so we know who to address and how.
+                  </span>
+                </li>
+              </ul>
+              <p className="mt-4 text-sm text-gray-500">
+                No write permissions. The app can't modify invoices, customers, or
+                payment methods.
+              </p>
+            </div>
+
+            {/* Pause & cancel */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-8">
+              <h3 className="text-lg font-bold text-gray-900">
+                Pause &amp; cancel, any time
+              </h3>
+              <ul className="mt-4 space-y-4 text-sm text-gray-700">
+                <li className="flex items-start gap-3">
+                  <span className="text-indigo-600 mt-0.5">✓</span>
+                  <span>
+                    <span className="font-semibold text-gray-900">Switch to Draft Mode</span>{" "}
+                    and all auto-sending pauses instantly. No emails go out without your
+                    approval in Draft mode.
+                  </span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="text-indigo-600 mt-0.5">✓</span>
+                  <span>
+                    You can{" "}
+                    <span className="font-semibold text-gray-900">
+                      disconnect your Stripe account
+                    </span>{" "}
+                    at any time from the Stripe Dashboard — sequences stop immediately.
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Not a debt collection service */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-8">
+            <h3 className="text-lg font-bold text-gray-900">
+              Not a debt collection service
+            </h3>
+            <p className="mt-3 text-sm text-gray-600 leading-relaxed">
+              CollectionsCopilot sends polite, personalized payment reminders — never
+              legal threats, never harassment. Our AI is explicitly instructed to
+              preserve your customer relationships, not damage them. If you need formal
+              debt collection, this isn't the tool for that.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -345,6 +536,46 @@ function Home() {
         </div>
       </section>
 
+      {/* FAQ */}
+      <section id="faq" className="max-w-4xl mx-auto px-6 py-20">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
+          Frequently asked questions
+        </h2>
+        <p className="text-center text-gray-600 max-w-xl mx-auto mb-14">
+          The honest answers to the questions we'd ask, if we were you.
+        </p>
+        <div className="space-y-6">
+          {[
+            {
+              q: "Will this sound robotic?",
+              a: "No. Each email is either AI-generated using your invoice history and customer context, or uses carefully written fallback templates that vary by stage. The AI is prompted to write like a human who cares about the relationship — never copy-paste, never robotic. Want to hear it before subscribing? Free Draft Mode lets you preview real drafts from your own invoices.",
+            },
+            {
+              q: "Can I stop it instantly?",
+              a: "Yes. Switch to Draft Mode — nothing sends without your approval. You can also disconnect your Stripe account from the Stripe Dashboard at any time, and the moment a customer pays, their sequence stops on its own.",
+            },
+            {
+              q: "Does this work with one-off invoices as well as recurring ones?",
+              a: "Yes. CollectionsCopilot monitors your Stripe invoices regardless of whether they're one-off or subscription-based. If it's overdue in Stripe, we'll help you follow up.",
+            },
+            {
+              q: "Can I try it before paying?",
+              a: "Yes — Free Draft Mode is free forever, no card required. Connect your Stripe account and see real AI-drafted reminders for up to 5 of your overdue invoices. Nothing sends until you subscribe.",
+            },
+          ].map((item) => (
+            <div
+              key={item.q}
+              className="rounded-xl border border-gray-200 p-6"
+            >
+              <h3 className="font-semibold text-gray-900">{item.q}</h3>
+              <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+                {item.a}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="bg-gray-900 py-20">
         <div className="max-w-3xl mx-auto px-6 text-center">
@@ -352,7 +583,7 @@ function Home() {
             Ready to stop chasing payments?
           </h2>
           <p className="text-gray-400 max-w-lg mx-auto mb-8">
-            Connect your Stripe account and let Stripe Collections Copilot handle the
+            Connect your Stripe account and let CollectionsCopilot handle the
             follow-ups. Polite, personalized, and persistent — without you lifting a
             finger.
           </p>
@@ -382,7 +613,7 @@ stripecopilot@outlook.com
           </a>
         </div>
         <p>
-          {businessName || "Stripe Collections Copilot"} · Built on{" "}
+          {businessName || "CollectionsCopilot"} · Built on{" "}
           <a
             href="https://cto.new"
             className="underline hover:text-gray-700"
