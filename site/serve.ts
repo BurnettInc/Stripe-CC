@@ -42,11 +42,13 @@ for (let attempt = 1; ; attempt++) {
       async fetch(req) {
         const { pathname } = new URL(req.url);
 
-        // Proxy /app/* to the dashboard on port 3001
-        if (pathname.startsWith("/app")) {
-          const targetPath = pathname.replace(/^\/app/, "") || "/";
+        // Proxy /app/* and /api/* to the dashboard on port 3001
+        const appMatch = pathname.match(/^\/(app|api)(\/|$)/);
+        if (appMatch) {
+          const prefix = appMatch[1];
+          const targetPath = pathname.replace(new RegExp(`^/${prefix}`), "") || "/";
           try {
-            const upstream = await fetch(`http://localhost:3001${targetPath}`, {
+            const upstream = await fetch(`http://localhost:3002${targetPath}`, {
               method: req.method,
               headers: req.headers,
               body: req.method !== "GET" && req.method !== "HEAD" ? await req.text().catch(() => null) : undefined,
