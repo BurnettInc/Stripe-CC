@@ -130,8 +130,8 @@ function Privacy() {
         <h2 className="text-xl font-semibold text-gray-900 mt-8">7. Contact</h2>
         <p className="text-gray-700 leading-relaxed">
           Cody Burnett, sole proprietor — Texas, USA.{" "}
-          <a href="mailto:stripecopilot@outlook.com" className="text-indigo-600 underline">
-            stripecopilot@outlook.com
+          <a href="mailto:support@getcollectionscopilot.com" className="text-indigo-600 underline">
+            support@getcollectionscopilot.com
           </a>
         </p>
       </main>

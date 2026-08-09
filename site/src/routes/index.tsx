@@ -606,10 +606,10 @@ function Home() {
             Terms of Service
           </a>
           <a
-            href="mailto:stripecopilot@outlook.com"
+            href="mailto:support@getcollectionscopilot.com"
             className="hover:text-gray-700 transition-colors"
           >
-stripecopilot@outlook.com
+support@getcollectionscopilot.com
           </a>
         </div>
         <p>
