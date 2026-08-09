@@ -12,6 +12,18 @@ export default defineConfig({
     // masks the Host to localhost:3000, but accept any host so a dev server never
     // rejects a proxied request with "Blocked request".
     allowedHosts: true,
+    // Mirror serve.ts: forward /api/* and /app/* (the Stripe App backend surface)
+    // to the backend on port 3002, stripping the prefix so the backend sees its
+    // own paths (e.g. /api/health -> /health, /app/oauth/callback -> /oauth/callback).
+    // Keeps dev behaviour identical to the published server so the Stripe App is
+    // testable through the dev site while the backend stays on 3002.
+    proxy: {
+      "^/(api|app)(/|$)": {
+        target: "http://localhost:3002",
+        changeOrigin: false,
+        rewrite: (path) => path.replace(/^\/(api|app)/, "") || "/",
+      },
+    },
   },
   plugins: [
     tailwindcss(),
