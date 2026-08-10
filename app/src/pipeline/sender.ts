@@ -11,6 +11,45 @@ export interface SendResult {
   provider?: string;
 }
 
+/**
+ * Custom sender branding (Standard plan feature). The from-ADDRESS always
+ * stays the global verified FROM_EMAIL — merchants only customize the display
+ * name and an optional Reply-To address, both stored on their merchant row
+ * (migration 009: sender_name, reply_to).
+ */
+export interface SenderBranding {
+  senderName?: string | null;
+  replyTo?: string | null;
+}
+
+/** Strip characters that would break an RFC 5322 display-name. */
+export function sanitizeDisplayName(name: string): string {
+  return name.replace(/["\\\r\n]/g, "").trim().slice(0, 80);
+}
+
+/** Build the From header: `"Name" <email>` when a display name is set, else the bare email. */
+export function buildFromAddress(email: string, senderName?: string | null): string {
+  const clean = senderName ? sanitizeDisplayName(senderName) : "";
+  return clean ? `"${clean}" <${email}>` : email;
+}
+
+/**
+ * Resolve a merchant's branding for a CUSTOMER reminder send. Returns {} for
+ * null tasks (merchant notifications, weekly summaries) — those keep the
+ * neutral global from, never merchant branding.
+ */
+export function senderBrandingForTask(db: Database, task: ReminderTask | null): SenderBranding {
+  if (!task) return {};
+  const row = db
+    .query(
+      `SELECT m.sender_name, m.reply_to
+       FROM merchants m JOIN invoices i ON i.merchant_id = m.id
+       WHERE i.id = ?`
+    )
+    .get(task.invoice_id) as { sender_name: string | null; reply_to: string | null } | null;
+  return { senderName: row?.sender_name ?? null, replyTo: row?.reply_to ?? null };
+}
+
 export interface SendOptions {
   /**
    * Skip the CAN-SPAM unsubscribe footer. Used for merchant account alerts
@@ -42,7 +81,14 @@ export async function sendEmailForReal(
   const paidSkip = checkPaidAndSkip(db, task);
   if (paidSkip) return paidSkip;
 
-  const from = fromEmail || process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
+  // Custom sender branding: only customer reminders (task != null) carry the
+  // merchant's display name / Reply-To. Merchant account notifications pass
+  // task=null and keep the neutral global from.
+  const branding = senderBrandingForTask(db, task);
+  const baseFrom = fromEmail || process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
+  const from = buildFromAddress(baseFrom, branding.senderName);
+  const replyTo = branding.replyTo?.trim() || undefined;
+
   const subject = draft.subject;
   // CAN-SPAM: append the compliance footer (opt-out link + physical address)
   // to the AI-drafted or template-fallback body before it goes out — unless
@@ -65,7 +111,8 @@ export async function sendEmailForReal(
         },
         body: JSON.stringify({
           personalizations: [{ to: [{ email: toEmail }] }],
-          from: { email: from },
+          from: { email: baseFrom, ...(branding.senderName ? { name: branding.senderName } : {}) },
+          ...(replyTo ? { reply_to: { email: replyTo } } : {}),
           subject,
           content: [{ type: "text/plain", value: body }],
         }),
@@ -104,6 +151,7 @@ export async function sendEmailForReal(
         body: JSON.stringify({
           from,
           to: toEmail,
+          ...(replyTo ? { reply_to: replyTo } : {}),
           subject,
           text: body,
         }),
@@ -157,9 +205,17 @@ export function sendEmail(
     ? draft.body
     : appendCanspamFooter(draft.body, ...footerContextFor(db, task));
 
+  // The stub mirrors the real-send branding so log-only environments still
+  // show exactly what a provider send would carry.
+  const branding = senderBrandingForTask(db, task);
+  const baseFrom = process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
+  const from = buildFromAddress(baseFrom, branding.senderName);
+  const replyTo = branding.replyTo?.trim();
+
   const message = [
     `[STUB SEND] Would send email:`,
     `  To: (customer from invoice)`,
+    `  From: ${from}${replyTo ? `\n  Reply-To: ${replyTo}` : ""}`,
     `  Subject: ${draft.subject}`,
     `  Body preview: ${body.substring(0, 100)}...`,
   ].join("\n");
