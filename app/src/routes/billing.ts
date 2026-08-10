@@ -189,7 +189,9 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
   }
 
   // ── Webhook signature verification ──
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  // Uses STRIPE_BILLING_WEBHOOK_SECRET for the /billing endpoint, falling back
+  // to the shared STRIPE_WEBHOOK_SECRET for backward compatibility.
+  const webhookSecret = process.env.STRIPE_BILLING_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET;
   if (webhookSecret) {
     const sigHeader = req.headers.get("stripe-signature");
     if (!sigHeader) {
