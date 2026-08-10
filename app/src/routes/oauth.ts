@@ -103,11 +103,19 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
     console.log(`[oauth] Stripe account connected: ${accountId} (merchant ${merchantId})`);
 
     const html = `<!DOCTYPE html>
-    <html><head><title>Connected</title></head>
-    <body style="font-family:system-ui,sans-serif;text-align:center;padding-top:80px;">
-    <h2>✅ Stripe account connected!</h2>
-    <p>You can close this window and return to the dashboard.</p>
-    <script>try { window.opener?.postMessage('oauth-complete', '*'); } catch(_) {} setTimeout(function(){ window.close(); }, 1500);</script>
+    <html><head><title>Connected — CollectionsCopilot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="font-family:system-ui,sans-serif;text-align:center;padding-top:80px;background:#F9FAFB;">
+    <div style="background:white;max-width:420px;margin:0 auto;padding:40px 30px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+      <div style="font-size:48px;margin-bottom:16px;">✅</div>
+      <h2 style="margin:0 0 8px;color:#111827;">Stripe account connected!</h2>
+      <p style="color:#6B7280;margin:0 0 20px;">Redirecting to your dashboard…</p>
+    </div>
+    <script>
+      try { window.opener?.postMessage('oauth-complete', '*'); } catch(_) {}
+      setTimeout(function(){ window.location.href = '${baseUrl}/?connected=true'; }, 2000);
+    </script>
     </body></html>`;
     return new Response(html, {
       status: 200,
