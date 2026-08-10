@@ -670,13 +670,7 @@ support@getcollectionscopilot.com
           </a>
         </div>
         <p>
-          {businessName || "CollectionsCopilot"} · Built on{" "}
-          <a
-            href="https://cto.new"
-            className="underline hover:text-gray-700"
-          >
-            cto.new
-          </a>
+          {businessName || "CollectionsCopilot"}
         </p>
       </footer>
     </div>

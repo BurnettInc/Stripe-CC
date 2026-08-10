@@ -33,11 +33,7 @@ function About() {
         </p>
 
         <p className="text-gray-700 leading-relaxed mt-4">
-          Built on{" "}
-          <a href="https://cto.new" className="text-indigo-600 underline">
-            cto.new
-          </a>
-          . Questions or feedback? Reach out at{" "}
+          Questions or feedback? Reach out at{" "}
           <a href="mailto:support@getcollectionscopilot.com" className="text-indigo-600 underline">
             support@getcollectionscopilot.com
           </a>{" "}
