@@ -249,6 +249,40 @@ export function freeDraftsRemaining(db: Database, merchantId: number): number {
   return Math.max(0, FREE_DRAFT_LIMIT - used);
 }
 
+const STANDARD_INVOICE_LIMIT = 50;
+
+/**
+ * Whether the merchant's effective plan is an active Standard subscription —
+ * the only plan subject to the 50-overdue-invoice cap. Pro merchants and
+ * merchants with no active subscription (free) are never capped.
+ */
+export function isActiveStandard(db: Database, merchantId: number): boolean {
+  const sub = getSubscriptionByMerchantId(db, merchantId);
+  return !!sub && sub.status === "active" && sub.tier === "standard";
+}
+
+/** Invoice tracking limit for a merchant: 50 when active Standard, null (unlimited) otherwise. */
+export function invoiceLimitFor(db: Database, merchantId: number): number | null {
+  return isActiveStandard(db, merchantId) ? STANDARD_INVOICE_LIMIT : null;
+}
+
+/** Count of currently-overdue invoices for a merchant — the measure behind the Standard cap. */
+export function countOverdueInvoices(db: Database, merchantId: number): number {
+  const row = db.query("SELECT COUNT(*) AS count FROM invoices WHERE merchant_id=? AND status='overdue'").get(merchantId) as { count: number };
+  return row.count;
+}
+
+/**
+ * The most recent reminder task for an invoice, if any. Used by the Standard
+ * cap gate so an invoice is only blocked when it has no existing task — an
+ * already-tracked invoice is never re-blocked, and a previously-blocked
+ * invoice is automatically picked up once the merchant drops back under the
+ * limit.
+ */
+export function getTaskForInvoice(db: Database, invoiceId: number): { id: number } | null {
+  return db.query("SELECT id FROM reminder_tasks WHERE invoice_id=? ORDER BY created_at DESC, id DESC LIMIT 1").get(invoiceId) as { id: number } | null;
+}
+
 export function getSubscriptionByStripeId(db: Database, stripeSubscriptionId: string) {
   return db
     .query("SELECT * FROM subscriptions WHERE stripe_subscription_id=?")

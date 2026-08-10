@@ -560,6 +560,18 @@
       </div>
     </div>
 
+    <!-- Standard invoice-limit banner (shown when over the 50-invoice cap) -->
+    <div class="card" id="limit-banner" style="display:none;border:1px solid #EF4444;background:#FFF5F5;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <p style="margin:0;font-size:0.9rem;color:#7F1D1D;">
+          <strong>You've reached your 50-invoice limit on Standard.</strong>
+          New overdue invoices won't be tracked until you're back under the limit.
+          Upgrade to Pro for unlimited tracking.
+        </p>
+        <button onclick="subscribe('pro')" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:0.85rem;font-weight:600;cursor:pointer;white-space:nowrap;">Upgrade to Pro</button>
+      </div>
+    </div>
+
     <!-- Stripe Connect -->
     <div class="card" id="stripe-connect-card">
       <h2>🔗 Stripe Account</h2>
@@ -700,13 +712,20 @@
         if (res.ok) {
           var s = await res.json();
           document.getElementById('stat-invoices').textContent = s.totalInvoices || 0;
-          document.getElementById('stat-paid').textContent = (s.paidInvoices || 0) + ' paid';
+          document.getElementById('stat-paid').textContent = (s.paidInvoices || 0) + ' paid · ' + (s.overdueInvoices ?? 0) + ' overdue';
           document.getElementById('stat-reminders').textContent = s.remindersSent || 0;
           document.getElementById('stat-emails').textContent = (s.emailsSent || 0) + ' real sends';
           document.getElementById('stat-active').textContent = s.activeSequences || 0;
           document.getElementById('stat-free-drafts').textContent = (s.free_drafts_remaining ?? 0) + ' of 5';
           document.getElementById('stat-uptime').textContent = s.uptimeFormatted || '—';
           document.getElementById('stat-started').textContent = 'Since ' + new Date(s.startedAt).toLocaleString();
+          // Standard 50-invoice cap banner — shown only while over the limit
+          // (active Standard with >= 50 overdue invoices; the watcher blocks
+          // new tracking until the count drops back under 50).
+          var limitBanner = document.getElementById('limit-banner');
+          if (limitBanner) {
+            limitBanner.style.display = s.overInvoiceLimit ? 'block' : 'none';
+          }
         }
       } catch (e) {
         console.error('Failed to load stats:', e);

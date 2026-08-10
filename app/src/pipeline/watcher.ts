@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining } from "../db";
+import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor } from "../db";
 import { getEscalationStage } from "./escalation";
 
 export interface WebhookEvent {
@@ -46,6 +46,13 @@ export function handleWebhookEvent(db: Database, event: WebhookEvent): { action:
         ? new Date((inv.due_date as number) * 1000).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0];
 
+      // Standard plan cap: an active Standard merchant may track at most 50
+      // overdue invoices at once. Capture the pre-existing overdue count
+      // BEFORE the upsert below so the 50th invoice is still trackable and
+      // the 51st is blocked (count >= 50 means 50 rows were already tracked).
+      const limit = invoiceLimitFor(db, merchantId);
+      const overdueBefore = limit !== null ? countOverdueInvoices(db, merchantId) : 0;
+
       const invoiceId = upsertInvoice(db, {
         stripe_invoice_id: stripeInvoiceId,
         merchant_id: merchantId,
@@ -64,6 +71,16 @@ export function handleWebhookEvent(db: Database, event: WebhookEvent): { action:
       if (!hasActiveSubscription(db, merchantId) && freeDraftsRemaining(db, merchantId) <= 0) {
         console.log(`Skipping task creation for merchant ${merchantId}: free draft limit reached, no subscription`);
         return { action: `skipped reminder task for invoice ${stripeInvoiceId}: free draft limit reached` , invoiceId };
+      }
+      // The invoice was still upserted above so it stays visible in the
+      // dashboard — only task creation (tracking / reminders) is blocked.
+      // Invoices that already have a task are never blocked: a re-fired event
+      // for an already-tracked invoice must not be skipped, and a
+      // previously-blocked invoice is automatically picked up once the
+      // merchant drops back under the limit.
+      if (limit !== null && overdueBefore >= limit && !getTaskForInvoice(db, invoiceId)) {
+        console.log(`[watcher] Merchant ${merchantId} at Standard 50-invoice limit — invoice ${stripeInvoiceId} not tracked. Upgrade to Pro for unlimited.`);
+        return { action: `skipped invoice ${stripeInvoiceId}: Standard 50-invoice limit reached (upgrade to Pro)`, invoiceId };
       }
       const taskId = createReminderTask(db, invoiceId, stage);
 
