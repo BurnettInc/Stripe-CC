@@ -1,4 +1,4 @@
-import { getDb, ensureDefaultMerchant, freeDraftsRemaining, recordUnsubscribe } from "./db";
+import { getDb, ensureDefaultMerchant, freeDraftsRemaining, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor } from "./db";
 import { handleWebhook } from "./routes/webhook";
 import { handleTasks } from "./routes/tasks";
 import { handleSettings } from "./routes/settings";
@@ -161,6 +161,14 @@ async function handleRequest(req: Request): Promise<Response> {
         ).get(merchantId) as { count: number };
         const paidInvoices = paidRow.count;
 
+        // Standard plan cap status. invoiceLimit is null when the merchant is
+        // not capped (Pro or free); overInvoiceLimit is true only when an
+        // active Standard merchant has >= 50 overdue invoices (new tracking
+        // is blocked by the watcher until the count drops back under 50).
+        const overdueInvoices = countOverdueInvoices(db, merchantId);
+        const invoiceLimit = invoiceLimitFor(db, merchantId);
+        const overInvoiceLimit = invoiceLimit !== null && overdueInvoices >= invoiceLimit;
+
         return new Response(JSON.stringify({
           totalInvoices,
           totalInvoicesProcessed: totalInvoices,
@@ -169,6 +177,9 @@ async function handleRequest(req: Request): Promise<Response> {
           summaryEmailsSent,
           activeSequences,
           paidInvoices,
+          overdueInvoices,
+          invoiceLimit,
+          overInvoiceLimit,
           free_drafts_remaining: freeDrafts,
           uptime,
           uptimeFormatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`,
