@@ -329,10 +329,22 @@ async function handleRequest(req: Request): Promise<Response> {
         if (auth instanceof Response) return auth;
         const { generateWeeklySummary } = await import("./pipeline/summary");
         const { formatSummaryEmail } = await import("./pipeline/summary-email");
-        const { getMerchantById, logSend } = await import("./db");
+        const { getMerchantById, logSend, getSubscriptionByMerchantId } = await import("./db");
         const { sendEmailForReal } = await import("./pipeline/sender");
 
         const merchantId = auth.merchant_id;
+
+        // Weekly summary reports are Pro-only: gate the send behind an active
+        // Pro subscription. Read-only GET /summary stays open to any
+        // authenticated user.
+        const sub = getSubscriptionByMerchantId(db, merchantId);
+        if (!sub || sub.status !== "active" || sub.tier !== "pro") {
+          return new Response(
+            JSON.stringify({ error: "Weekly summary reports require a Pro subscription. Upgrade to unlock." }),
+            { status: 402, headers: { "Content-Type": "application/json" } }
+          );
+        }
+
         const merchant = getMerchantById(db, merchantId);
         if (!merchant) {
           return new Response(JSON.stringify({ error: "Merchant not found" }), {

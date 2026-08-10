@@ -218,6 +218,28 @@ export function hasActiveSubscription(db: Database, merchantId: number): boolean
   return sub?.status === "active";
 }
 
+/**
+ * Tier enforcement: Full Auto (trust_mode "full") is Pro-only. If the
+ * merchant's now-effective subscription is NOT an active Pro one (no sub,
+ * cancelled, past_due, or tier != "pro"), demote trust_mode "full" → "semi"
+ * so the merchant stays operational (Semi-Auto still auto-sends stage 1)
+ * without the unsafe hands-off behavior. No-op when the merchant is active
+ * Pro or when trust_mode isn't "full" — only writes on an actual change.
+ */
+export function enforceTierTrustMode(db: Database, merchantId: number): void {
+  const sub = getSubscriptionByMerchantId(db, merchantId);
+  const isActivePro = !!sub && sub.status === "active" && sub.tier === "pro";
+  if (isActivePro) return;
+
+  const merchant = db.query("SELECT trust_mode FROM merchants WHERE id=?").get(merchantId) as { trust_mode: string } | null;
+  if (merchant && merchant.trust_mode === "full") {
+    db.run("UPDATE merchants SET trust_mode='semi' WHERE id=?", [merchantId]);
+    console.log(
+      `[billing] Tier enforcement: merchant ${merchantId} no longer has an active Pro subscription — trust_mode reset 'full' → 'semi'`
+    );
+  }
+}
+
 const FREE_DRAFT_LIMIT = 5;
 
 /** Number of free drafts still available (an all-time, merchant-scoped cap). */
