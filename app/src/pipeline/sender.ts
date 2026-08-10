@@ -3,6 +3,7 @@ import type { Invoice, ReminderTask } from "../db";
 import { logSend, isUnsubscribed, resolveMerchant } from "../db";
 import type { EmailDraft } from "./drafter";
 import { appendCanspamFooter } from "./canspam";
+import { notifyMerchant } from "./notify";
 
 export interface SendResult {
   success: boolean;
@@ -18,6 +19,30 @@ export interface SendOptions {
    * caller is responsible for including any required contact line itself.
    */
   skipCanspam?: boolean;
+}
+
+/**
+ * Notify the merchant when a Stage 2 or Stage 3 reminder actually sends
+ * (homepage Full Auto promise: "You're notified when something happens —
+ * sequence escalated"). Stage 1 sends are deliberately silent (too noisy).
+ * No-op for null tasks (weekly summaries, merchant notifications themselves —
+ * no recursion) and failed sends: callers only invoke this after a confirmed
+ * success.
+ */
+async function notifyOnEscalatedSend(db: Database, task: ReminderTask | null): Promise<void> {
+  if (!task || task.stage < 2) return;
+  const invoice = db
+    .query("SELECT merchant_id, customer_name, stripe_invoice_id FROM invoices WHERE id=?")
+    .get(task.invoice_id) as { merchant_id: number; customer_name: string; stripe_invoice_id: string } | null;
+  if (!invoice) return;
+
+  const label = task.stage === 2 ? "firmer follow-up" : "final notice";
+  await notifyMerchant(
+    db,
+    invoice.merchant_id,
+    `Invoice ${invoice.stripe_invoice_id} escalated to Stage ${task.stage}`,
+    `Invoice ${invoice.stripe_invoice_id} escalated to Stage ${task.stage} — ${label} sent to ${invoice.customer_name}.`
+  );
 }
 
 /**
@@ -78,6 +103,7 @@ export async function sendEmailForReal(
           const now = new Date().toISOString();
           db.run("UPDATE reminder_tasks SET status='sent', sent_at=? WHERE id=?", [now, task.id]);
         }
+        await notifyOnEscalatedSend(db, task);
         return { success: true, message: msg, logId: 0, provider: "sendgrid" };
       } else {
         const errText = await res.text();
@@ -116,6 +142,7 @@ export async function sendEmailForReal(
           const now = new Date().toISOString();
           db.run("UPDATE reminder_tasks SET status='sent', sent_at=? WHERE id=?", [now, task.id]);
         }
+        await notifyOnEscalatedSend(db, task);
         return { success: true, message: msg, logId: 0, provider: "resend" };
       } else {
         const errText = await res.text();
@@ -131,7 +158,9 @@ export async function sendEmailForReal(
   }
 
   // ── Fallback: log-only mode ──
-  return sendEmail(db, task, draft, opts);
+  const stubResult = sendEmail(db, task, draft, opts);
+  if (stubResult.success) await notifyOnEscalatedSend(db, task);
+  return stubResult;
 }
 
 /**
