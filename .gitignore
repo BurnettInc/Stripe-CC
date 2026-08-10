@@ -1,7 +1,6 @@
 node_modules/
 dist/
 .run/
-bun.lock
 package-lock.json
 *.tar.gz
 .env

@@ -1,12 +1,17 @@
 import { Database } from "bun:sqlite";
-import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 let db: Database | null = null;
 
 export function getDb(): Database {
   if (!db) {
-    db = new Database(join(import.meta.dirname, "..", "app.db"), { create: true });
+    // DB_PATH lets the deployment point SQLite at a persistent volume
+    // (e.g. DB_PATH=/data/app.db with a Railway volume mounted at /data).
+    // Default stays the app directory so local dev is unchanged.
+    const dbPath = process.env.DB_PATH || join(import.meta.dirname, "..", "app.db");
+    mkdirSync(dirname(dbPath), { recursive: true });
+    db = new Database(dbPath, { create: true });
     db.exec("PRAGMA journal_mode=WAL");
     db.exec("PRAGMA foreign_keys=ON");
     const schemaFile = join(import.meta.dirname, "..", "schema.sql");

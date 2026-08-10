@@ -9,7 +9,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { requireSession } from "./middleware/session";
 
-const PORT = 3002;
+// Railway injects PORT dynamically — honor it, fall back to 3002 for local dev.
+const PORT = Number(process.env.PORT) || 3002;
 const START_TIME = Date.now();
 const allowedOrigins = new Set([
   "https://collectionscopilot.ctonew.app",
