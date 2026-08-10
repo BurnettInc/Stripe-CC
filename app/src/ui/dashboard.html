@@ -802,6 +802,7 @@
             <li>✓ 3-stage escalation ladder</li>
             <li>✓ AI-drafted reminder emails</li>
             <li>✓ Draft &amp; Semi-Auto modes</li>
+            <li>✓ Weekly summary reports</li>
           </ul>
           <button onclick="subscribe('standard')" id="btn-standard" class="btn-outline">
             Subscribe to Standard
@@ -816,7 +817,6 @@
             <li>✓ 3-stage escalation ladder</li>
             <li>✓ AI-drafted reminder emails</li>
             <li>✓ Full Auto mode</li>
-            <li>✓ Weekly summary reports</li>
             <li>✓ Priority support</li>
           </ul>
           <button onclick="subscribe('pro')" id="btn-pro">
@@ -1493,7 +1493,7 @@
         var res = await fetch('/summary/send', { method: 'POST' });
         var data = await res.json();
         if (res.status === 402) {
-          showUpgradePrompt(data.error || 'Weekly summary reports require a Pro subscription. Upgrade to unlock.');
+          showUpgradePrompt(data.error || 'Weekly recovery reports require a subscription. Upgrade to unlock.');
         } else if (res.ok) {
           if (data.sendResult && data.sendResult.success === false) {
             statusEl.textContent = '⚠ Summary generated, but the email could not be sent: ' + (data.sendResult.message || 'provider error');

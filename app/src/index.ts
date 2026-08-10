@@ -341,18 +341,20 @@ async function handleRequest(req: Request): Promise<Response> {
         if (auth instanceof Response) return auth;
         const { generateWeeklySummary } = await import("./pipeline/summary");
         const { formatSummaryEmail } = await import("./pipeline/summary-email");
-        const { getMerchantById, logSend, getSubscriptionByMerchantId } = await import("./db");
+        const { getMerchantById, logSend, isActivePaidSubscriber } = await import("./db");
         const { sendEmailForReal } = await import("./pipeline/sender");
 
         const merchantId = auth.merchant_id;
 
-        // Weekly summary reports are Pro-only: gate the send behind an active
-        // Pro subscription. Read-only GET /summary stays open to any
-        // authenticated user.
-        const sub = getSubscriptionByMerchantId(db, merchantId);
-        if (!sub || sub.status !== "active" || sub.tier !== "pro") {
+        // Weekly recovery reports are included with every PAID plan (Standard
+        // and Pro) — homepage parity. There is no separate scheduled send
+        // path today: this route is the only place summaries go out, and any
+        // future scheduler must apply the same isActivePaidSubscriber() rule
+        // before sending (must never send to free merchants). Read-only GET
+        // /summary stays open to any authenticated user.
+        if (!isActivePaidSubscriber(db, merchantId)) {
           return new Response(
-            JSON.stringify({ error: "Weekly summary reports require a Pro subscription. Upgrade to unlock." }),
+            JSON.stringify({ error: "Weekly recovery reports require a subscription. Upgrade to unlock." }),
             { status: 402, headers: { "Content-Type": "application/json" } }
           );
         }
