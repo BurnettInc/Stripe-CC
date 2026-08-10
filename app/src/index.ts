@@ -76,7 +76,7 @@ if (process.env.STRIPE_WEBHOOK_SECRET) {
     console.error(`   FATAL: STRIPE_WEBHOOK_SECRET is not set and this server is not running on localhost.`);
     console.error(`   (NODE_ENV=${process.env.NODE_ENV || "unset"}, BASE_URL=${baseUrl})`);
     console.error(`   Webhook signature verification would be disabled in production — refusing to boot.`);
-    console.error(`   Set STRIPE_WEBHOOK_SECRET (from: stripe listen --forward-to localhost:3002/webhook) and retry.`);
+    console.error(`   Set STRIPE_WEBHOOK_SECRET (from: stripe listen --forward-to localhost:3001/webhook) and retry.`);
     process.exit(1);
   }
   console.log(`   Webhook verification: disabled (test mode)`);
@@ -241,7 +241,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // GET /stripe/oauth/callback — Stripe Connect OAuth callback
       // GET /oauth/callback — alias (matches manifest's allowed_redirect_uris as well)
-      if ((path === "/stripe/oauth/callback" || path === "/oauth/callback") && req.method === "GET") {
+      if ((path === "/stripe/oauth/callback" || path === "/oauth/callback" || path === "/api/oauth/callback") && req.method === "GET") {
         return handleStripeOAuthCallback(db, req);
       }
 
