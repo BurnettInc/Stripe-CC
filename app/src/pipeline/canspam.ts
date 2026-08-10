@@ -10,9 +10,16 @@
 /** Fallback business address used when BUSINESS_ADDRESS is not configured. */
 export const DEFAULT_BUSINESS_ADDRESS = "CollectionsCopilot — Texas, USA";
 
-/** Public opt-out endpoint (the site proxy forwards /api/* to this backend). */
+/**
+ * Public opt-out endpoint. Defaults to the platform site (which proxies
+ * /api/* to the backend); on a standalone deployment (Railway) set BASE_URL
+ * so opt-out links point at the deployed backend's /api/unsubscribe instead.
+ * (BASE_URL must be the origin without a trailing slash.)
+ */
 export const UNSUBSCRIBE_BASE_URL =
-  "https://collectionscopilot.ctonew.app/api/unsubscribe";
+  process.env.BASE_URL
+    ? `${process.env.BASE_URL}/api/unsubscribe`
+    : "https://collectionscopilot.ctonew.app/api/unsubscribe";
 
 /**
  * Append the CAN-SPAM compliance footer to an email body.

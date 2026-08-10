@@ -1,0 +1,8 @@
+# Keep the image lean and avoid copying secrets/test data.
+node_modules
+dist
+app.db*
+*.log
+.env
+.env.local
+.git
