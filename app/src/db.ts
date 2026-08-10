@@ -342,14 +342,46 @@ export function getTaskById(db: Database, id: number) {
   return db.query("SELECT * FROM reminder_tasks WHERE id = ?").get(id) as ReminderTask | null;
 }
 
-export function getAllTasks(db: Database, merchantId: number) {
-  return db.query(`
+/**
+ * Task inbox / history for a merchant.
+ *
+ * Default (includeAll=false) returns the inbox — tasks the dashboard needs to
+ * act on: pending (not yet processed), drafted and reviewed (awaiting-approval
+ * candidates). Sent/cancelled tasks are excluded unless includeAll is true
+ * (used for history, e.g. the e2e suite).
+ *
+ * Every row carries the invoice facts plus two inbox-specific fields:
+ * - days_overdue: whole days since due_date (mirrors the watcher's math)
+ * - awaiting_approval: true when the task has a reviewed draft ready to send
+ *   (status 'reviewed'), false otherwise (pending = nothing drafted yet).
+ */
+export function getAllTasks(db: Database, merchantId: number, includeAll = false): Array<Record<string, unknown>> {
+  const rows = db.query(`
     SELECT rt.*, i.stripe_invoice_id, i.customer_name, i.customer_email, i.amount_cents, i.currency, i.due_date, i.status as invoice_status
     FROM reminder_tasks rt
     JOIN invoices i ON rt.invoice_id = i.id
     WHERE i.merchant_id = ?
+      ${includeAll ? "" : "AND rt.status IN ('pending', 'drafted', 'reviewed')"}
     ORDER BY rt.created_at DESC
-  `).all(merchantId);
+  `).all(merchantId) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => {
+    const dueDate = String(row.due_date ?? "");
+    const daysOverdue = dueDate
+      ? Math.floor((Date.now() - new Date(dueDate).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+    return {
+      ...row,
+      days_overdue: daysOverdue,
+      awaiting_approval: row.status === "reviewed",
+    };
+  });
+}
+
+/** Whether the merchant has paused collections (automatic sends skipped). */
+export function isMerchantPaused(db: Database, merchantId: number): boolean {
+  const merchant = db.query("SELECT paused FROM merchants WHERE id=?").get(merchantId) as { paused: number } | null;
+  return !!merchant?.paused;
 }
 
 export interface CustomerHistory {
@@ -406,6 +438,7 @@ export interface Merchant {
   email: string;
   trust_mode: string;
   drafts_used: number;
+  paused: number;
   created_at: string;
 }
 

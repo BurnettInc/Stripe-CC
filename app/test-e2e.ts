@@ -1,12 +1,45 @@
 /**
  * Stripe Collections Copilot — End-to-End Test Suite
  *
- * Runs 10 test sequences against the running server on port 3001.
- * Uses unique invoice IDs per test to avoid collisions.
+ * Runs 10 test sequences against the running server (TEST_BASE, default
+ * localhost:3001). Uses unique invoice IDs per test to avoid collisions.
  * Resets trust_mode to 'full' at the end.
+ *
+ * Auth: the suite seeds a session + active Pro subscription for merchant 1
+ * directly in the server's SQLite DB (TEST_DB_PATH, default app/app.db) and
+ * sends the session cookie on every request — sessions have no public
+ * creation endpoint.
  */
 
-const BASE = "http://localhost:3001";
+import { Database } from "bun:sqlite";
+import { join } from "node:path";
+
+const BASE = process.env.TEST_BASE || "http://localhost:3001";
+const DB_PATH = process.env.TEST_DB_PATH || join(import.meta.dirname, "app.db");
+const SESSION = "e2e-session";
+
+/** Fetch with the seeded session cookie attached. */
+function af(url: string, opts: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(opts.headers || {});
+  headers.set("Cookie", `session=${encodeURIComponent(SESSION)}`);
+  return fetch(url, { ...opts, headers });
+}
+
+/** Seed the session + an active Pro subscription for merchant 1 (test needs sending). */
+function bootstrap() {
+  // NOTE: Bun 1.3.x throws SQLITE_MISUSE when the options object contains
+  // `create: false` — use the default constructor (create: true is harmless,
+  // the file already exists because the server created it).
+  const d = new Database(DB_PATH);
+  d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 1, datetime('now', '+30 days'))", [SESSION]);
+  const existing = d.query("SELECT id FROM subscriptions WHERE merchant_id=1").get() as { id: number } | null;
+  if (existing) {
+    d.run("UPDATE subscriptions SET status='active', tier='pro' WHERE merchant_id=1");
+  } else {
+    d.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (1, 'sub_e2e', 'pro', 'active')");
+  }
+  d.close();
+}
 
 // Helpers
 function daysAgoTimestamp(days: number): number {
@@ -22,7 +55,7 @@ function daysAgoDate(days: number): string {
 }
 
 async function setTrustMode(mode: "draft" | "semi" | "full"): Promise<void> {
-  const res = await fetch(`${BASE}/settings`, {
+  const res = await af(`${BASE}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ trust_mode: mode }),
@@ -39,7 +72,7 @@ async function fireOverdueWebhook(invoiceId: string, daysAgo: number, opts: {
   currency?: string;
 } = {}): Promise<{ action: string; invoiceId: number; taskId: number }> {
   const ts = daysAgoTimestamp(daysAgo);
-  const res = await fetch(`${BASE}/webhook`, {
+  const res = await af(`${BASE}/webhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -60,7 +93,7 @@ async function fireOverdueWebhook(invoiceId: string, daysAgo: number, opts: {
 }
 
 async function firePaidWebhook(invoiceId: string): Promise<{ action: string }> {
-  const res = await fetch(`${BASE}/webhook`, {
+  const res = await af(`${BASE}/webhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -76,7 +109,7 @@ async function firePaidWebhook(invoiceId: string): Promise<{ action: string }> {
 }
 
 async function processTask(taskId: number): Promise<any> {
-  const res = await fetch(`${BASE}/tasks/${taskId}/process`, {
+  const res = await af(`${BASE}/tasks/${taskId}/process`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
@@ -85,7 +118,7 @@ async function processTask(taskId: number): Promise<any> {
 }
 
 async function getSummary(merchantId = 1): Promise<any> {
-  const res = await fetch(`${BASE}/summary?merchantId=${merchantId}`);
+  const res = await af(`${BASE}/summary?merchantId=${merchantId}`);
   return res.json();
 }
 
@@ -106,6 +139,7 @@ function record(seq: number, name: string, pass: boolean, details: string) {
 }
 
 async function run() {
+  bootstrap();
   console.log("═══════════════════════════════════════════════");
   console.log("  Stripe Collections Copilot — E2E Test Suite");
   console.log("═══════════════════════════════════════════════\n");
@@ -199,7 +233,7 @@ async function run() {
     const paidResult = await firePaidWebhook(invId);
 
     // Check task status is cancelled
-    const tasksRes = await fetch(`${BASE}/tasks`);
+    const tasksRes = await af(`${BASE}/tasks?status=all`);
     const tasks = await tasksRes.json();
     const task = tasks.find((t: any) => t.id === taskId);
 
@@ -306,7 +340,7 @@ async function run() {
     const taskId2 = wh2.taskId;
 
     // Check old task is cancelled
-    const tasksRes = await fetch(`${BASE}/tasks`);
+    const tasksRes = await af(`${BASE}/tasks?status=all`);
     const tasks = await tasksRes.json();
     const oldTask = tasks.find((t: any) => t.id === taskId1);
     const newTask = tasks.find((t: any) => t.id === taskId2);
