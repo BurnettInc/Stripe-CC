@@ -6,6 +6,7 @@ import {
   updateSubscriptionStatus,
   getSubscriptionByStripeId,
   getSubscriptionByMerchantId,
+  enforceTierTrustMode,
 } from "../db";
 
 const STRIPE_API = "https://api.stripe.com/v1";
@@ -397,6 +398,8 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
         if (existing) {
           updateSubscriptionStatus(db, sub.id, "cancelled");
           console.log(`[billing] Subscription ${sub.id} marked cancelled`);
+          // Full Auto is Pro-only: demote trust_mode if this merchant lost Pro.
+          enforceTierTrustMode(db, existing.merchant_id);
         }
 
         return new Response(JSON.stringify({ received: true, action: "subscription_cancelled" }), { status: 200, headers });
@@ -425,6 +428,9 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
 
           updateSubscriptionStatus(db, sub.id, status, tier);
           console.log(`[billing] Subscription ${sub.id} updated: status=${status} tier=${tier || "unchanged"}`);
+          // Full Auto is Pro-only: demote trust_mode if this merchant lost Pro
+          // (downgrade to Standard, lapse to past_due, etc.).
+          enforceTierTrustMode(db, existing.merchant_id);
         }
 
         return new Response(JSON.stringify({ received: true, action: "subscription_updated" }), { status: 200, headers });
