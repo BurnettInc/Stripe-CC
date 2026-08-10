@@ -428,6 +428,9 @@ async function handleRequest(req: Request): Promise<Response> {
 }
 
 const server = Bun.serve({
+  // Bind all interfaces — Railway's proxy runs outside the container and can
+  // only reach services listening on 0.0.0.0, not loopback.
+  hostname: "0.0.0.0",
   port: PORT,
   fetch: async (req) => {
     const response = await handleRequest(req);
@@ -436,10 +439,10 @@ const server = Bun.serve({
   },
 });
 
-console.log(`✅ Server listening on http://localhost:${PORT}`);
-console.log(`   Dashboard: http://localhost:${PORT}/`);
-console.log(`   Health:    http://localhost:${PORT}/health`);
-console.log(`   Stats:     http://localhost:${PORT}/stats`);
-console.log(`   Webhook:   POST http://localhost:${PORT}/webhook`);
-console.log(`   Tasks:     GET  http://localhost:${PORT}/tasks`);
-console.log(`   Settings:  GET  http://localhost:${PORT}/settings`);
+console.log(`✅ Server listening on http://0.0.0.0:${PORT}`);
+console.log(`   Dashboard: http://0.0.0.0:${PORT}/`);
+console.log(`   Health:    http://0.0.0.0:${PORT}/health`);
+console.log(`   Stats:     http://0.0.0.0:${PORT}/stats`);
+console.log(`   Webhook:   POST http://0.0.0.0:${PORT}/webhook`);
+console.log(`   Tasks:     GET  http://0.0.0.0:${PORT}/tasks`);
+console.log(`   Settings:  GET  http://0.0.0.0:${PORT}/settings`);
