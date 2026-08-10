@@ -178,11 +178,11 @@ export function isUnsubscribed(db: Database, merchantId: number, customerEmail: 
 
 export function createSubscription(
   db: Database,
-  params: { merchant_id: number; stripe_subscription_id: string; tier: string }
+  params: { merchant_id: number; stripe_subscription_id: string; tier: string; stripe_customer_id?: string | null }
 ) {
   const result = db.run(
-    "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (?, ?, ?, 'active')",
-    [params.merchant_id, params.stripe_subscription_id, params.tier]
+    "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, stripe_customer_id, tier, status) VALUES (?, ?, ?, ?, 'active')",
+    [params.merchant_id, params.stripe_subscription_id, params.stripe_customer_id ?? null, params.tier]
   );
   return Number(result.lastInsertRowid);
 }
@@ -386,6 +386,7 @@ export interface Subscription {
   id: number;
   merchant_id: number;
   stripe_subscription_id: string;
+  stripe_customer_id?: string | null;
   tier: string;
   status: string;
   created_at: string;

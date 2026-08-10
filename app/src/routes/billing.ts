@@ -58,16 +58,20 @@ function verifyStripeSignature(payload: string, signatureHeader: string, secret:
 /**
  * Handle billing routes:
  *   "checkout" → POST /billing/checkout — create a Stripe Checkout Session
+ *   "portal"   → POST /billing/portal   — create a Stripe Customer Portal session
  *   "webhook"  → POST /billing          — Stripe Billing webhook events
  */
 export async function handleBilling(
   db: Database,
   req: Request,
-  action: "checkout" | "webhook",
+  action: "checkout" | "portal" | "webhook",
   sessionMerchantId?: number,
 ): Promise<Response> {
   if (action === "checkout") {
     return handleCheckout(db, req, sessionMerchantId);
+  }
+  if (action === "portal") {
+    return handlePortal(db, sessionMerchantId);
   }
   return handleBillingWebhook(db, req);
 }
@@ -171,6 +175,119 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
   }
 }
 
+// ── Customer Portal session ──
+
+async function handlePortal(db: Database, merchantId?: number): Promise<Response> {
+  const headers = { "Content-Type": "application/json" };
+
+  if (!merchantId || typeof merchantId !== "number") {
+    return new Response(
+      JSON.stringify({ error: "merchantId (number) is required" }),
+      { status: 400, headers }
+    );
+  }
+
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey) {
+    return new Response(
+      JSON.stringify({
+        error: "STRIPE_SECRET_KEY is not configured",
+        detail: "Set the STRIPE_SECRET_KEY environment variable (sk_test_...) to enable billing.",
+      }),
+      { status: 503, headers }
+    );
+  }
+
+  const sub = getSubscriptionByMerchantId(db, merchantId);
+  if (!sub) {
+    return new Response(
+      JSON.stringify({ error: "No subscription found. Subscribe to a plan before managing billing." }),
+      { status: 400, headers }
+    );
+  }
+  if (sub.status !== "active") {
+    return new Response(
+      JSON.stringify({ error: `No active subscription (status: ${sub.status}). Resubscribe to manage billing.` }),
+      { status: 400, headers }
+    );
+  }
+
+  // Resolve the Stripe customer ID. Newer subscriptions store it (captured from
+  // checkout.session.completed); older ones fall back to fetching the Stripe
+  // subscription, which always carries its owning customer.
+  let customerId = sub.stripe_customer_id;
+  if (!customerId) {
+    try {
+      const res = await fetch(`${STRIPE_API}/subscriptions/${encodeURIComponent(sub.stripe_subscription_id)}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${stripeKey}` },
+      });
+      const data = await res.json() as Record<string, unknown>;
+      if (!res.ok) {
+        console.error("[billing] Stripe subscription lookup error:", data);
+        return new Response(
+          JSON.stringify({ error: "Could not look up subscription in Stripe", detail: data }),
+          { status: 502, headers }
+        );
+      }
+      customerId = typeof data.customer === "string" ? data.customer : null;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[billing] Subscription lookup request failed:", message);
+      return new Response(
+        JSON.stringify({ error: "Failed to contact Stripe", detail: message }),
+        { status: 502, headers }
+      );
+    }
+  }
+
+  if (!customerId) {
+    return new Response(
+      JSON.stringify({ error: "Could not determine the Stripe customer for this subscription." }),
+      { status: 502, headers }
+    );
+  }
+
+  const baseUrl = process.env.BASE_URL || `http://localhost:3001`;
+  const params = new URLSearchParams({
+    customer: customerId,
+    return_url: `${baseUrl}/?portal=return`,
+  });
+
+  try {
+    const res = await fetch(`${STRIPE_API}/billing_portal/sessions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${stripeKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+
+    const data = await res.json() as Record<string, unknown>;
+
+    if (!res.ok) {
+      console.error("[billing] Stripe billing portal error:", data);
+      return new Response(
+        JSON.stringify({ error: "Stripe billing portal session creation failed", detail: data }),
+        { status: 502, headers }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({ url: data.url }),
+      { status: 200, headers }
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[billing] Billing portal request failed:", message);
+    return new Response(
+      JSON.stringify({ error: "Failed to contact Stripe", detail: message }),
+      { status: 502, headers }
+    );
+  }
+}
+
 // ── Webhook handler with signature verification ──
 
 async function handleBillingWebhook(db: Database, req: Request): Promise<Response> {
@@ -241,9 +358,11 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
         const session = obj as {
           id?: string;
           subscription?: string;
+          customer?: string;
           metadata?: { merchant_id?: string; tier?: string };
         };
         const stripeSubscriptionId = session.subscription;
+        const stripeCustomerId = session.customer;
         const merchantId = session.metadata?.merchant_id
           ? parseInt(session.metadata.merchant_id, 10)
           : null;
@@ -261,8 +380,8 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
         if (existing) {
           console.log(`[billing] Subscription ${stripeSubscriptionId} already exists, skipping`);
         } else {
-          createSubscription(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, tier });
-          console.log(`[billing] Subscription created: merchant=${merchantId} tier=${tier} sub=${stripeSubscriptionId}`);
+          createSubscription(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, stripe_customer_id: stripeCustomerId, tier });
+          console.log(`[billing] Subscription created: merchant=${merchantId} tier=${tier} sub=${stripeSubscriptionId} customer=${stripeCustomerId || "n/a"}`);
         }
 
         return new Response(JSON.stringify({ received: true, action: "subscription_created" }), { status: 200, headers });

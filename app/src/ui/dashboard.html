@@ -528,6 +528,7 @@
         <span class="dot"></span>
         <span id="server-status-text">Healthy</span>
       </div>
+      <div id="pro-badge" style="display:none;background:var(--primary);color:white;padding:4px 14px;border-radius:99px;font-size:0.75rem;font-weight:600;letter-spacing:0.05em;">PRO</div>
     </header>
 
     <!-- Stats Cards -->
@@ -645,6 +646,9 @@
         </div>
       </div>
       <div id="sub-error" style="margin-top: 14px; font-size: 0.85rem; display: none;"></div>
+      <div id="sub-actions" style="margin-top: 20px; display: none;">
+        <button onclick="manageBilling()" class="btn-outline" style="font-size:0.85rem;">⚙️ Manage Billing</button>
+      </div>
     </div>
 
     <!-- Pipeline Status -->
@@ -802,11 +806,16 @@
 
     async function loadSubscription() {
       var statusEl = document.getElementById('sub-status');
+      var proBadge = document.getElementById('pro-badge');
+      var subActions = document.getElementById('sub-actions');
+      var fullAutoPill = document.querySelector('.trust-pill[data-mode="full"]');
       try {
         var res = await fetch('/subscription');
         if (res.ok) {
           var sub = await res.json();
-          if (sub.tier && sub.status === 'active') {
+          var isPro = sub.tier === 'pro' && sub.status === 'active';
+          var isActive = sub.tier && sub.status === 'active';
+          if (isActive) {
             var price = sub.tier === 'pro' ? '29' : '15';
             var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
             var dateStr = new Date(sub.created_at).toLocaleDateString();
@@ -822,15 +831,33 @@
               btn.disabled = true;
               btn.textContent = 'Current Plan';
             });
+            subActions.style.display = 'block';
+            proBadge.style.display = isPro ? 'inline-block' : 'none';
+            // Gate Full Auto behind Pro
+            if (fullAutoPill) {
+              if (!isPro) {
+                fullAutoPill.style.opacity = '0.45';
+                fullAutoPill.style.pointerEvents = 'none';
+                fullAutoPill.title = 'Full Auto requires a Pro subscription';
+              } else {
+                fullAutoPill.style.opacity = '1';
+                fullAutoPill.style.pointerEvents = 'auto';
+                fullAutoPill.title = '';
+              }
+            }
           } else if (sub.status === 'cancelled') {
             statusEl.innerHTML =
               '<div style="display:flex;align-items:center;gap:10px;">' +
               '<span class="pill-badge badge-draft" style="font-size:0.75rem;">Cancelled</span>' +
               '<span style="color:var(--muted);">Your subscription has ended. Resubscribe below.</span>' +
               '</div>';
+            subActions.style.display = 'none';
+            proBadge.style.display = 'none';
           } else {
             statusEl.innerHTML =
               '<p style="color:var(--muted);font-size:0.85rem;">No active subscription. Choose a plan below to get started.</p>';
+            subActions.style.display = 'none';
+            proBadge.style.display = 'none';
           }
         }
       } catch (e) {
@@ -894,6 +921,29 @@
         errorEl.style.display = 'block';
         btn.disabled = false;
         btn.textContent = originalText;
+      }
+    }
+
+    // ── Stripe Customer Portal ──
+    async function manageBilling() {
+      var btn = document.querySelector('#sub-actions button');
+      var orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+      try {
+        var res = await fetch('/billing/portal', { method: 'POST' });
+        var data = await res.json();
+        if (res.ok && data.url) {
+          window.location.href = data.url;
+        } else {
+          alert(data.error || 'Could not open billing portal');
+          btn.disabled = false;
+          btn.textContent = orig;
+        }
+      } catch (e) {
+        alert('Network error — could not reach billing');
+        btn.disabled = false;
+        btn.textContent = orig;
       }
     }
 

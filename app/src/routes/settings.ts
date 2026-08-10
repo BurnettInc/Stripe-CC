@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { ensureDefaultMerchant } from "../db";
+import { ensureDefaultMerchant, getSubscriptionByMerchantId } from "../db";
 
 export async function handleSettings(db: Database, req: Request, merchantId: number): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
@@ -35,6 +35,18 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
         JSON.stringify({ error: "trust_mode must be one of: draft, semi, full" }),
         { status: 400, headers }
       );
+    }
+
+    // Full Auto (hands-off sending) is a Pro-only feature: require an active
+    // Pro subscription before allowing the merchant to switch to it.
+    if (body.trust_mode === "full") {
+      const sub = getSubscriptionByMerchantId(db, merchantId);
+      if (!sub || sub.tier !== "pro" || sub.status !== "active") {
+        return new Response(
+          JSON.stringify({ error: "Full Auto mode requires a Pro subscription. Upgrade to unlock." }),
+          { status: 402, headers }
+        );
+      }
     }
 
     const merchant = db.query("SELECT * FROM merchants WHERE id=?").get(merchantId) as { id: number; stripe_account_id: string; email: string; trust_mode: string; created_at: string } | null;

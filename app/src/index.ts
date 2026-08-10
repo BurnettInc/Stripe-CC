@@ -229,6 +229,15 @@ async function handleRequest(req: Request): Promise<Response> {
         return response;
       }
 
+      // POST /billing/portal — create Stripe Customer Portal session
+      if (path === "/billing/portal" && req.method === "POST") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        const response = await handleBilling(db, req, "portal", auth.merchant_id);
+        for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
+        return response;
+      }
+
       // POST /billing — our own Stripe Billing webhooks
       if (path === "/billing") {
         return handleBilling(db, req, "webhook");
