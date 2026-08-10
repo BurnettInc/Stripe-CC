@@ -110,7 +110,7 @@ export async function handleWebhook(db: Database, req: Request): Promise<Respons
   try {
     // Pass the top-level `account` (connected Stripe account ID) through so
     // the pipeline can attribute the event to the correct merchant.
-    const result = handleWebhookEvent(db, event as Parameters<typeof handleWebhookEvent>[1]);
+    const result = await handleWebhookEvent(db, event as Parameters<typeof handleWebhookEvent>[1]);
     return new Response(JSON.stringify(result), {
       status: 200,
       headers: { "Content-Type": "application/json" },
