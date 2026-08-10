@@ -838,6 +838,9 @@
       }
     }
 
+    // Track connection state so subscribe() can pre-check before hitting checkout
+    var STIPE_CONNECTED = false;
+
     async function subscribe(tier) {
       var errorEl = document.getElementById('sub-error');
       errorEl.style.display = 'none';
@@ -846,6 +849,15 @@
       var btnId = tier === 'standard' ? 'btn-standard' : 'btn-pro';
       var btn = document.getElementById(btnId);
       var originalText = btn.textContent;
+
+      // Pre-gate: don't even call checkout if no Stripe account is connected.
+      // The status card (/stripe/connection) is public, so we keep our own
+      // in-memory flag updated by loadStripeConnection.
+      if (!STIPE_CONNECTED) {
+        errorEl.textContent = '\u2717 Connect your Stripe account before subscribing';
+        errorEl.style.display = 'block';
+        return;
+      }
 
       // Loading state
       btn.disabled = true;
@@ -861,7 +873,9 @@
         var data = await res.json();
 
         if (res.status === 401) {
-          errorEl.textContent = '\u2717 Connect your Stripe account before subscribing';
+          // The Stripe account card says connected, but /billing/checkout
+          // returned 401 — almost always a missing or expired session cookie.
+          errorEl.innerHTML = '\u2717 Session expired. <a href="/stripe/connect" style="color:var(--primary);font-weight:600;">Reconnect your Stripe account</a> to refresh.';
           errorEl.style.display = 'block';
           btn.disabled = false;
           btn.textContent = originalText;
@@ -892,6 +906,7 @@
         if (res.ok) {
           var data = await res.json();
           if (data.connected) {
+            STIPE_CONNECTED = true;
             statusEl.innerHTML =
               '<div class="sub-active-badge">' +
               '<span style="width:9px;height:9px;border-radius:50%;background:var(--success);"></span>' +
@@ -899,6 +914,7 @@
               '</div>';
             actionEl.innerHTML = '';
           } else {
+            STIPE_CONNECTED = false;
             statusEl.innerHTML =
               '<p style="color:var(--muted);font-size:0.85rem;">No Stripe account connected. Connect via OAuth for automatic setup.</p>';
             actionEl.innerHTML =
