@@ -397,6 +397,17 @@ export function isMerchantPaused(db: Database, merchantId: number): boolean {
   return !!merchant?.paused;
 }
 
+/**
+ * Whether the merchant's Stripe account is disconnected (account
+ * deauthorized). Automatic sends are skipped exactly like paused; manual
+ * actions (/approve, /summary/send) are NOT blocked. Read-only from the API —
+ * set only by the account.application.deauthorized webhook handler.
+ */
+export function isMerchantDisconnected(db: Database, merchantId: number): boolean {
+  const merchant = db.query("SELECT disconnected FROM merchants WHERE id=?").get(merchantId) as { disconnected: number } | null;
+  return !!merchant?.disconnected;
+}
+
 export interface CustomerHistory {
   relationship_length: string;
   payment_history_summary: string;
@@ -452,6 +463,7 @@ export interface Merchant {
   trust_mode: string;
   drafts_used: number;
   paused: number;
+  disconnected: number;
   created_at: string;
 }
 
@@ -466,6 +478,10 @@ export interface Invoice {
   due_date: string;
   status: string;
   trust_mode_override: string | null;
+  /** Id of the most recent dispute handled for this invoice (idempotency guard). */
+  dispute_id: string | null;
+  /** 1 once the payment-received notification has been emailed for this invoice. */
+  paid_notified: number;
   created_at: string;
 }
 

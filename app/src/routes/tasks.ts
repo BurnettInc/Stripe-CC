@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, freeDraftsRemaining, isMerchantPaused, logSend } from "../db";
+import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, freeDraftsRemaining, isMerchantPaused, isMerchantDisconnected, logSend } from "../db";
 import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
 import { reviewDraft } from "../pipeline/reviewer";
@@ -328,14 +328,21 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
         // stage 1: fall through to send
       }
 
-      // Pause gate: while the merchant has collections paused, every AUTOMATIC
-      // send is skipped (Semi-Auto stage 1 and Full Auto). The task stays in
-      // place (status 'reviewed', not cancelled) so it resumes when unpaused.
-      // Manual actions (/approve, /summary/send) are NOT blocked by pause.
-      if (isMerchantPaused(db, invoice.merchant_id)) {
-        pipelineLog.push("Step 3: SKIPPED — collections paused, email not sent. Will resume when unpaused.");
-        console.log(`[pipeline] skipped: collections paused (merchant ${invoice.merchant_id}, task ${taskId}, stage ${task.stage}, trustMode ${trustMode})`);
-        logSend(db, taskId, "skipped", "collections paused — automatic send skipped (task kept for resume)");
+      // Pause/disconnect gate: while the merchant has collections paused OR
+      // their Stripe account is disconnected, every AUTOMATIC send is skipped
+      // (Semi-Auto stage 1 and Full Auto). The task stays in place (status
+      // 'reviewed', not cancelled) so it resumes when unpaused/reconnected.
+      // Manual actions (/approve, /summary/send) are NOT blocked by pause or
+      // disconnection — a merchant can still fire a final reminder by hand.
+      const paused = isMerchantPaused(db, invoice.merchant_id);
+      const disconnected = isMerchantDisconnected(db, invoice.merchant_id);
+      if (paused || disconnected) {
+        const reason = disconnected
+          ? "Stripe account disconnected"
+          : "collections paused";
+        pipelineLog.push(`Step 3: SKIPPED — ${reason}, email not sent. Automatic sends resume when reconnected/unpaused.`);
+        console.log(`[pipeline] skipped: ${reason.toLowerCase()} (merchant ${invoice.merchant_id}, task ${taskId}, stage ${task.stage}, trustMode ${trustMode})`);
+        logSend(db, taskId, "skipped", `${reason.toLowerCase()} — automatic send skipped (task kept for resume)`);
         const updatedTask = getTaskById(db, taskId);
         return new Response(
           JSON.stringify({
@@ -345,7 +352,9 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
             review,
             pipelineLog,
             trustMode,
-            message: "Collections are paused — automatic send skipped. Resume in settings to continue.",
+            message: disconnected
+              ? "Your Stripe account is disconnected — automatic sends are stopped. Reconnect your account to resume."
+              : "Collections are paused — automatic send skipped. Resume in settings to continue.",
           }),
           { status: 200, headers }
         );

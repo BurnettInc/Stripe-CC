@@ -7,6 +7,7 @@ interface MerchantRow {
   email: string;
   trust_mode: string;
   paused: number;
+  disconnected: number;
   created_at: string;
 }
 
@@ -17,6 +18,9 @@ function settingsPayload(merchant: MerchantRow) {
     email: merchant.email,
     trust_mode: merchant.trust_mode,
     paused: merchant.paused === 1,
+    // Read-only: set by the account.application.deauthorized webhook handler;
+    // surfaced so the UI can show a reconnect prompt. Never writable via PUT.
+    disconnected: merchant.disconnected === 1,
     created_at: merchant.created_at,
   };
 }
