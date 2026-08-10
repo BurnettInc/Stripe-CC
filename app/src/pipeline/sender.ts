@@ -11,6 +11,15 @@ export interface SendResult {
   provider?: string;
 }
 
+export interface SendOptions {
+  /**
+   * Skip the CAN-SPAM unsubscribe footer. Used for merchant account alerts
+   * (their own account notifications — no customer opt-out needed); the
+   * caller is responsible for including any required contact line itself.
+   */
+  skipCanspam?: boolean;
+}
+
 /**
  * Actually send an email via a configured provider (SendGrid or Resend),
  * falling back to logging-only behavior when no provider key is set.
@@ -21,6 +30,7 @@ export async function sendEmailForReal(
   draft: EmailDraft,
   toEmail: string,
   fromEmail?: string,
+  opts?: SendOptions,
 ): Promise<SendResult> {
   // CAN-SPAM: never email a customer who has opted out.
   const optOutSkip = checkUnsubscribedAndSkip(db, task);
@@ -35,9 +45,11 @@ export async function sendEmailForReal(
   const from = fromEmail || process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
   const subject = draft.subject;
   // CAN-SPAM: append the compliance footer (opt-out link + physical address)
-  // to the AI-drafted or template-fallback body before it goes out.
-  const { merchantId, customerEmail } = resolveFooterContext(db, task, toEmail);
-  const body = appendCanspamFooter(draft.body, merchantId, customerEmail);
+  // to the AI-drafted or template-fallback body before it goes out — unless
+  // the caller opts out (merchant account alerts carry their own contact line).
+  const body = opts?.skipCanspam
+    ? draft.body
+    : appendCanspamFooter(draft.body, ...footerContextFor(db, task, toEmail));
 
   const sendgridKey = process.env.SENDGRID_API_KEY;
   const resendKey = process.env.RESEND_API_KEY;
@@ -119,7 +131,7 @@ export async function sendEmailForReal(
   }
 
   // ── Fallback: log-only mode ──
-  return sendEmail(db, task, draft);
+  return sendEmail(db, task, draft, opts);
 }
 
 /**
@@ -129,7 +141,8 @@ export async function sendEmailForReal(
 export function sendEmail(
   db: Database,
   task: ReminderTask | null,
-  draft: EmailDraft
+  draft: EmailDraft,
+  opts?: SendOptions,
 ): SendResult {
   // CAN-SPAM: never email a customer who has opted out.
   const optOutSkip = checkUnsubscribedAndSkip(db, task);
@@ -140,8 +153,9 @@ export function sendEmail(
   if (paidSkip) return paidSkip;
 
   // CAN-SPAM: the stub preview reflects what the real send would include.
-  const { merchantId, customerEmail } = resolveFooterContext(db, task);
-  const body = appendCanspamFooter(draft.body, merchantId, customerEmail);
+  const body = opts?.skipCanspam
+    ? draft.body
+    : appendCanspamFooter(draft.body, ...footerContextFor(db, task));
 
   const message = [
     `[STUB SEND] Would send email:`,
@@ -233,13 +247,14 @@ function checkUnsubscribedAndSkip(db: Database, task: ReminderTask | null): Send
  * Resolve the merchant + customer email needed for the CAN-SPAM footer.
  * For reminder sends both come from the task's invoice; when there is no task
  * (e.g. weekly summaries), falls back to the default merchant and the
- * recipient's email address.
+ * recipient's email address. Returns a [merchantId, customerEmail] tuple for
+ * spread-compatibility with appendCanspamFooter(body, ...footerContextFor(...)).
  */
-function resolveFooterContext(
+function footerContextFor(
   db: Database,
   task: ReminderTask | null,
   toEmail?: string,
-): { merchantId: number; customerEmail: string } {
+): [number, string] {
   let merchantId: number | null = null;
   let customerEmail = toEmail ?? "";
   if (task) {
@@ -254,5 +269,5 @@ function resolveFooterContext(
   if (merchantId === null) {
     merchantId = resolveMerchant(db)?.id ?? 0;
   }
-  return { merchantId, customerEmail };
+  return [merchantId, customerEmail];
 }

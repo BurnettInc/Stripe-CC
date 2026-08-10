@@ -44,7 +44,7 @@ function runMigrations(db: Database) {
       CREATE TABLE IF NOT EXISTS send_logs_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         reminder_task_id INTEGER REFERENCES reminder_tasks(id),
-        type TEXT NOT NULL DEFAULT 'reminder' CHECK(type IN ('reminder', 'weekly_summary')),
+        type TEXT NOT NULL DEFAULT 'reminder',
         status TEXT NOT NULL CHECK(status IN ('success', 'failed', 'skipped')),
         provider_message TEXT DEFAULT '',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
