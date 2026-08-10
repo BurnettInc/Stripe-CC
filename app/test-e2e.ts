@@ -435,11 +435,78 @@ async function run() {
   }
 
   // ────────────────────────────────────────────────────
-  // Cleanup: reset trust_mode to 'full'
+  // Sequence 11: Weekly summary send — Pro tier → 200
   // ────────────────────────────────────────────────────
   try {
     await setTrustMode("full");
-    console.log("\n🔄 Trust mode reset to 'full'");
+    // Merchant 1 is seeded as an active Pro subscriber (bootstrap()).
+    const res = await af(`${BASE}/summary/send`, { method: "POST" });
+    const body = await res.json();
+    const pass =
+      res.status === 200 &&
+      body.summary &&
+      body.email &&
+      body.sendResult &&
+      body.sendResult.success === true;
+
+    record(11, "Summary send — active Pro → 200", pass,
+      pass ? "" : `status=${res.status} body=${JSON.stringify(body).substring(0, 300)}`);
+  } catch (e: any) {
+    record(11, "Summary send — active Pro → 200", false, `Exception: ${e.message}`);
+  }
+
+  // ────────────────────────────────────────────────────
+  // Sequence 12: Weekly summary send — Standard tier → 200 (homepage parity)
+  // ────────────────────────────────────────────────────
+  try {
+    const d = new Database(DB_PATH);
+    d.run("UPDATE subscriptions SET status='active', tier='standard' WHERE merchant_id=1");
+    d.close();
+
+    const res = await af(`${BASE}/summary/send`, { method: "POST" });
+    const body = await res.json();
+    const pass =
+      res.status === 200 &&
+      body.sendResult &&
+      body.sendResult.success === true;
+
+    record(12, "Summary send — active Standard → 200", pass,
+      pass ? "" : `status=${res.status} body=${JSON.stringify(body).substring(0, 300)}`);
+  } catch (e: any) {
+    record(12, "Summary send — active Standard → 200", false, `Exception: ${e.message}`);
+  }
+
+  // ────────────────────────────────────────────────────
+  // Sequence 13: Weekly summary send — free/no active sub → 402
+  // ────────────────────────────────────────────────────
+  try {
+    const d = new Database(DB_PATH);
+    d.run("UPDATE subscriptions SET status='cancelled' WHERE merchant_id=1");
+    d.close();
+
+    const res = await af(`${BASE}/summary/send`, { method: "POST" });
+    const body = await res.json();
+    const pass =
+      res.status === 402 &&
+      typeof body.error === "string" &&
+      body.error.includes("require a subscription");
+
+    record(13, "Summary send — free/no-sub → 402", pass,
+      pass ? "" : `status=${res.status} body=${JSON.stringify(body)}`);
+  } catch (e: any) {
+    record(13, "Summary send — free/no-sub → 402", false, `Exception: ${e.message}`);
+  }
+
+  // ────────────────────────────────────────────────────
+  // Cleanup: restore the Pro subscription, then reset trust_mode to 'full'
+  // (subscription must be active Pro again first — full auto is Pro-only)
+  // ────────────────────────────────────────────────────
+  try {
+    const d = new Database(DB_PATH);
+    d.run("UPDATE subscriptions SET status='active', tier='pro' WHERE merchant_id=1");
+    d.close();
+    await setTrustMode("full");
+    console.log("\n🔄 Trust mode reset to 'full' (subscription restored to active Pro)");
   } catch (e: any) {
     console.log(`⚠️  Failed to reset trust_mode: ${e.message}`);
   }
@@ -453,7 +520,7 @@ async function run() {
   console.log("\n═══════════════════════════════════════════════");
   console.log(`  RESULTS: ${passed} passed, ${failed} failed`);
   if (failed === 0) {
-    console.log("  🎉 All 10/10 tests PASSED");
+    console.log(`  🎉 All ${results.length}/${results.length} tests PASSED`);
   } else {
     console.log(`  ❌ ${failed} test(s) FAILED`);
     for (const r of results) {

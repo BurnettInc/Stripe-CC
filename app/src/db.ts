@@ -271,6 +271,19 @@ export function invoiceLimitFor(db: Database, merchantId: number): number | null
   return isActiveStandard(db, merchantId) ? STANDARD_INVOICE_LIMIT : null;
 }
 
+/**
+ * Whether the merchant has an ACTIVE paid subscription — Standard or Pro.
+ * Homepage parity (owner directive): features advertised on a paid plan (e.g.
+ * weekly recovery reports) are gated on any active paid tier, not Pro alone.
+ * Merchants with no subscription, or a subscription that is cancelled /
+ * past_due, fail this check. Use this for every paid-plan send path so the
+ * route and any future scheduled sender share one rule.
+ */
+export function isActivePaidSubscriber(db: Database, merchantId: number): boolean {
+  const sub = getSubscriptionByMerchantId(db, merchantId);
+  return !!sub && sub.status === "active" && (sub.tier === "standard" || sub.tier === "pro");
+}
+
 /** Count of currently-overdue invoices for a merchant — the measure behind the Standard cap. */
 export function countOverdueInvoices(db: Database, merchantId: number): number {
   const row = db.query("SELECT COUNT(*) AS count FROM invoices WHERE merchant_id=? AND status='overdue'").get(merchantId) as { count: number };
