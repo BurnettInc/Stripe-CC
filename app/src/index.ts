@@ -235,7 +235,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
 
       // GET /stripe/connect — Stripe Connect OAuth redirect
-      if (path === "/stripe/connect" && req.method === "GET") {
+      if ((path === "/stripe/connect" || path === "/api/stripe/connect") && req.method === "GET") {
         return handleStripeConnect(db, req);
       }
 
@@ -246,7 +246,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
 
       // GET /stripe/connection — current connection status
-      if (path === "/stripe/connection" && req.method === "GET") {
+      if ((path === "/stripe/connection" || path === "/api/stripe/connection") && req.method === "GET") {
         const response = await handleStripeConnectionStatus(db);
         for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;
