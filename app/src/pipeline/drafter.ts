@@ -43,6 +43,7 @@ CONTEXT:
 - Customer name: {customer_name}
 - Invoice amount: {amount} {currency}
 - Invoice number: {invoice_number}
+- Invoice due date: {due_date} (always include this exact date in the body)
 - Days overdue: {days_overdue}
 - Escalation stage: {stage}
 - Customer relationship length: {relationship_length}
@@ -100,7 +101,7 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, merchantN
   const paymentLink = `https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}`;
   const values: Record<string, string> = {
     sender_business_name: merchantName || "the business", customer_name: invoice.customer_name, amount, currency: invoice.currency.toUpperCase(),
-    invoice_number: invoice.stripe_invoice_id, days_overdue: String(days), stage: String(task.stage), ...history,
+    invoice_number: invoice.stripe_invoice_id, due_date: invoice.due_date, days_overdue: String(days), stage: String(task.stage), ...history,
     prior_reminder_count: String(prior.length), prior_tones: prior.map(p => p.draft_subject).join("; ") || "none", payment_link: paymentLink,
     late_fee: lateFeeText ?? "none",
   };
