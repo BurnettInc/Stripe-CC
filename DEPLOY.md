@@ -37,10 +37,14 @@ Not currently set — AI-personalized draft copy falls back to templates (safe).
 to enable the LLM-drafted emails the homepage implies.
 
 ### 4. Deploy the Stripe App
+On your own machine (Stripe CLI logged in — `stripe login`), from the repo root:
 ```
-cd stripe-app && bun run build && stripe apps deploy
+./deploy-app.sh
 ```
-then submit for Stripe public review. Manifest + views already point at the Railway backend (#26).
+(script installs deps, builds, runs `stripe apps deploy`). Then in the Stripe dashboard:
+**Developers → Apps → CollectionsCopilot → Submit for review** — public marketplace listing
+requires Stripe's approval (usually a few business days). Manifest + views already point at the
+Railway backend (#26); `distribution_type` is `public`; app version 0.1.7.
 
 ### 5. support@ delivery
 Point `support@getcollectionscopilot.com` so it delivers to the team's monitored inbox
