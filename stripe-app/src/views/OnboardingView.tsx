@@ -95,7 +95,7 @@ export default function OnboardingView() {
     </Box> : <Box css={{ stack: 'y', gap: 'small' }}>
       <Banner type="default" title="You're all set!" description="CollectionsCopilot is ready to help you stay on top of overdue invoices." />
       <Box>Plan: <strong>{activeTier ? plans.find((plan) => plan.tier === activeTier)?.name : 'Active'}</strong></Box><Box>Trust Mode: <strong>{modes.find((mode) => mode.value === trustMode)?.label}</strong></Box><Box>Stripe: <strong>{connection?.connected ? 'Connected' : 'Not connected'}</strong></Box>
-      <Button type="primary" onPress={() => setStep(4)}>Go to Dashboard</Button>
+      <Button type="primary" href={`${BASE_URL}/dashboard`} target="_blank">Go to Dashboard</Button>
     </Box>}
   </Box></ContextView>;
 }
