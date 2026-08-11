@@ -75,9 +75,10 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
     const hasPaused = body.paused !== undefined;
     const hasBranding = body.sender_name !== undefined || body.reply_to !== undefined;
     const hasTiming = body.stage1_days !== undefined || body.stage2_days !== undefined;
-    if (!hasTrustMode && !hasPaused && !hasBranding && !hasTiming) {
+    const hasLateFee = body.late_fee_type !== undefined || body.late_fee_value !== undefined;
+    if (!hasTrustMode && !hasPaused && !hasBranding && !hasTiming && !hasLateFee) {
       return new Response(
-        JSON.stringify({ error: "Nothing to update: provide trust_mode, paused, sender_name, reply_to, stage1_days and/or stage2_days" }),
+        JSON.stringify({ error: "Nothing to update: provide trust_mode, paused, sender_name, reply_to, stage1_days, stage2_days, late_fee_type and/or late_fee_value" }),
         { status: 400, headers }
       );
     }
@@ -180,6 +181,51 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
       stage2Days = s2;
     }
 
+    // ── Late-fee automation (Pro, informational only) ──
+    // late_fee_type: 'none' | 'flat' | 'percent'. late_fee_value: number >= 0
+    // (flat = dollars like 25.00; percent = 0–100). 'none' resets the value.
+    // The pipeline only mentions the fee in email copy — it never charges.
+    let lateFeeType: string | null = null;
+    let lateFeeValue: number | null = null;
+    if (hasLateFee) {
+      if (body.late_fee_type === undefined || typeof body.late_fee_type !== "string" ||
+          !["none", "flat", "percent"].includes(body.late_fee_type)) {
+        return new Response(
+          JSON.stringify({ error: "late_fee_type must be one of: none, flat, percent" }),
+          { status: 400, headers }
+        );
+      }
+      const lft = body.late_fee_type;
+      if (lft === "none") {
+        lateFeeType = "none";
+        lateFeeValue = 0; // 'none' resets any previously stored value
+      } else {
+        if (typeof body.late_fee_value !== "number" || !Number.isFinite(body.late_fee_value)) {
+          return new Response(
+            JSON.stringify({ error: "late_fee_value must be a number" }),
+            { status: 400, headers }
+          );
+        }
+        const lfv = body.late_fee_value;
+        if (lfv < 0 || (lft === "percent" && lfv > 100)) {
+          return new Response(
+            JSON.stringify({ error: "late_fee_value must be >= 0 (percent: 0–100)" }),
+            { status: 400, headers }
+          );
+        }
+        lateFeeType = lft;
+        lateFeeValue = Math.round(lfv * 100) / 100; // normalize to 2 decimals
+      }
+      // Late-fee automation is a Pro feature.
+      const sub = getSubscriptionByMerchantId(db, merchantId);
+      if (!sub || sub.tier !== "pro" || sub.status !== "active") {
+        return new Response(
+          JSON.stringify({ error: "Late-fee automation requires a Pro subscription. Upgrade to unlock." }),
+          { status: 402, headers }
+        );
+      }
+    }
+
     // Full Auto (hands-off sending) is a Pro-only feature: require an active
     // Pro subscription before allowing the merchant to switch to it.
     if (trustMode === "full") {
@@ -208,6 +254,10 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
     if (body.reply_to !== undefined) { sets.push("reply_to=?"); params.push(replyTo); }
     if (body.stage1_days !== undefined) { sets.push("stage1_days=?"); params.push(stage1Days); }
     if (body.stage2_days !== undefined) { sets.push("stage2_days=?"); params.push(stage2Days); }
+    if (body.late_fee_type !== undefined) { sets.push("late_fee_type=?"); params.push(lateFeeType); }
+    // 'none' always resets the value to 0 (even when the client omits it).
+    if (body.late_fee_type === "none") { sets.push("late_fee_value=?"); params.push(0); }
+    else if (body.late_fee_value !== undefined) { sets.push("late_fee_value=?"); params.push(lateFeeValue); }
     db.run(`UPDATE merchants SET ${sets.join(", ")} WHERE id=?`, [...params, merchant.id]);
 
     const updated = db.query("SELECT * FROM merchants WHERE id = ?").get(merchant.id) as MerchantRow;

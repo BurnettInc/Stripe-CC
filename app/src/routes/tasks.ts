@@ -3,6 +3,7 @@ import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSub
 import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
 import { reviewDraft } from "../pipeline/reviewer";
+import { getLateFeeText } from "../pipeline/late-fee";
 import { sendEmail, sendEmailForReal } from "../pipeline/sender";
 
 const headers = { "Content-Type": "application/json" };
@@ -74,7 +75,9 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
         draft.subject, draft.body, taskId,
       ]);
       db.run("UPDATE merchants SET drafts_used = drafts_used + 1 WHERE id = ?", [invoice.merchant_id]);
-      const review = reviewDraft(draft, invoice);
+      const review = reviewDraft(draft, invoice, {
+        lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
+      });
       db.run("UPDATE reminder_tasks SET reviewer_notes=?, status='reviewed' WHERE id=?", [
         JSON.stringify(review), taskId,
       ]);
@@ -198,7 +201,9 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     // for the UI. Not a gate: the merchant's explicit approval (/approve) is.
     const invoice = getInvoiceById(db, task.invoice_id);
     if (invoice) {
-      const review = reviewDraft({ subject: draftSubject, body: draftBody }, invoice);
+      const review = reviewDraft({ subject: draftSubject, body: draftBody }, invoice, {
+        lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
+      });
       db.run("UPDATE reminder_tasks SET reviewer_notes=? WHERE id=?", [JSON.stringify(review), taskId]);
     }
 
@@ -271,7 +276,9 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
 
     // Step 2: Review
     pipelineLog.push("Step 2: Reviewing draft...");
-    const review = reviewDraft(draft, invoice);
+    const review = reviewDraft(draft, invoice, {
+      lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
+    });
     db.run("UPDATE reminder_tasks SET reviewer_notes=?, status='reviewed' WHERE id=?", [
       JSON.stringify(review),
       taskId,

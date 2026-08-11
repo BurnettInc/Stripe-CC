@@ -353,7 +353,122 @@ async function run() {
     record("B5. Timing validation", false, `Exception: ${e.message}`);
   }
 
-  // B and C suites are appended below (custom escalation timing, late fees).
+  // ── C1. Pro merchant: PUT late fee (flat) round-trips; validation 400s ──
+  try {
+    setSubscription("pro");
+    const put = await af("/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ late_fee_type: "flat", late_fee_value: 25 }),
+    });
+    const p = await put.json();
+    const get = await af("/settings");
+    const g = await get.json();
+    const badType = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ late_fee_type: "weird", late_fee_value: 5 }) });
+    const negVal = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ late_fee_type: "flat", late_fee_value: -1 }) });
+    const pctTooBig = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ late_fee_type: "percent", late_fee_value: 101 }) });
+    const pass =
+      put.status === 200 && p.late_fee_type === "flat" && p.late_fee_value === 25 &&
+      g.late_fee_type === "flat" && g.late_fee_value === 25 &&
+      badType.status === 400 && negVal.status === 400 && pctTooBig.status === 400;
+    record("C1. Pro PUT late_fee flat $25 → 200 + GET round-trip; validation 400s", pass,
+      pass ? "" : JSON.stringify({ putStatus: put.status, p, g, badType: badType.status, negVal: negVal.status, pctTooBig: pctTooBig.status }));
+  } catch (e: any) {
+    record("C1. Late fee round-trip", false, `Exception: ${e.message}`);
+  }
+
+  // ── C2. Flat fee: stage 2/3 drafts mention it; stage 1 never does ──
+  try {
+    setSubscription("pro");
+    setMerchant({ late_fee_type: "flat", late_fee_value: 25 });
+    await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trust_mode: "draft" }) });
+    const wh2 = await fireOverdueWebhook(`${INV_PREFIX}_c1`, 10); // stage 2
+    const proc2 = await processTask(wh2.taskId);
+    const body2: string = proc2.body.draft?.body || "";
+    const review2 = proc2.body.review || {};
+    const wh3 = await fireOverdueWebhook(`${INV_PREFIX}_c2`, 25); // stage 3
+    const proc3 = await processTask(wh3.taskId);
+    const body3: string = proc3.body.draft?.body || "";
+    const wh1 = await fireOverdueWebhook(`${INV_PREFIX}_c3`, 3); // stage 1
+    const proc1 = await processTask(wh1.taskId);
+    const body1: string = proc1.body.draft?.body || "";
+    const pass =
+      proc2.status === 200 && body2.includes("A late fee of $25.00 has been added to this invoice.") &&
+      review2.approved === true &&
+      proc3.status === 200 && body3.includes("A late fee of $25.00 has been added to this invoice.") &&
+      proc1.status === 200 && !body1.toLowerCase().includes("late fee");
+    record("C2. Flat $25 fee in stage 2+3 drafts (+review passes); absent from stage 1", pass,
+      pass ? "" : JSON.stringify({ s2: body2.substring(0, 200), s3: body3.substring(0, 200), s1: body1.substring(0, 200), review2 }));
+  } catch (e: any) {
+    record("C2. Flat fee in drafts", false, `Exception: ${e.message}`);
+  }
+
+  // ── C3. Percent fee math: $1250 invoice, 1.5% → "$18.75 (1.5% of the invoice)" ──
+  try {
+    setSubscription("pro");
+    setMerchant({ late_fee_type: "percent", late_fee_value: 1.5 });
+    const wh = await fireOverdueWebhook(`${INV_PREFIX}_c4`, 10, 125000); // $1250.00
+    const proc = await processTask(wh.taskId);
+    const body: string = proc.body.draft?.body || "";
+    const review = proc.body.review || {};
+    const pass =
+      proc.status === 200 &&
+      body.includes("A late fee of $18.75 (1.5% of the invoice) has been added to this invoice.") &&
+      review.approved === true;
+    record("C3. Percent fee math: 1.5% of $1250 → '$18.75 (1.5% of the invoice)' + review approves", pass,
+      pass ? "" : JSON.stringify({ body: body.substring(0, 300), review }));
+  } catch (e: any) {
+    record("C3. Percent fee math", false, `Exception: ${e.message}`);
+  }
+
+  // ── C4. Reviewer unit: consistent fee text passes; missing fee text fails ──
+  try {
+    const { reviewDraft } = await import("./src/pipeline/reviewer");
+    const { formatLateFeeText, getLateFeeConfig } = await import("./src/pipeline/late-fee");
+    const d = db();
+    const invoice = d.query("SELECT * FROM invoices WHERE id=(SELECT invoice_id FROM reminder_tasks ORDER BY id DESC LIMIT 1)").get() as any;
+    d.close();
+    const config = getLateFeeConfig(db(), 1);
+    const feeText = formatLateFeeText(config, invoice, 2); // merchant is percent 1.5 now
+    const withFee = reviewDraft(
+      { subject: "Subject", body: `Invoice ${invoice.stripe_invoice_id} for $1250.00 due ${invoice.due_date}. A late fee of ${feeText} has been added to this invoice. Pay at https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}` },
+      invoice, { lateFeeText: feeText },
+    );
+    const withoutFee = reviewDraft(
+      { subject: "Subject", body: `Invoice ${invoice.stripe_invoice_id} for $1250.00 due ${invoice.due_date}. Pay at https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}` },
+      invoice, { lateFeeText: feeText },
+    );
+    const pass =
+      feeText === "$18.75 (1.5% of the invoice)" &&
+      withFee.approved === true &&
+      withoutFee.approved === false &&
+      withoutFee.issues.some((i: string) => i.includes("Missing late-fee mention"));
+    record("C4. Reviewer: consistent fee text → approved; missing fee text → rejected with issue", pass,
+      pass ? "" : JSON.stringify({ feeText, withFee, withoutFee }));
+  } catch (e: any) {
+    record("C4. Reviewer fee check", false, `Exception: ${e.message}`);
+  }
+
+  // ── C5. Non-Pro: PUT late fee → 402; 'none' resets (Pro) and removes from drafts ──
+  try {
+    setSubscription("standard");
+    const putStd = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ late_fee_type: "flat", late_fee_value: 10 }) });
+    setSubscription(null);
+    const putFree = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ late_fee_type: "flat", late_fee_value: 10 }) });
+    setSubscription("pro");
+    const reset = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ late_fee_type: "none" }) });
+    const r = await reset.json();
+    const wh = await fireOverdueWebhook(`${INV_PREFIX}_c5`, 10); // stage 2 after reset
+    const proc = await processTask(wh.taskId);
+    const body: string = proc.body.draft?.body || "";
+    const pass =
+      putStd.status === 402 && putFree.status === 402 &&
+      reset.status === 200 && r.late_fee_type === "none" && r.late_fee_value === 0 &&
+      !body.toLowerCase().includes("late fee");
+    record("C5. Standard/free PUT late fee → 402; 'none' resets and removes fee from drafts", pass,
+      pass ? "" : JSON.stringify({ putStd: putStd.status, putFree: putFree.status, r, body: body.substring(0, 200) }));
+  } catch (e: any) {
+    record("C5. Late fee gating + reset", false, `Exception: ${e.message}`);
+  }
 
   // ── cleanup ──
   setSubscription("pro");
