@@ -2,7 +2,7 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "CollectionsCopilot",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "icon": "./icon.png",
   "stripe_api_access_type": "oauth",
   "distribution_type": "public",
@@ -22,7 +22,11 @@
     ],
     "content_security_policy": {
       "connect-src": [
-        "https://stripe-cc-production.up.railway.app"
+        "https://stripe-cc-production.up.railway.app/subscription",
+        "https://stripe-cc-production.up.railway.app/settings",
+        "https://stripe-cc-production.up.railway.app/stripe/connection",
+        "https://stripe-cc-production.up.railway.app/billing/checkout",
+        "https://stripe-cc-production.up.railway.app/invoices/"
       ],
       "purpose": "Connect to CollectionsCopilot backend for automated invoice follow-ups."
     }
