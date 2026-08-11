@@ -20,11 +20,10 @@ owner — what's verified live, and the remaining owner steps in order.
 
 ## ⏳ Owner steps (in order)
 
-### 1. Persist the database (important — data resets on every deploy today)
-The app uses a local SQLite file; Railway's filesystem is ephemeral, so the DB (merchants, tasks,
-drafts, opt-outs, subscriptions) is wiped on every deploy. Fix: in the Railway dashboard, add a
-**volume mounted at `/data`** for the Stripe-CC service (paid add-on), then set
-`DB_PATH=/data/app.db` as a variable. Without this, no data survives a deploy.
+### 1. Persist the database — ✅ DONE (2026-08-11)
+Volume `stripe-cc-volume` created (500MB) and attached to Stripe-CC at mount path `/data`;
+`DB_PATH=/data/app.db` set on Railway. Deploy SUCCESS, `/health` ok, no boot errors — the
+SQLite DB now survives deploys.
 
 ### 2. Stripe live mode — ✅ DONE (2026-08-11)
 - ✅ `STRIPE_SECRET_KEY` **live** (`sk_live_…`, owner-provided).
