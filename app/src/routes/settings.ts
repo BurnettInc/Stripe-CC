@@ -74,9 +74,10 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
     const hasTrustMode = body.trust_mode !== undefined;
     const hasPaused = body.paused !== undefined;
     const hasBranding = body.sender_name !== undefined || body.reply_to !== undefined;
-    if (!hasTrustMode && !hasPaused && !hasBranding) {
+    const hasTiming = body.stage1_days !== undefined || body.stage2_days !== undefined;
+    if (!hasTrustMode && !hasPaused && !hasBranding && !hasTiming) {
       return new Response(
-        JSON.stringify({ error: "Nothing to update: provide trust_mode, paused, sender_name and/or reply_to" }),
+        JSON.stringify({ error: "Nothing to update: provide trust_mode, paused, sender_name, reply_to, stage1_days and/or stage2_days" }),
         { status: 400, headers }
       );
     }
@@ -137,6 +138,48 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
       }
     }
 
+    // ── Custom escalation timing (Pro) ──
+    // stage1_days / stage2_days move the 6-day / 20-day ladder boundaries.
+    // Both must be supplied together (the pair defines the whole ladder) and
+    // satisfy 1 <= stage1 < stage2 <= 90. Integers only.
+    let stage1Days: number | null = null;
+    let stage2Days: number | null = null;
+    if (hasTiming) {
+      if (body.stage1_days === undefined || body.stage2_days === undefined) {
+        return new Response(
+          JSON.stringify({ error: "stage1_days and stage2_days must be provided together" }),
+          { status: 400, headers }
+        );
+      }
+      const s1 = body.stage1_days;
+      const s2 = body.stage2_days;
+      if (
+        typeof s1 !== "number" || !Number.isInteger(s1) ||
+        typeof s2 !== "number" || !Number.isInteger(s2)
+      ) {
+        return new Response(
+          JSON.stringify({ error: "stage1_days and stage2_days must be integers" }),
+          { status: 400, headers }
+        );
+      }
+      if (!(s1 >= 1 && s1 < s2 && s2 <= 90)) {
+        return new Response(
+          JSON.stringify({ error: "stage1_days and stage2_days must satisfy 1 <= stage1_days < stage2_days <= 90" }),
+          { status: 400, headers }
+        );
+      }
+      // Custom escalation timing is a Pro feature.
+      const sub = getSubscriptionByMerchantId(db, merchantId);
+      if (!sub || sub.tier !== "pro" || sub.status !== "active") {
+        return new Response(
+          JSON.stringify({ error: "Custom escalation timing requires a Pro subscription. Upgrade to unlock." }),
+          { status: 402, headers }
+        );
+      }
+      stage1Days = s1;
+      stage2Days = s2;
+    }
+
     // Full Auto (hands-off sending) is a Pro-only feature: require an active
     // Pro subscription before allowing the merchant to switch to it.
     if (trustMode === "full") {
@@ -163,6 +206,8 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
     if (paused !== null) { sets.push("paused=?"); params.push(paused); }
     if (body.sender_name !== undefined) { sets.push("sender_name=?"); params.push(senderName); }
     if (body.reply_to !== undefined) { sets.push("reply_to=?"); params.push(replyTo); }
+    if (body.stage1_days !== undefined) { sets.push("stage1_days=?"); params.push(stage1Days); }
+    if (body.stage2_days !== undefined) { sets.push("stage2_days=?"); params.push(stage2Days); }
     db.run(`UPDATE merchants SET ${sets.join(", ")} WHERE id=?`, [...params, merchant.id]);
 
     const updated = db.query("SELECT * FROM merchants WHERE id = ?").get(merchant.id) as MerchantRow;

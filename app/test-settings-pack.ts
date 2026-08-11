@@ -256,6 +256,103 @@ async function run() {
     record("A6. Auto-send branding", false, `Exception: ${e.message}`);
   }
 
+  // ── B1. Unit: getEscalationStage defaults unchanged; custom thresholds shift boundaries ──
+  try {
+    const { getEscalationStage } = await import("./src/pipeline/escalation");
+    const defaults =
+      getEscalationStage(6) === 1 && getEscalationStage(7) === 2 &&
+      getEscalationStage(20) === 2 && getEscalationStage(21) === 3 &&
+      getEscalationStage(0) === 1 && getEscalationStage(-1) === 1;
+    const custom =
+      getEscalationStage(3, 3, 10) === 1 && getEscalationStage(4, 3, 10) === 2 &&
+      getEscalationStage(10, 3, 10) === 2 && getEscalationStage(11, 3, 10) === 3;
+    record("B1. getEscalationStage defaults (6/20) unchanged; custom 3/10 shifts boundaries", defaults && custom,
+      !defaults || !custom ? `defaults=${defaults} custom=${custom}` : "");
+  } catch (e: any) {
+    record("B1. getEscalationStage unit", false, `Exception: ${e.message}`);
+  }
+
+  // ── B2. Pro merchant: PUT stage1/stage2 round-trips through GET ──
+  try {
+    setSubscription("pro");
+    const put = await af("/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage1_days: 3, stage2_days: 10 }),
+    });
+    const p = await put.json();
+    const get = await af("/settings");
+    const g = await get.json();
+    const pass =
+      put.status === 200 && p.stage1_days === 3 && p.stage2_days === 10 &&
+      g.stage1_days === 3 && g.stage2_days === 10;
+    record("B2. Pro PUT stage1_days=3/stage2_days=10 → 200; GET round-trips", pass,
+      pass ? "" : JSON.stringify({ putStatus: put.status, p, g }));
+  } catch (e: any) {
+    record("B2. Pro timing round-trip", false, `Exception: ${e.message}`);
+  }
+
+  // ── B3. Watcher uses merchant thresholds: daysAgo=5 with stage1=3 → stage 2 ──
+  try {
+    setSubscription("pro");
+    await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage1_days: 3, stage2_days: 10 }) });
+    // 5 days overdue: default ladder → stage 1; custom (3/10) → stage 2
+    const wh2 = await fireOverdueWebhook(`${INV_PREFIX}_b1`, 5);
+    const d = db();
+    const s2 = d.query("SELECT stage FROM reminder_tasks WHERE id=?").get(wh2.taskId) as { stage: number } | null;
+    d.close();
+    // 11 days overdue: default → stage 2; custom → stage 3
+    const wh3 = await fireOverdueWebhook(`${INV_PREFIX}_b2`, 11);
+    const d2 = db();
+    const s3 = d2.query("SELECT stage FROM reminder_tasks WHERE id=?").get(wh3.taskId) as { stage: number } | null;
+    d2.close();
+    // 2 days overdue: still stage 1 under custom ladder
+    const wh1 = await fireOverdueWebhook(`${INV_PREFIX}_b3`, 2);
+    const d3 = db();
+    const s1 = d3.query("SELECT stage FROM reminder_tasks WHERE id=?").get(wh1.taskId) as { stage: number } | null;
+    d3.close();
+    const pass = s1?.stage === 1 && s2?.stage === 2 && s3?.stage === 3;
+    record("B3. Watcher applies custom boundaries (2d→1, 5d→2, 11d→3)", pass,
+      pass ? "" : JSON.stringify({ s1: s1?.stage, s2: s2?.stage, s3: s3?.stage }));
+  } catch (e: any) {
+    record("B3. Watcher custom boundaries", false, `Exception: ${e.message}`);
+  }
+
+  // ── B4. Non-Pro: PUT timing → 402; values still readable via GET ──
+  try {
+    setSubscription("standard");
+    const put = await af("/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage1_days: 5, stage2_days: 15 }),
+    });
+    setSubscription(null);
+    const putFree = await af("/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage1_days: 5, stage2_days: 15 }),
+    });
+    const get = await af("/settings");
+    const g = await get.json();
+    const pass = put.status === 402 && putFree.status === 402 && get.status === 200 && g.stage1_days === 3;
+    record("B4. Standard + free: PUT timing → 402; GET still readable", pass,
+      pass ? "" : JSON.stringify({ standard: put.status, free: putFree.status, getStatus: get.status, g }));
+  } catch (e: any) {
+    record("B4. Non-Pro timing 402", false, `Exception: ${e.message}`);
+  }
+
+  // ── B5. Validation: non-integer, out-of-range, inverted pair → 400 ──
+  try {
+    setSubscription("pro");
+    const notInt = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage1_days: 2.5, stage2_days: 10 }) });
+    const inverted = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage1_days: 10, stage2_days: 5 }) });
+    const tooBig = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage1_days: 1, stage2_days: 91 }) });
+    const zero = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage1_days: 0, stage2_days: 10 }) });
+    const onlyOne = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage1_days: 3 }) });
+    const pass = notInt.status === 400 && inverted.status === 400 && tooBig.status === 400 && zero.status === 400 && onlyOne.status === 400;
+    record("B5. Timing validation 400s (non-integer, inverted, >90, <1, partial pair)", pass,
+      pass ? "" : JSON.stringify({ notInt: notInt.status, inverted: inverted.status, tooBig: tooBig.status, zero: zero.status, onlyOne: onlyOne.status }));
+  } catch (e: any) {
+    record("B5. Timing validation", false, `Exception: ${e.message}`);
+  }
+
   // B and C suites are appended below (custom escalation timing, late fees).
 
   // ── cleanup ──

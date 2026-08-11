@@ -67,7 +67,16 @@ export function handleWebhookEvent(db: Database, event: WebhookEvent): { action:
       const daysOverdue = Math.floor(
         (Date.now() - new Date(dueDate).getTime()) / (1000 * 60 * 60 * 24)
       );
-      const stage = getEscalationStage(daysOverdue);
+      // Pro merchants can customize the ladder boundaries (PUT /settings
+      // stage1_days/stage2_days); fall back to the default 6/20 ladder.
+      const timing = db
+        .query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?")
+        .get(merchantId) as { stage1_days: number; stage2_days: number } | null;
+      const stage = getEscalationStage(
+        daysOverdue,
+        timing?.stage1_days ?? 6,
+        timing?.stage2_days ?? 20,
+      );
       if (!hasActiveSubscription(db, merchantId) && freeDraftsRemaining(db, merchantId) <= 0) {
         console.log(`Skipping task creation for merchant ${merchantId}: free draft limit reached, no subscription`);
         return { action: `skipped reminder task for invoice ${stripeInvoiceId}: free draft limit reached` , invoiceId };
