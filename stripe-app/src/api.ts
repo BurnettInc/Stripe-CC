@@ -13,3 +13,14 @@
  */
 export const BASE_URL: string =
   (import.meta as any).env?.VITE_BACKEND_URL ?? 'https://stripe-cc-production.up.railway.app';
+
+/**
+ * Public marketing/landing site URL.
+ *
+ * Build-time override via the VITE_LANDING_URL env var (e.g.
+ * `VITE_LANDING_URL=https://... bun run build`). Defaults to the permanent
+ * public marketing site, which hosts the full product pitch, pricing, and
+ * support info.
+ */
+export const LANDING_URL: string =
+  (import.meta as any).env?.VITE_LANDING_URL ?? 'https://www.getcollectionscopilot.com';
