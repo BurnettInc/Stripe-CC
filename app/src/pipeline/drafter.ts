@@ -43,7 +43,7 @@ CONTEXT:
 - Customer name: {customer_name}
 - Invoice amount: {amount} {currency}
 - Invoice number: {invoice_number}
-- Invoice due date: {due_date} (always include this exact date in the body)
+- Invoice due date: {due_date} (include this EXACT date string, ISO format YYYY-MM-DD — e.g. 2026-08-11 — verbatim in the body; do NOT reformat it into words like "August 11, 2026")
 - Days overdue: {days_overdue}
 - Escalation stage: {stage}
 - Customer relationship length: {relationship_length}
@@ -78,6 +78,10 @@ RULES:
    stage 2 or stage 3 — NEVER at stage 1. Never invent or change a fee amount;
    use the exact value from the late fee line. Never claim the fee has been
    added or charged — it is conditional and informational only.
+10. ALWAYS state the invoice due date in the body as the exact ISO date string
+    {due_date} (format YYYY-MM-DD, e.g. 2026-08-11). Copy it character-for-
+    character — never rewrite it as a month name ("August 11, 2026" is wrong,
+    "2026-08-11" is required).
 
 OUTPUT FORMAT (JSON):
 {

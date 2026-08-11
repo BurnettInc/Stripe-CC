@@ -6,6 +6,36 @@ export interface ReviewResult {
   issues: string[];
 }
 
+const MONTHS = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+
+/**
+ * True when `text` mentions the invoice due date. Accepts the literal
+ * YYYY-MM-DD string (what the templates emit) OR a human-readable rendering
+ * of the same calendar day ("August 11, 2026", "Aug 11, 2026",
+ * "11 August 2026"). LLMs frequently reformat dates into prose; the gate's
+ * intent is that the draft names the CORRECT due date, not that it uses a
+ * specific serialization — a wrong date still fails (exact month/day/year
+ * must match).
+ */
+function mentionsDueDate(text: string, dueDate: string): boolean {
+  if (text.includes(dueDate)) return true;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate);
+  if (!m) return false;
+  const [, year, month, day] = m;
+  const monthIdx = parseInt(month, 10) - 1;
+  const dayNum = parseInt(day, 10);
+  if (monthIdx < 0 || monthIdx > 11 || !dayNum) return false;
+  const full = MONTHS[monthIdx];
+  const short = full.slice(0, 3);
+  // "August 11, 2026" | "Aug 11, 2026" | "11 August 2026" | "11 Aug 2026"
+  const re = new RegExp(
+    `\\b(?:${full}|${short})\\.?\\s+${dayNum}(?:st|nd|rd|th)?,?\\s+${year}\\b|` +
+    `\\b${dayNum}(?:st|nd|rd|th)?\\s+(?:${full}|${short})\\.?,?\\s+${year}\\b`,
+    "i"
+  );
+  return re.test(text);
+}
+
 export interface ReviewOptions {
   /**
    * The exact late-fee fragment the draft must contain (from late-fee.ts).
@@ -48,8 +78,8 @@ export function reviewDraft(draft: EmailDraft, invoice: Invoice, opts?: ReviewOp
     );
   }
 
-  // Check 3: due date present
-  if (!fullText.includes(invoice.due_date)) {
+  // Check 3: due date present (literal ISO string or a rendering of the same day)
+  if (!mentionsDueDate(fullText, invoice.due_date)) {
     issues.push(`Missing due date: expected "${invoice.due_date}" not found in draft`);
   }
 
