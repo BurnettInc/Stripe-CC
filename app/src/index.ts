@@ -1,5 +1,6 @@
-import { getDb, ensureDefaultMerchant, freeDraftsRemaining, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor } from "./db";
+import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscriber, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor } from "./db";
 import { handleWebhook } from "./routes/webhook";
+import { handlePastDuePage, handleRemindersPage } from "./routes/pages";
 import { handleTasks } from "./routes/tasks";
 import { handleSettings } from "./routes/settings";
 import { handleBilling } from "./routes/billing";
@@ -227,6 +228,12 @@ async function handleRequest(req: Request): Promise<Response> {
         const totalInvoicesRow = db.query("SELECT COUNT(*) as count FROM invoices WHERE merchant_id=?").get(merchantId) as { count: number };
         const totalInvoices = totalInvoicesRow.count;
         const freeDrafts = freeDraftsRemaining(db, merchantId);
+        // The 5-draft free allowance only applies to merchants with no active
+        // paid subscription. Paid merchants (Standard or Pro active) have no
+        // draft cap — the dashboard renders "Unlimited" instead of the
+        // misleading countdown (which would otherwise show a number for a plan
+        // that has no limit).
+        const freeDraftsUnlimited = isActivePaidSubscriber(db, merchantId);
 
         // Total reminders sent (send_logs with type='reminder' and status='success')
         const remindersSentRow = db.query(
@@ -281,6 +288,7 @@ async function handleRequest(req: Request): Promise<Response> {
           invoiceLimit,
           overInvoiceLimit,
           free_drafts_remaining: freeDrafts,
+          free_drafts_unlimited: freeDraftsUnlimited,
           uptime,
           uptimeFormatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`,
           startedAt: new Date(START_TIME).toISOString(),
@@ -288,6 +296,25 @@ async function handleRequest(req: Request): Promise<Response> {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
+      }
+
+      // GET /past-due — server-rendered list of the merchant's past-due
+      // (overdue) invoices. Drilled into from the dashboard "Invoices" stat
+      // card. Same session-cookie auth as every other dashboard route.
+      if (path === "/past-due" && req.method === "GET") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        return handlePastDuePage(db, auth.merchant_id);
+      }
+
+      // GET /reminders — server-rendered history of sent reminder emails.
+      // Drilled into from the dashboard "Sent Reminders" stat card. Every row
+      // is a send_logs 'success' entry; test-mode stub sends are labeled as
+      // "Test send" so a stub can never be mistaken for a real delivery.
+      if (path === "/reminders" && req.method === "GET") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        return handleRemindersPage(db, auth.merchant_id);
       }
 
       // POST /webhook — Stripe webhook events

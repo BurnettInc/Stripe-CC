@@ -85,6 +85,11 @@ async function freeDrafts(): Promise<number> {
   const s = (await res.json()) as { free_drafts_remaining: number };
   return s.free_drafts_remaining;
 }
+async function statsJson(): Promise<{ free_drafts_remaining: number; free_drafts_unlimited: boolean }> {
+  const res = await af("/stats");
+  if (res.status !== 200) throw new Error(`GET /stats returned ${res.status}`);
+  return (await res.json()) as { free_drafts_remaining: number; free_drafts_unlimited: boolean };
+}
 
 const results: { name: string; pass: boolean; detail: string }[] = [];
 function record(name: string, pass: boolean, detail = ""): void {
@@ -134,6 +139,37 @@ async function run(): Promise<void> {
   record("6. cleared draft no longer counts → 3 of 5",
     fd === 3 && draftCount() === 2,
     `freeDrafts=${fd} drafts=${draftCount()}`);
+  // 7. Paid merchant (active Standard): the 5-draft cap does not apply — /stats
+  //    must flag free_drafts_unlimited so the dashboard renders "Unlimited"
+  //    instead of a misleading countdown. (The reported bug: the countdown was
+  //    computed for EVERYONE, including paid merchants.)
+  db().run(
+    "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (?, 'sub_paid_test', 'standard', 'active')",
+    [MERCHANT]
+  );
+  let stats = await statsJson();
+  record("7. active Standard subscriber → free_drafts_unlimited=true",
+    stats.free_drafts_unlimited === true,
+    `free_drafts_unlimited=${stats.free_drafts_unlimited}`);
+  // 8. Cancelled subscription → back to the free countdown (still 3 of 5).
+  db().run(
+    "UPDATE subscriptions SET status='cancelled' WHERE stripe_subscription_id='sub_paid_test'"
+  );
+  stats = await statsJson();
+  fd = await freeDrafts();
+  record("8. cancelled subscription → free_drafts_unlimited=false, countdown resumes",
+    stats.free_drafts_unlimited === false && fd === 3,
+    `free_drafts_unlimited=${stats.free_drafts_unlimited} freeDrafts=${fd}`);
+  // 9. Active Pro subscriber → unlimited too (Standard OR Pro active).
+  db().run(
+    "UPDATE subscriptions SET status='active', tier='pro' WHERE stripe_subscription_id='sub_paid_test'"
+  );
+  stats = await statsJson();
+  record("9. active Pro subscriber → free_drafts_unlimited=true",
+    stats.free_drafts_unlimited === true,
+    `free_drafts_unlimited=${stats.free_drafts_unlimited}`);
+  // Cleanup: remove the test subscription so the merchant is free again.
+  db().run("DELETE FROM subscriptions WHERE stripe_subscription_id='sub_paid_test'");
 
   const passed = results.filter((r) => r.pass).length;
   const failed = results.filter((r) => !r.pass).length;
