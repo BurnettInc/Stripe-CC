@@ -531,7 +531,7 @@ function Home() {
                 "Unlimited overdue invoices",
                 "Custom escalation timing",
                 "Late-fee automation",
-                "Priority support",
+                "Priority support — same-business-day first response (typically within 24 hours, weekdays)",
               ],
               cta: "Subscribe to Pro",
               highlight: true,
@@ -661,6 +661,9 @@ function Home() {
           </a>
           <a href="/about" className="hover:text-gray-700 transition-colors">
             About
+          </a>
+          <a href="/support" className="hover:text-gray-700 transition-colors">
+            Support
           </a>
           <a
             href="mailto:support@getcollectionscopilot.com"
