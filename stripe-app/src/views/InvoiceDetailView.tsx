@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Select, Spinner } from '@stripe/ui-extension-sdk/ui';
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
-
-const BASE_URL = (import.meta as any).env?.VITE_BACKEND_URL ?? 'https://collectionscopilot.ctonew.app/api';
+import { BASE_URL } from '../api';
 
 type TrustMode = 'draft' | 'semi' | 'full';
 type TrustModeValue = TrustMode | 'global';

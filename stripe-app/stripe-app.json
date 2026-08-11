@@ -7,7 +7,7 @@
   "stripe_api_access_type": "oauth",
   "distribution_type": "public",
   "allowed_redirect_uris": [
-    "https://collectionscopilot.ctonew.app/api/oauth/callback"
+    "https://stripe-cc-production.up.railway.app/oauth/callback"
   ],
   "ui_extension": {
     "views": [
@@ -22,7 +22,7 @@
     ],
     "content_security_policy": {
       "connect-src": [
-        "https://collectionscopilot.ctonew.app/api/"
+        "https://stripe-cc-production.up.railway.app"
       ],
       "purpose": "Connect to CollectionsCopilot backend for automated invoice follow-ups."
     }

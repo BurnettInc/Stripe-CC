@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-sdk/ui';
-
-const BASE_URL = (import.meta as any).env?.VITE_BACKEND_URL ?? 'https://collectionscopilot.ctonew.app/api';
+import { BASE_URL } from '../api';
 type Tier = 'standard' | 'pro';
 type TrustMode = 'draft' | 'semi_auto' | 'full_auto';
 interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none' }
