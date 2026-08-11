@@ -1618,7 +1618,12 @@
           return;
         }
         if (res.status === 402) {
-          showUpgradePrompt(data.message || data.error || 'An active subscription is required to send reminders.');
+          // Surface the reason at the click site (under the task card) AND in
+          // the Subscription card — the upgrade prompt alone renders off-viewport
+          // (#sub-error), which made the click look like a no-op in the E2E test.
+          var subMsg = data.message || data.error || 'An active subscription is required to send reminders.';
+          showTaskError(id, subMsg);
+          showUpgradePrompt(subMsg);
           return;
         }
         if (res.status === 409) {

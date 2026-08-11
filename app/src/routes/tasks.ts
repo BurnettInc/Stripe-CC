@@ -40,12 +40,17 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
   const approveMatch = pathSuffix.match(/^\/(\d+)\/approve$/);
   if (req.method === "POST" && approveMatch) {
     const taskId = parseInt(approveMatch[1], 10);
+    console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> start`);
     const task = resolveOwnedTask(db, taskId, merchantId);
-    if (!task) return json404();
+    if (!task) {
+      console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 404 not_found`);
+      return json404();
+    }
 
     // Idempotency: a sent or cancelled task cannot be approved again
     // (double-approve is impossible — first approve flips status to 'sent').
     if (task.status === "sent" || task.status === "cancelled") {
+      console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 409 already_${task.status}`);
       return new Response(
         JSON.stringify({ error: "Task already sent or cancelled", currentStatus: task.status }),
         { status: 409, headers }
@@ -55,6 +60,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     // Subscription gate — same 402 the pipeline returns at its send step:
     // free tier = no sending. The UI surfaces the upgrade prompt.
     if (!hasActiveSubscription(db, merchantId)) {
+      console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 402 subscription_required`);
       return new Response(JSON.stringify({
         error: "subscription_required",
         message: "An active subscription is required to send reminders. Subscribe to continue.",
@@ -62,7 +68,10 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     }
 
     const invoice = getInvoiceById(db, task.invoice_id);
-    if (!invoice) return json404();
+    if (!invoice) {
+      console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 404 invoice_not_found`);
+      return json404();
+    }
 
     // Ensure there is a current draft to approve. Tasks that never went through
     // the pipeline (status 'pending') get drafted + reviewed inline first; the
@@ -84,6 +93,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     } else {
       draft = { subject: task.draft_subject || "", body: task.draft_body || "" };
       if (!draft.body) {
+        console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 400 no_draft`);
         return new Response(
           JSON.stringify({ error: "Task has no draft to approve" }),
           { status: 400, headers }
@@ -102,6 +112,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     const updatedTask = getTaskById(db, taskId);
 
     if (sendResult.success) {
+      console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> sent (via ${sendResult.provider || "stub"})`);
       return new Response(JSON.stringify({
         task: updatedTask,
         sent: true,
@@ -112,6 +123,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
 
     // Send failed (paid guard, opt-out guard, provider error) — keep the task
     // in place and return a clear error the UI can show.
+    console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> error send_failed: ${sendResult.message}`);
     return new Response(JSON.stringify({
       error: "send_failed",
       message: sendResult.message,
@@ -230,8 +242,12 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       return json404();
     }
 
-    // Fix 2: Prevent double-processing
-    if (task.status !== "pending") {
+    // Fix 2: Prevent double-processing. Since webhook-created tasks now arrive
+    // auto-drafted ('reviewed', draft already on the row), /process accepts
+    // pending/drafted/reviewed tasks: pending ones are drafted inline below,
+    // drafted/reviewed ones reuse the draft already on the row. Only a sent or
+    // cancelled task cannot be processed again.
+    if (task.status === "sent" || task.status === "cancelled") {
       return new Response(
         JSON.stringify({ error: "Task already processed", currentStatus: task.status }),
         { status: 400, headers }
@@ -254,25 +270,41 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     const subscribed = hasActiveSubscription(db, merchantId);
     const pipelineLog: string[] = [];
 
-    // Step 1: Draft — free merchants may create up to five drafts total.
-    if (!subscribed && freeDraftsRemaining(db, merchantId) <= 0) {
-      return new Response(JSON.stringify({
-        error: "free_limit_reached",
-        message: "You've used your 5 free drafts. Subscribe to keep drafting and start sending.",
-      }), { status: 402, headers });
+    // Step 1: Draft — only pending tasks need drafting. Tasks that arrived
+    // auto-drafted (webhook-created, 'drafted'/'reviewed') reuse the draft on
+    // the row — the freemium counter was already charged at creation, so it is
+    // never charged twice for the same task.
+    let draft: EmailDraft;
+    if (task.status === "pending") {
+      // Free merchants may create up to five drafts total.
+      if (!subscribed && freeDraftsRemaining(db, merchantId) <= 0) {
+        return new Response(JSON.stringify({
+          error: "free_limit_reached",
+          message: "You've used your 5 free drafts. Subscribe to keep drafting and start sending.",
+        }), { status: 402, headers });
+      }
+      pipelineLog.push("Step 1: Drafting email...");
+      draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
+      db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
+        draft.subject,
+        draft.body,
+        taskId,
+      ]);
+      // Durable freemium counter: one lifetime draft used per successful draft.
+      // Only reached when the draft was actually written (draftEmail succeeded),
+      // and only once — escalation re-runs create new tasks, not new counts.
+      db.run("UPDATE merchants SET drafts_used = drafts_used + 1 WHERE id = ?", [invoice.merchant_id]);
+      pipelineLog.push(`  Drafted: ${draft.subject}`);
+    } else {
+      draft = { subject: task.draft_subject || "", body: task.draft_body || "" };
+      if (!draft.body) {
+        return new Response(
+          JSON.stringify({ error: "Task has no draft to process" }),
+          { status: 400, headers }
+        );
+      }
+      pipelineLog.push("Step 1: SKIPPED — draft already on task (auto-drafted at creation)");
     }
-    pipelineLog.push("Step 1: Drafting email...");
-    const draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
-    db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
-      draft.subject,
-      draft.body,
-      taskId,
-    ]);
-    // Durable freemium counter: one lifetime draft used per successful draft.
-    // Only reached when the draft was actually written (draftEmail succeeded),
-    // and only once — escalation re-runs create new tasks, not new counts.
-    db.run("UPDATE merchants SET drafts_used = drafts_used + 1 WHERE id = ?", [invoice.merchant_id]);
-    pipelineLog.push(`  Drafted: ${draft.subject}`);
 
     // Step 2: Review
     pipelineLog.push("Step 2: Reviewing draft...");
