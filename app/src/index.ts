@@ -240,9 +240,12 @@ async function handleRequest(req: Request): Promise<Response> {
         ).get(merchantId) as { count: number };
         const emailsSent = emailsSentRow.count;
 
-        // Weekly summary emails sent
+        // Weekly summary emails sent — exclude [STUB SEND] rows the same way
+        // the reminder count above does, so stats can never count a stub as a
+        // real send (a summary to a placeholder merchant would otherwise
+        // surface here as "sent").
         const summaryEmailsRow = db.query(
-          "SELECT COUNT(*) as count FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id=rt.id JOIN invoices i ON rt.invoice_id=i.id WHERE sl.type='weekly_summary' AND sl.status='success' AND i.merchant_id=?"
+          "SELECT COUNT(*) as count FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id=rt.id JOIN invoices i ON rt.invoice_id=i.id WHERE sl.type='weekly_summary' AND sl.status='success' AND sl.provider_message NOT LIKE '%[STUB SEND]%' AND i.merchant_id=?"
         ).get(merchantId) as { count: number };
         const summaryEmailsSent = summaryEmailsRow.count;
 
@@ -459,6 +462,30 @@ async function handleRequest(req: Request): Promise<Response> {
         if (!merchant) {
           return new Response(JSON.stringify({ error: "Merchant not found" }), {
             status: 404,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        // Placeholder merchants (acct_default / default@collections-copilot.local
+        // and other .local seeds) have no real, deliverable inbox — never treat
+        // them as a weekly-summary send target. Skipping entirely (no send, no
+        // send_logs row) means the dashboard can never show a fake "sent"
+        // success and stats can never count a [STUB SEND] as a real send.
+        const { isPlaceholderMerchant } = await import("./pipeline/notify");
+        if (isPlaceholderMerchant(merchant)) {
+          console.log(
+            `[summary] merchant ${merchantId} (${merchant.email || "no email"}) is a placeholder — skipping weekly summary (no real email)`
+          );
+          return new Response(JSON.stringify({
+            skipped: true,
+            sentTo: merchant.email,
+            sendResult: {
+              success: false,
+              skipped: true,
+              message: "Weekly summary skipped — this account has no real email configured.",
+            },
+          }), {
+            status: 200,
             headers: { "Content-Type": "application/json" },
           });
         }

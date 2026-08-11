@@ -17,11 +17,12 @@ import { join } from "node:path";
 const BASE = process.env.TEST_BASE || "http://localhost:3001";
 const DB_PATH = process.env.TEST_DB_PATH || join(import.meta.dirname, "app.db");
 const SESSION = "e2e-session";
+const SESSION_REAL = "e2e-session-real"; // merchant 2 (real email) session
 
-/** Fetch with the seeded session cookie attached. */
-function af(url: string, opts: RequestInit = {}): Promise<Response> {
+/** Fetch with a session cookie attached (defaults to merchant 1's session). */
+function af(url: string, opts: RequestInit = {}, session: string = SESSION): Promise<Response> {
   const headers = new Headers(opts.headers || {});
-  headers.set("Cookie", `session=${encodeURIComponent(SESSION)}`);
+  headers.set("Cookie", `session=${encodeURIComponent(session)}`);
   return fetch(url, { ...opts, headers });
 }
 
@@ -37,6 +38,27 @@ function bootstrap() {
     d.run("UPDATE subscriptions SET status='active', tier='pro' WHERE merchant_id=1");
   } else {
     d.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (1, 'sub_e2e', 'pro', 'active')");
+  }
+  d.close();
+}
+
+/**
+ * Seed a SECOND merchant (id 2) with a real, non-placeholder email plus a
+ * session and an active subscription of the given tier. The weekly-summary
+ * send path needs a genuine send target: merchant 1 is the seeded placeholder
+ * (default@collections-copilot.local) which the fix skips entirely.
+ */
+function seedRealMerchant(tier: "pro" | "standard"): void {
+  const d = new Database(DB_PATH);
+  d.run(
+    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode) VALUES (2, 'acct_e2e_real', 'real@example.com', 'draft')"
+  );
+  d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 2, datetime('now', '+30 days'))", [SESSION_REAL]);
+  const existing = d.query("SELECT id FROM subscriptions WHERE merchant_id=2").get() as { id: number } | null;
+  if (existing) {
+    d.run("UPDATE subscriptions SET status='active', tier=? WHERE merchant_id=2", [tier]);
+  } else {
+    d.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (2, 'sub_e2e_real', ?, 'active')", [tier]);
   }
   d.close();
 }
@@ -433,45 +455,62 @@ async function run() {
   }
 
   // ────────────────────────────────────────────────────
-  // Sequence 11: Weekly summary send — Pro tier → 200
+  // Sequence 11: Weekly summary send — placeholder Pro merchant → skipped
   // ────────────────────────────────────────────────────
+  // Merchant 1 is the seeded placeholder (default@collections-copilot.local).
+  // It must NOT be treated as a summary send target: no fake success, no
+  // weekly_summary send_logs row, and /stats must not count it as sent.
   try {
     await setTrustMode("full");
-    // Merchant 1 is seeded as an active Pro subscriber (bootstrap()).
     const res = await af(`${BASE}/summary/send`, { method: "POST" });
     const body = await res.json();
+    const d = new Database(DB_PATH);
+    const summaryLogRows = (d.query("SELECT COUNT(*) AS n FROM send_logs WHERE type='weekly_summary'").get() as { n: number }).n;
+    d.close();
+    const statsRes = await af(`${BASE}/stats`);
+    const stats = await statsRes.json();
     const pass =
       res.status === 200 &&
-      body.summary &&
-      body.email &&
+      body.skipped === true &&
       body.sendResult &&
-      body.sendResult.success === true;
+      body.sendResult.success === false &&
+      body.sendResult.skipped === true &&
+      summaryLogRows === 0 &&
+      stats.summaryEmailsSent === 0;
 
-    record(11, "Summary send — active Pro → 200", pass,
-      pass ? "" : `status=${res.status} body=${JSON.stringify(body).substring(0, 300)}`);
+    record(11, "Summary send — placeholder Pro merchant → skipped (no fake success, no log row)", pass,
+      pass ? "" : `status=${res.status} body=${JSON.stringify(body).substring(0, 300)} logRows=${summaryLogRows} stats=${stats.summaryEmailsSent}`);
   } catch (e: any) {
-    record(11, "Summary send — active Pro → 200", false, `Exception: ${e.message}`);
+    record(11, "Summary send — placeholder Pro merchant → skipped (no fake success, no log row)", false, `Exception: ${e.message}`);
   }
 
   // ────────────────────────────────────────────────────
-  // Sequence 12: Weekly summary send — Standard tier → 200 (homepage parity)
+  // Sequence 12: Weekly summary send — real Standard merchant → 200 (homepage parity)
   // ────────────────────────────────────────────────────
+  // A real merchant (non-placeholder) still gets its summary through the
+  // normal path; the stub send (no provider in test env) is never counted as
+  // a real send in /stats.
   try {
-    const d = new Database(DB_PATH);
-    d.run("UPDATE subscriptions SET status='active', tier='standard' WHERE merchant_id=1");
-    d.close();
-
-    const res = await af(`${BASE}/summary/send`, { method: "POST" });
+    seedRealMerchant("standard");
+    const res = await af(`${BASE}/summary/send`, { method: "POST" }, SESSION_REAL);
     const body = await res.json();
+    const d = new Database(DB_PATH);
+    const summaryLogRows = (d.query("SELECT COUNT(*) AS n FROM send_logs WHERE type='weekly_summary'").get() as { n: number }).n;
+    d.close();
+    const statsRes = await af(`${BASE}/stats`, {}, SESSION_REAL);
+    const stats = await statsRes.json();
     const pass =
       res.status === 200 &&
+      body.skipped === undefined &&
       body.sendResult &&
-      body.sendResult.success === true;
+      body.sendResult.success === true &&
+      summaryLogRows === 1 &&
+      stats.summaryEmailsSent === 0;
 
-    record(12, "Summary send — active Standard → 200", pass,
-      pass ? "" : `status=${res.status} body=${JSON.stringify(body).substring(0, 300)}`);
+    record(12, "Summary send — real Standard merchant → 200 (stub not counted in stats)", pass,
+      pass ? "" : `status=${res.status} body=${JSON.stringify(body).substring(0, 300)} logRows=${summaryLogRows} stats=${stats.summaryEmailsSent}`);
   } catch (e: any) {
-    record(12, "Summary send — active Standard → 200", false, `Exception: ${e.message}`);
+    record(12, "Summary send — real Standard merchant → 200 (stub not counted in stats)", false, `Exception: ${e.message}`);
   }
 
   // ────────────────────────────────────────────────────
