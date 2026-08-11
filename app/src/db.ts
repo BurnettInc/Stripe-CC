@@ -35,6 +35,11 @@ function runMigrations(db: Database) {
   if (!invoiceCols.some(c => c.name === "trust_mode_override")) {
     db.exec("ALTER TABLE invoices ADD COLUMN trust_mode_override TEXT DEFAULT NULL CHECK(trust_mode_override IN ('draft', 'semi', 'full'))");
   }
+  // Idempotency guard for the charge.refunded handler: which refund stopped
+  // this invoice's sequence, so a replayed refund event can't double-log.
+  if (!invoiceCols.some(c => c.name === "refund_id")) {
+    db.exec("ALTER TABLE invoices ADD COLUMN refund_id TEXT DEFAULT NULL");
+  }
 
   if (!hasType || (reminderCol && reminderCol.notnull === 1)) {
     // Need to migrate: recreate send_logs with type column + nullable reminder_task_id
@@ -516,6 +521,8 @@ export interface Invoice {
   trust_mode_override: string | null;
   /** Id of the most recent dispute handled for this invoice (idempotency guard). */
   dispute_id: string | null;
+  /** Id of the most recent refund handled for this invoice (idempotency guard). */
+  refund_id: string | null;
   /** 1 once the payment-received notification has been emailed for this invoice. */
   paid_notified: number;
   created_at: string;

@@ -17,6 +17,13 @@
  *  6. Tier gate: trust_mode 'full' WITHOUT active Pro → demoted to semi;
  *     stage 1 still auto-sends (semi behavior), stage 2 does not.
  *  7. Pause gate: full + paused → auto-send skipped, task stays 'reviewed'.
+ *  8. Stale-event guards (run #4 gaps): a re-fired invoice.overdue after
+ *     dispute / refund / paid creates NO new task; paid status is preserved;
+ *     a replayed charge.refunded logs exactly ONE refund row.
+ *     - 8a. overdue-after-dispute → no new task, dispute_id preserved
+ *     - 8b. overdue-after-refund → no new task, refund_id preserved
+ *     - 8c. overdue-after-paid → no new task AND invoice status stays 'paid'
+ *     - 8d. refund replay → single send_logs refund row (idempotent)
  *
  * Boot: DB_PATH=/tmp/cc-fullauto.db PORT=3100 env -u RESEND_API_KEY -u
  * SENDGRID_API_KEY -u OPENAI_API_KEY nohup bun run src/index.ts > /tmp/cc-fullauto-server.log 2>&1 &
@@ -75,16 +82,58 @@ function daysAgo(days: number): number {
   return Math.floor(t.getTime() / 1000);
 }
 
-async function fireOverdue(invId: string, days: number): Promise<any> {
+async function fireOverdue(invId: string, days: number, amount = 12500): Promise<any> {
   const res = await fetch(`${BASE}/webhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       type: "invoice.overdue",
-      data: { object: { id: invId, customer_name: "Full Auto Client", customer_email: "client@example.com", amount_due: 12500, currency: "usd", due_date: daysAgo(days) } },
+      data: { object: { id: invId, customer_name: "Full Auto Client", customer_email: "client@example.com", amount_due: amount, currency: "usd", due_date: daysAgo(days) } },
     }),
   });
   return res.json();
+}
+
+/** Fire an arbitrary webhook event (dispute/refund/paid) at the local server. */
+async function fireWebhook(type: string, object: Record<string, unknown>): Promise<any> {
+  const res = await fetch(`${BASE}/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, data: { object } }),
+  });
+  return res.json();
+}
+
+function invoiceStatus(stripeInvoiceId: string): string {
+  const d = db();
+  const row = d.query("SELECT status FROM invoices WHERE stripe_invoice_id=?").get(stripeInvoiceId) as { status: string } | null;
+  d.close();
+  return row?.status ?? "missing";
+}
+
+function invoiceFlag(stripeInvoiceId: string, col: "dispute_id" | "refund_id"): string | null {
+  const d = db();
+  const row = d.query(`SELECT ${col} AS v FROM invoices WHERE stripe_invoice_id=?`).get(stripeInvoiceId) as { v: string | null } | null;
+  d.close();
+  return row?.v ?? null;
+}
+
+function taskCountForInvoice(stripeInvoiceId: string): number {
+  const d = db();
+  const row = d.query(
+    `SELECT COUNT(*) AS n FROM reminder_tasks rt JOIN invoices i ON rt.invoice_id=i.id WHERE i.stripe_invoice_id=?`
+  ).get(stripeInvoiceId) as { n: number };
+  d.close();
+  return row.n;
+}
+
+function refundLogCount(stripeInvoiceId: string): number {
+  const d = db();
+  const row = d.query(
+    `SELECT COUNT(*) AS n FROM send_logs WHERE type='refund' AND instr(provider_message, ?) > 0`
+  ).get(stripeInvoiceId) as { n: number };
+  d.close();
+  return row.n;
 }
 
 async function getTask(taskId: number): Promise<any> {
@@ -194,6 +243,56 @@ async function main() {
   setPaused(false);
   record("7. Pause gate: full + paused → auto-send skipped, task reviewed", !!t7 && t7.status === "reviewed" && t7.sent_at === null,
     JSON.stringify(t7 && { status: t7.status, sent_at: t7.sent_at }));
+
+  // ── 8. Stale-event guards: re-fired overdue after dispute/refund/paid ──
+  await setTrustMode("full");
+
+  // 8a. overdue-after-dispute → no new task, dispute marker preserved
+  const inv8d = `${PREFIX}_seq8_dispute`;
+  await fireOverdue(inv8d, 3, 13300);
+  const dRes = await fireWebhook("charge.dispute.created", { id: "dp_fullauto_8", charge: "ch_fullauto_8", amount: 13300 });
+  const dTasksBefore = taskCountForInvoice(inv8d);
+  const dOv = await fireOverdue(inv8d, 3, 13300); // stale re-fire
+  const dTasksAfter = taskCountForInvoice(inv8d);
+  record("8a. Overdue-after-dispute: no new task, dispute_id preserved",
+    String(dRes.action).includes("paused reminders") && dTasksAfter === dTasksBefore && invoiceFlag(inv8d, "dispute_id") === "dp_fullauto_8",
+    JSON.stringify({ dRes, dOv, dTasksBefore, dTasksAfter, disputeId: invoiceFlag(inv8d, "dispute_id") }));
+
+  // 8b. overdue-after-refund → no new task, refund marker preserved
+  const inv8r = `${PREFIX}_seq8_refund`;
+  await fireOverdue(inv8r, 3, 13400);
+  const rRes = await fireWebhook("charge.refunded", { id: "re_fullauto_8", charge: "ch_fullauto_8r", amount: 13400, status: "succeeded" });
+  const rTasksBefore = taskCountForInvoice(inv8r);
+  const rOv = await fireOverdue(inv8r, 3, 13400); // stale re-fire
+  const rTasksAfter = taskCountForInvoice(inv8r);
+  record("8b. Overdue-after-refund: no new task, refund_id preserved",
+    String(rRes.action).includes("stopped reminders") && rTasksAfter === rTasksBefore && invoiceFlag(inv8r, "refund_id") === "re_fullauto_8",
+    JSON.stringify({ rRes, rOv, rTasksBefore, rTasksAfter, refundId: invoiceFlag(inv8r, "refund_id") }));
+
+  // 8c. overdue-after-paid → no new task AND status stays 'paid'
+  const inv8p = `${PREFIX}_seq8_paid`;
+  await fireOverdue(inv8p, 3, 13500);
+  const pRes = await fireWebhook("invoice.paid", { id: inv8p });
+  const pTasksBefore = taskCountForInvoice(inv8p);
+  const pStatusAfterPaid = invoiceStatus(inv8p);
+  const pOv = await fireOverdue(inv8p, 3, 13500); // stale re-fire
+  const pTasksAfter = taskCountForInvoice(inv8p);
+  const pStatusAfterReplay = invoiceStatus(inv8p);
+  record("8c. Overdue-after-paid: no new task, invoice status stays 'paid'",
+    pStatusAfterPaid === "paid" && pStatusAfterReplay === "paid" && pTasksAfter === pTasksBefore,
+    JSON.stringify({ pRes, pOv, pStatusAfterPaid, pStatusAfterReplay, pTasksBefore, pTasksAfter }));
+
+  // 8d. refund replay → exactly one refund send_logs row (idempotent)
+  const inv8l = `${PREFIX}_seq8_log`;
+  await fireOverdue(inv8l, 3, 13600);
+  const reId = "re_fullauto_8log";
+  const lFirst = await fireWebhook("charge.refunded", { id: reId, charge: "ch_fullauto_8log", amount: 13600, status: "succeeded" });
+  const logsAfterFirst = refundLogCount(inv8l);
+  const lReplay = await fireWebhook("charge.refunded", { id: reId, charge: "ch_fullauto_8log", amount: 13600, status: "succeeded" });
+  const logsAfterReplay = refundLogCount(inv8l);
+  record("8d. Refund replay: single refund log row (idempotent)",
+    String(lFirst.action).includes("stopped reminders") && logsAfterFirst === 1 && logsAfterReplay === 1 && String(lReplay.action).includes("idempotent"),
+    JSON.stringify({ lFirst, lReplay, logsAfterFirst, logsAfterReplay }));
 
   console.log(`\nRESULTS: ${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);
