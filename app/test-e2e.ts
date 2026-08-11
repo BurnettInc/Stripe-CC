@@ -347,7 +347,10 @@ async function run() {
 
     const pass =
       oldTask && oldTask.status === "cancelled" &&
-      newTask && newTask.status === "pending" &&
+      // Webhook-created tasks arrive auto-drafted ('reviewed' with a draft on
+      // the row) since the auto-draft-at-creation change — no longer 'pending'.
+      newTask && newTask.status === "reviewed" &&
+      newTask.draft_body && String(newTask.draft_body).trim() !== "" &&
       taskId1 !== taskId2;
 
     record(8, "Duplicate webhook", pass,

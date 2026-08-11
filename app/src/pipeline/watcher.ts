@@ -1,9 +1,12 @@
 import type { Database } from "bun:sqlite";
-import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend } from "../db";
+import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById } from "../db";
 import type { Invoice } from "../db";
 import { getEscalationStage } from "./escalation";
 import { getStripeKey } from "../middleware/auth";
 import { notifyMerchant } from "./notify";
+import { draftEmail } from "./drafter";
+import { reviewDraft } from "./reviewer";
+import { getLateFeeText } from "./late-fee";
 import Stripe from "stripe";
 
 export interface WebhookEvent {
@@ -178,6 +181,37 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
         return { action: `skipped invoice ${stripeInvoiceId}: Standard 50-invoice limit reached (upgrade to Pro)`, invoiceId };
       }
       const taskId = createReminderTask(db, invoiceId, stage);
+
+      // Auto-draft at creation: webhook-created tasks arrive with a visible
+      // draft (AI when OPENAI_API_KEY is set, template fallback otherwise) and
+      // a reviewer verdict — matching what the dashboard/runbook promise
+      // ("the task shows a drafted email at Stage 1"). Mirrors the pending→
+      // draft path in routes/tasks.ts (draft → persist → freemium count →
+      // review → persist). Safe by construction: if drafting throws for any
+      // reason, log and leave the task 'pending' — never fail the webhook.
+      try {
+        const task = getTaskById(db, taskId);
+        const invoice = getInvoiceById(db, invoiceId);
+        if (task && invoice) {
+          const draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
+          db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
+            draft.subject, draft.body, taskId,
+          ]);
+          // Durable freemium counter: one lifetime draft per task, counted
+          // exactly once here (the /process and /approve paths skip drafting
+          // for tasks that already carry a draft, so they never double-count).
+          db.run("UPDATE merchants SET drafts_used = drafts_used + 1 WHERE id = ?", [invoice.merchant_id]);
+          const review = reviewDraft(draft, invoice, {
+            lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
+          });
+          db.run("UPDATE reminder_tasks SET reviewer_notes=?, status='reviewed' WHERE id=?", [
+            JSON.stringify(review), taskId,
+          ]);
+          console.log(`[watcher] auto-drafted task ${taskId} for invoice ${stripeInvoiceId} (stage ${stage}, ${review.approved ? "reviewed-ok" : "review-issues:" + review.issues.length})`);
+        }
+      } catch (err) {
+        console.warn(`[watcher] auto-draft failed for task ${taskId} (invoice ${stripeInvoiceId}): ${err instanceof Error ? err.message : String(err)} — task left pending`);
+      }
 
       return { action: `created reminder task for invoice ${stripeInvoiceId} at stage ${stage}`, invoiceId, taskId };
     }
