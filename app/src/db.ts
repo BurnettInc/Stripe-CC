@@ -274,6 +274,14 @@ export const FREE_ALLOWANCE_MESSAGE = "You've used your free draft allowance. Su
 /**
  * Number of free drafts still available (an all-time, merchant-scoped cap).
  *
+ * Only meaningful for merchants WITHOUT an active paid subscription: the
+ * 5-draft allowance is a free-tier concept. Paid merchants (Standard or Pro
+ * active — see isActivePaidSubscriber) have no draft cap; the dashboard
+ * renders "Unlimited" for them (GET /stats → free_drafts_unlimited) and the
+ * pipeline gates below already skip the allowance for any active subscriber,
+ * so this count is never used to block a paid merchant. Keep using this raw
+ * count for the free-tier gates (tasks.ts) — do not return "unlimited" here.
+ *
  * Derived from reality, not a stored counter: counts the merchant's
  * reminder_tasks that carry a draft (joined through their invoice), so the
  * value self-heals. Drafts created before the rev-23 counter existed (e.g.
