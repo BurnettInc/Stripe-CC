@@ -53,14 +53,9 @@ Point `support@getcollectionscopilot.com` so it delivers to the team's monitored
 Update the Stripe App listing's support email from `stripecopilot@outlook.com` →
 `support@getcollectionscopilot.com` (one field in the Stripe dashboard listing).
 
-### 7. Free-tier visibility decision (open product question)
-Current behavior: non-subscribed merchants connect Stripe and see the dashboard with up to 5
-AI-drafted reminders; paid features are 402-gated; pricing is shown; nothing sends. Options:
-- **A. Keep as-is** — full dashboard, gated actions + upgrade prompts. Matches homepage copy;
-  best trial-to-paid conversion. Zero code.
-- **B. Gate the dashboard behind an active subscription** after connect (more restrictive).
-- **C. Minimal "preview" screen** for free merchants (no dashboard at all).
-Recommendation: **A** (matches the published homepage promise).
+### 7. Free-tier visibility — DECIDED (owner, 2026-08-11): **keep as-is**
+Non-subscribed merchants connect Stripe and see the dashboard with up to 5 AI-drafted reminders;
+paid features are 402-gated; pricing is shown; nothing sends. No code change needed.
 
 ## 🧪 E2E send test (after owner has time)
 Runbook: `/home/team/shared/E2E-SEND-TEST.md` — proves a real production email lands in the
