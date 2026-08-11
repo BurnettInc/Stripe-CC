@@ -26,13 +26,19 @@ drafts, opt-outs, subscriptions) is wiped on every deploy. Fix: in the Railway d
 **volume mounted at `/data`** for the Stripe-CC service (paid add-on), then set
 `DB_PATH=/data/app.db` as a variable. Without this, no data survives a deploy.
 
-### 2. Switch Stripe keys to live
-Production currently runs **test keys** (`STRIPE_SECRET_KEY` starts `sk_test_…`). For real
-merchants: replace `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_CLIENT_ID` with
-live-mode values from the Stripe dashboard, and ensure the webhook endpoint is configured for
-`https://stripe-cc-production.up.railway.app/webhook` with the full event set
-(`invoice.created`, `invoice.updated`, `invoice.paid`, `charge.refunded`, `dispute.created`,
-`account.application.deauthorized`).
+### 2. Stripe live mode — PARTIALLY DONE (2026-08-11)
+- ✅ `STRIPE_SECRET_KEY` now **live** (`sk_live_…`, owner-provided, set on Railway 2026-08-11;
+  redeploy SUCCESS, `/health` ok).
+- ⏳ **Remaining: live webhook endpoints + signing secrets.** The current
+  `STRIPE_WEBHOOK_SECRET` and `STRIPE_BILLING_WEBHOOK_SECRET` values belong to the TEST-mode
+  webhook endpoints. In the Stripe dashboard (live account → Developers → Webhooks) register:
+  - Main endpoint `https://stripe-cc-production.up.railway.app/webhook` with events
+    `invoice.created`, `invoice.updated`, `invoice.paid`, `charge.refunded`,
+    `dispute.created`, `account.application.deauthorized` → paste its signing secret
+    (`whsec_…`) into `STRIPE_WEBHOOK_SECRET` on Railway.
+  - Billing webhook endpoint → paste its signing secret into `STRIPE_BILLING_WEBHOOK_SECRET`.
+  Until then, live events won't verify and the pipeline won't fire from them.
+- ℹ️ `STRIPE_CLIENT_ID` (`ca_…`) is account-level (no test/live variant) — leave as-is.
 
 ### 3. OPENAI_API_KEY (optional but recommended)
 Not currently set — AI-personalized draft copy falls back to templates (safe). Set it on Railway
