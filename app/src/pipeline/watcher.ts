@@ -1,11 +1,12 @@
 import type { Database } from "bun:sqlite";
-import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById } from "../db";
+import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById, isMerchantPaused, isMerchantDisconnected, isActiveProSubscriber } from "../db";
 import type { Invoice } from "../db";
 import { getEscalationStage } from "./escalation";
 import { getStripeKey } from "../middleware/auth";
 import { notifyMerchant } from "./notify";
 import { draftEmail } from "./drafter";
 import { reviewDraft } from "./reviewer";
+import { sendEmailForReal, sendEmail } from "./sender";
 import { getLateFeeText } from "./late-fee";
 import Stripe from "stripe";
 
@@ -206,6 +207,66 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
             JSON.stringify(review), taskId,
           ]);
           console.log(`[watcher] auto-drafted task ${taskId} for invoice ${stripeInvoiceId} (stage ${stage}, ${review.approved ? "reviewed-ok" : "review-issues:" + review.issues.length})`);
+
+          // ── Trust Mode auto-send (Full Auto / Semi-Auto stage 1) ──
+          // The dashboard's /process endpoint contains the Trust Mode
+          // enforcement (draft stops, semi stops at stage 2+, full sends) but
+          // NOTHING triggers /process automatically — a webhook-created task
+          // would sit 'reviewed' forever without a merchant click. That makes
+          // the Full Auto promise ("drafts auto-approved and auto-sent without
+          // manual approval") dead in production. So the watcher executes the
+          // send itself, server-side, applying the same gates /process does:
+          //   1. Reviewer approval — never send an unapproved draft.
+          //   2. Trust Mode — 'full' (Pro-only) or 'semi' at stage 1 → send;
+          //      'draft' / 'semi' stage 2+ stay 'reviewed' for the inbox.
+          //   3. Tier gate — a stored 'full' on a non-active-Pro merchant is
+          //      demoted to 'semi' (defense-in-depth; settings PUT + billing
+          //      enforcement normally prevent this state).
+          //   4. Pause / disconnect — skip, task kept 'reviewed' for resume.
+          //   5. Replay/escalation guard — never re-send when this invoice
+          //      already has a SENT task at this stage or higher (a replayed
+          //      webhook creates a fresh task via createReminderTask, which
+          //      would otherwise trigger a duplicate email).
+          // Remaining send-time guards live in sendEmailForReal (paid-invoice
+          // skip, opt-out skip, send logging, status='sent' on success).
+          if (review.approved) {
+            try {
+              const merchant = getMerchantById(db, invoice.merchant_id);
+              const merchantTrustMode = merchant?.trust_mode || "draft";
+              const trustMode = invoice.trust_mode_override ?? merchantTrustMode;
+              let effective = trustMode;
+              if (effective === "full" && !isActiveProSubscriber(db, invoice.merchant_id)) {
+                effective = "semi";
+                console.log(`[watcher] merchant ${invoice.merchant_id} trust_mode 'full' demoted to 'semi' (no active Pro subscription)`);
+              }
+              const autoSend = effective === "full" || (effective === "semi" && task.stage === 1);
+              if (autoSend) {
+                const paused = isMerchantPaused(db, invoice.merchant_id);
+                const disconnected = isMerchantDisconnected(db, invoice.merchant_id);
+                if (paused || disconnected) {
+                  const reason = disconnected ? "stripe account disconnected" : "collections paused";
+                  logSend(db, taskId, "skipped", `${reason} — automatic send skipped (task kept for resume)`);
+                  console.log(`[watcher] task ${taskId} auto-send skipped: ${reason}`);
+                } else {
+                  const prior = db.query(
+                    "SELECT COALESCE(MAX(stage),0) AS s FROM reminder_tasks WHERE invoice_id=? AND sent_at IS NOT NULL"
+                  ).get(invoiceId) as { s: number };
+                  if (task.stage <= prior.s) {
+                    logSend(db, taskId, "skipped", `duplicate event — invoice already has a sent reminder at stage ${prior.s}; auto-send skipped`);
+                    console.log(`[watcher] task ${taskId} auto-send skipped: duplicate webhook (prior sent stage ${prior.s} >= ${task.stage})`);
+                  } else {
+                    const customerEmail = invoice.customer_email;
+                    const sendResult = customerEmail && customerEmail !== ""
+                      ? await sendEmailForReal(db, task, draft, customerEmail)
+                      : sendEmail(db, task, draft);
+                    console.log(`[watcher] task ${taskId} auto-sent (trust ${trustMode}, stage ${task.stage}) via ${sendResult.provider || "stub"}: ${sendResult.message}`);
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn(`[watcher] auto-send failed for task ${taskId} (invoice ${stripeInvoiceId}): ${err instanceof Error ? err.message : String(err)} — task left reviewed`);
+            }
+          }
         }
       } catch (err) {
         console.warn(`[watcher] auto-draft failed for task ${taskId} (invoice ${stripeInvoiceId}): ${err instanceof Error ? err.message : String(err)} — task left pending`);

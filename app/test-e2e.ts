@@ -155,20 +155,22 @@ async function run() {
     const wh = await fireOverdueWebhook(invId, 3); // 3 days ago → stage 1
     const taskId = wh.taskId;
 
-    const proc = await processTask(taskId);
-    const t = proc.body.task;
+    // Full Auto: the webhook alone auto-sends (watcher auto-send branch) — no
+    // /process call, no merchant click. The task must already be 'sent'.
+    const t = (await af(`${BASE}/tasks?status=all`).then(r => r.json())).find((x: any) => x.id === taskId);
     const pass =
-      proc.status === 200 &&
+      t &&
       t.stage === 1 &&
       t.draft_subject.includes("Quick reminder") &&
       t.reviewer_notes &&
       JSON.parse(t.reviewer_notes).approved === true &&
-      t.status === "sent";
+      t.status === "sent" &&
+      t.sent_at !== null;
 
-    record(1, "Stage 1 — Friendly reminder", pass,
-      pass ? "" : `taskId=${taskId} stage=${t.stage} subject="${t.draft_subject}" status=${t.status} reviewer=${t.reviewer_notes}`);
+    record(1, "Stage 1 — Friendly reminder (auto-sent)", pass,
+      pass ? "" : `taskId=${taskId} stage=${t?.stage} subject="${t?.draft_subject}" status=${t?.status} reviewer=${t?.reviewer_notes}`);
   } catch (e: any) {
-    record(1, "Stage 1 — Friendly reminder", false, `Exception: ${e.message}`);
+    record(1, "Stage 1 — Friendly reminder (auto-sent)", false, `Exception: ${e.message}`);
   }
 
   // ────────────────────────────────────────────────────
@@ -180,19 +182,18 @@ async function run() {
     const wh = await fireOverdueWebhook(invId, 10); // 10 days ago → stage 2
     const taskId = wh.taskId;
 
-    const proc = await processTask(taskId);
-    const t = proc.body.task;
+    const t = (await af(`${BASE}/tasks?status=all`).then(r => r.json())).find((x: any) => x.id === taskId);
     const pass =
-      proc.status === 200 &&
+      t &&
       t.stage === 2 &&
       t.draft_subject.includes("Following up") &&
       JSON.parse(t.reviewer_notes).approved === true &&
       t.status === "sent";
 
-    record(2, "Stage 2 — Firmer follow-up", pass,
-      pass ? "" : `stage=${t.stage} subject="${t.draft_subject}" status=${t.status}`);
+    record(2, "Stage 2 — Firmer follow-up (auto-sent)", pass,
+      pass ? "" : `stage=${t?.stage} subject="${t?.draft_subject}" status=${t?.status}`);
   } catch (e: any) {
-    record(2, "Stage 2 — Firmer follow-up", false, `Exception: ${e.message}`);
+    record(2, "Stage 2 — Firmer follow-up (auto-sent)", false, `Exception: ${e.message}`);
   }
 
   // ────────────────────────────────────────────────────
@@ -204,19 +205,18 @@ async function run() {
     const wh = await fireOverdueWebhook(invId, 25); // 25 days ago → stage 3
     const taskId = wh.taskId;
 
-    const proc = await processTask(taskId);
-    const t = proc.body.task;
+    const t = (await af(`${BASE}/tasks?status=all`).then(r => r.json())).find((x: any) => x.id === taskId);
     const pass =
-      proc.status === 200 &&
+      t &&
       t.stage === 3 &&
       t.draft_subject.includes("Final notice") &&
       JSON.parse(t.reviewer_notes).approved === true &&
       t.status === "sent";
 
-    record(3, "Stage 3 — Final notice", pass,
-      pass ? "" : `stage=${t.stage} subject="${t.draft_subject}" status=${t.status}`);
+    record(3, "Stage 3 — Final notice (auto-sent)", pass,
+      pass ? "" : `stage=${t?.stage} subject="${t?.draft_subject}" status=${t?.status}`);
   } catch (e: any) {
-    record(3, "Stage 3 — Final notice", false, `Exception: ${e.message}`);
+    record(3, "Stage 3 — Final notice (auto-sent)", false, `Exception: ${e.message}`);
   }
 
   // ────────────────────────────────────────────────────
@@ -288,17 +288,17 @@ async function run() {
     const wh = await fireOverdueWebhook(invId, 3); // stage 1
     const taskId = wh.taskId;
 
-    const proc = await processTask(taskId);
-    const t = proc.body.task;
+    // Semi-Auto stage 1 auto-sends at webhook time (watcher auto-send branch).
+    const t = (await af(`${BASE}/tasks?status=all`).then(r => r.json())).find((x: any) => x.id === taskId);
     const pass =
-      proc.status === 200 &&
+      t &&
       t.status === "sent" &&  // semi auto-sends stage 1
       t.draft_subject.includes("Quick reminder");
 
-    record(6, "Trust Mode — Semi-Auto, Stage 1", pass,
-      pass ? "" : `status=${t.status} stage=${t.stage} trustMode=${proc.body.trustMode}`);
+    record(6, "Trust Mode — Semi-Auto, Stage 1 (auto-sent)", pass,
+      pass ? "" : `status=${t?.status} stage=${t?.stage}`);
   } catch (e: any) {
-    record(6, "Trust Mode — Semi-Auto, Stage 1", false, `Exception: ${e.message}`);
+    record(6, "Trust Mode — Semi-Auto, Stage 1 (auto-sent)", false, `Exception: ${e.message}`);
   }
 
   // ────────────────────────────────────────────────────
@@ -368,21 +368,17 @@ async function run() {
     const wh = await fireOverdueWebhook(invId, 3);
     const taskId = wh.taskId;
 
-    // First process — should succeed
-    const proc1 = await processTask(taskId);
-
-    // Second process — should fail with 400
-    const proc2 = await processTask(taskId);
+    // Full Auto: the webhook already sent the task, so the FIRST /process
+    // attempt is the "double-process" — it must 400 with the guard.
+    const proc = await processTask(taskId);
 
     const pass =
-      proc1.status === 200 &&
-      proc1.body.task.status === "sent" &&
-      proc2.status === 400 &&
-      proc2.body.error?.includes("Task already processed") &&
-      proc2.body.currentStatus === "sent";
+      proc.status === 400 &&
+      proc.body.error?.includes("Task already processed") &&
+      proc.body.currentStatus === "sent";
 
     record(9, "Double-process guard", pass,
-      pass ? "" : `proc1Status=${proc1.status} proc2Status=${proc2.status} proc2Error=${JSON.stringify(proc2.body)}`);
+      pass ? "" : `procStatus=${proc.status} procBody=${JSON.stringify(proc.body)}`);
   } catch (e: any) {
     record(9, "Double-process guard", false, `Exception: ${e.message}`);
   }
@@ -391,27 +387,26 @@ async function run() {
   // Sequence 10: Weekly summary accuracy
   // ────────────────────────────────────────────────────
   try {
-    await setTrustMode("full");
-
-    // Seed specific data directly via webhooks:
+    // Seed specific data directly via webhooks. Full Auto for the invoices we
+    // want SENT (auto-send at webhook time, no /process call needed); Draft
+    // mode for the invoices we want left as ACTIVE sequences (never sent).
     // 1. Overdue invoice that was then paid (recovered) — due in last 7 days
+    await setTrustMode("full");
     const invPaid1 = `${INV_PREFIX}_seq10_paid1`;
     const whPaid1 = await fireOverdueWebhook(invPaid1, 2, { amountCents: 10000, customerName: "Paid Client 1" });
-    await processTask(whPaid1.taskId); // send it
     await firePaidWebhook(invPaid1); // then mark paid
 
     // 2. Another paid one
     const invPaid2 = `${INV_PREFIX}_seq10_paid2`;
     const whPaid2 = await fireOverdueWebhook(invPaid2, 1, { amountCents: 5000, customerName: "Paid Client 2" });
-    await processTask(whPaid2.taskId);
     await firePaidWebhook(invPaid2);
 
     // 3. Sent but not paid (still overdue) — these should NOT be counted as activeSequences (they're sent)
     const invSent = `${INV_PREFIX}_seq10_sent`;
-    const whSent = await fireOverdueWebhook(invSent, 4, { amountCents: 20000 });
-    await processTask(whSent.taskId);
+    await fireOverdueWebhook(invSent, 4, { amountCents: 20000 });
 
-    // 4. Pending — not processed yet (active sequence)
+    // 4. Pending — not sent yet (active sequence). Draft mode so they stay unsent.
+    await setTrustMode("draft");
     const invPending1 = `${INV_PREFIX}_seq10_pending1`;
     await fireOverdueWebhook(invPending1, 3);
     const invPending2 = `${INV_PREFIX}_seq10_pending2`;
@@ -422,7 +417,7 @@ async function run() {
 
     // Verify: invoicesRecovered should be 2 (the two paid ones)
     // amountCollectedDollars: 100.00 + 50.00 = 150.00
-    // remindersSent: at least 3 (the two paid + one sent)
+    // remindersSent: at least 3 (the two paid + one sent, all auto-sent)
     // activeSequences: at least 2 pending ones (not counting sent/cancelled)
 
     const pass =
