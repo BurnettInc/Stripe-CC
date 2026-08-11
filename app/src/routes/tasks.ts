@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, freeDraftsRemaining, isMerchantPaused, isMerchantDisconnected, logSend } from "../db";
+import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, freeDraftsRemaining, isMerchantPaused, isMerchantDisconnected, logSend, FREE_ALLOWANCE_MESSAGE } from "../db";
 import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
 import { reviewDraft } from "../pipeline/reviewer";
@@ -57,28 +57,36 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       );
     }
 
-    // Subscription gate — same 402 the pipeline returns at its send step:
-    // free tier = no sending. The UI surfaces the upgrade prompt.
-    if (!hasActiveSubscription(db, merchantId)) {
-      console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 402 subscription_required`);
-      return new Response(JSON.stringify({
-        error: "subscription_required",
-        message: "An active subscription is required to send reminders. Subscribe to continue.",
-      }), { status: 402, headers });
-    }
-
+    // Free-tier sending (owner direction, rev 23): free merchants may approve
+    // and send reminders within their 5-draft allowance — no payment required.
+    // The allowance is consumed at DRAFT time (auto-draft at task creation, or
+    // the inline draft below), never at send, so approving a task that already
+    // carries a draft is always allowed and never decrements the counter. The
+    // watcher blocks new task creation once the allowance is exhausted, so a
+    // free merchant's sendable tasks are naturally capped at the allowance.
+    // 402 (subscription_required) only when sending would require drafting a
+    // NEW draft and no allowance remains.
+    const subscribed = hasActiveSubscription(db, merchantId);
     const invoice = getInvoiceById(db, task.invoice_id);
     if (!invoice) {
       console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 404 invoice_not_found`);
       return json404();
     }
-
     // Ensure there is a current draft to approve. Tasks that never went through
     // the pipeline (status 'pending') get drafted + reviewed inline first; the
     // draft steps mirror the /process pipeline (including the freemium counter,
-    // which only matters for free merchants — they never reach this point).
+    // which is charged once per drafted task — never on send).
     let draft: EmailDraft;
     if (task.status === "pending") {
+      // Inline drafting consumes one free draft — gate free merchants on the
+      // remaining allowance before drafting. Subscribed merchants unchanged.
+      if (!subscribed && freeDraftsRemaining(db, merchantId) <= 0) {
+        console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 402 subscription_required (free draft allowance exhausted)`);
+        return new Response(JSON.stringify({
+          error: "subscription_required",
+          message: FREE_ALLOWANCE_MESSAGE,
+        }), { status: 402, headers });
+      }
       draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
       db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
         draft.subject, draft.body, taskId,
@@ -93,6 +101,18 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     } else {
       draft = { subject: task.draft_subject || "", body: task.draft_body || "" };
       if (!draft.body) {
+        // No usable draft on the row (anomalous — draft persists before the
+        // status flips, but defend anyway). For a free merchant with no
+        // allowance left this is also "beyond the free allowance", so the
+        // upgrade prompt is the actionable response; otherwise keep the
+        // existing defensive 400.
+        if (!subscribed && freeDraftsRemaining(db, merchantId) <= 0) {
+          console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 402 subscription_required (free draft allowance exhausted)`);
+          return new Response(JSON.stringify({
+            error: "subscription_required",
+            message: FREE_ALLOWANCE_MESSAGE,
+          }), { status: 402, headers });
+        }
         console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 400 no_draft`);
         return new Response(
           JSON.stringify({ error: "Task has no draft to approve" }),
@@ -276,11 +296,14 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     // never charged twice for the same task.
     let draft: EmailDraft;
     if (task.status === "pending") {
-      // Free merchants may create up to five drafts total.
+      // Free merchants may create up to five drafts total. Drafting consumes
+      // the allowance; SENDING never does (free tier sends within its draft
+      // allowance, owner direction rev 23), so the allowance gate lives here —
+      // once a draft exists, the send below is allowed.
       if (!subscribed && freeDraftsRemaining(db, merchantId) <= 0) {
         return new Response(JSON.stringify({
-          error: "free_limit_reached",
-          message: "You've used your 5 free drafts. Subscribe to keep drafting and start sending.",
+          error: "subscription_required",
+          message: FREE_ALLOWANCE_MESSAGE,
         }), { status: 402, headers });
       }
       pipelineLog.push("Step 1: Drafting email...");
@@ -298,6 +321,15 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     } else {
       draft = { subject: task.draft_subject || "", body: task.draft_body || "" };
       if (!draft.body) {
+        // No usable draft on the row (anomalous — draft persists before the
+        // status flips). Same rule as the pending path: a free merchant with
+        // no allowance left cannot draft, so this is beyond the free allowance.
+        if (!subscribed && freeDraftsRemaining(db, merchantId) <= 0) {
+          return new Response(JSON.stringify({
+            error: "subscription_required",
+            message: FREE_ALLOWANCE_MESSAGE,
+          }), { status: 402, headers });
+        }
         return new Response(
           JSON.stringify({ error: "Task has no draft to process" }),
           { status: 400, headers }
@@ -399,13 +431,15 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
         );
       }
 
-      // Full Auto (or Semi stage 1): send. Sending is always subscriber-only.
-      if (!subscribed) {
-        return new Response(JSON.stringify({
-          error: "subscription_required",
-          message: "An active subscription is required to send reminders. Subscribe to continue.",
-        }), { status: 402, headers });
-      }
+      // Full Auto (or Semi stage 1): send. Sending is allowed for free
+      // merchants too — within the 5-draft allowance. By this point the draft
+      // exists on the task (auto-drafted at creation, or drafted inline in Step
+      // 1 under the allowance gate), and the allowance was charged at drafting,
+      // never at sending, so no further gate is needed: a free merchant's
+      // sendable tasks are capped at the allowance by the watcher, and sending
+      // never decrements the counter (no double-count). 'full' trust mode is
+      // Pro-gated in /settings; free merchants in 'semi' auto-send only stage
+      // 1 — both respect the allowance the same way.
       pipelineLog.push("Step 3: Sending email...");
 
       // Try real send first, fall back to stub
