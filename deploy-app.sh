@@ -23,6 +23,6 @@ else
   npm install >/dev/null
   npm run build
 fi
-echo "▶ Build OK. Deploying to Stripe…"
-stripe apps deploy
-echo "✅ Deployed. Next: Stripe dashboard → Developers → Apps → CollectionsCopilot → Submit for review"
+echo "▶ Build OK. Uploading to Stripe…"
+stripe apps upload
+echo "✅ Uploaded. Next: Stripe dashboard → Developers → Apps → CollectionsCopilot → Submit for review"
