@@ -136,6 +136,24 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
         ? new Date((inv.due_date as number) * 1000).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0];
 
+      // Stale/replayed-event guard: a re-fired overdue/payment_failed event
+      // for an invoice we've already stopped must NOT resurrect the sequence.
+      // Snapshot the pre-existing row BEFORE the upsert: if the invoice is
+      // paid, disputed, or refunded, skip entirely WITHOUT upserting — the
+      // upsert would flip status back from 'paid' to 'overdue' (defeating the
+      // sender's paid-skip guard) and create a NEW task that would re-dun a
+      // stopped customer at the next escalation stage.
+      const existingRow = db
+        .query("SELECT * FROM invoices WHERE stripe_invoice_id = ?")
+        .get(stripeInvoiceId) as Invoice | null;
+      if (existingRow && (existingRow.status === "paid" || existingRow.dispute_id || existingRow.refund_id)) {
+        const stopped = existingRow.status === "paid" ? "paid" : existingRow.dispute_id ? "disputed" : "refunded";
+        console.log(
+          `[watcher] stale ${event.type} for invoice ${stripeInvoiceId} skipped — invoice already ${stopped}`
+        );
+        return { action: `skipped stale ${event.type} for invoice ${stripeInvoiceId}: invoice already ${stopped}`, invoiceId: existingRow.id };
+      }
+
       // Standard plan cap: an active Standard merchant may track at most 50
       // overdue invoices at once. Capture the pre-existing overdue count
       // BEFORE the upsert below so the 50th invoice is still trackable and
@@ -378,9 +396,17 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
         return { action: `refund ${refundId} not matched to a local invoice — no action` };
       }
 
+      // Idempotency: a replayed charge.refunded for the same refund id must
+      // not cancel again or write a second refund send_logs row. A genuinely
+      // new refund (new id) stops the sequence again + logs again.
+      if (invoice.refund_id === refundId) {
+        return { action: `refund ${refundId} already handled for invoice ${invoice.stripe_invoice_id} — skipped (idempotent)` };
+      }
+
       // Stop the sequence: cancel open tasks. No merchant notification
       // (homepage doesn't promise refund alerts) — but log it.
       cancelTasksForInvoice(db, invoice.id);
+      db.run("UPDATE invoices SET refund_id=? WHERE id=?", [refundId, invoice.id]);
       logSend(
         db,
         0,
