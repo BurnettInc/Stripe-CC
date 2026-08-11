@@ -1,22 +1,34 @@
 import type { Database } from "bun:sqlite";
 import { getCustomerHistory, getDb, type Invoice, type ReminderTask } from "../db";
 import { getStageSubjectPrefix } from "./escalation";
+import { getLateFeeText } from "./late-fee";
 
 export interface EmailDraft { subject: string; body: string; }
 
 const SIGN_OFFS = ["Thanks!", "Best,", "Regards,", "Cheers,", "All the best,"];
 function pickSignOff(stage: number): string { return SIGN_OFFS[(stage - 1) % SIGN_OFFS.length]; }
 
-function fallback(task: ReminderTask, invoice: Invoice, merchantName?: string): EmailDraft {
+/**
+ * Soft, informational late-fee sentence appended to Stage 2 / Stage 3
+ * template-fallback bodies when the merchant configured a fee. Never stage 1,
+ * never invented by the model — the exact fee fragment comes from late-fee.ts
+ * so the reviewer can verify it.
+ */
+function lateFeeSentence(feeText: string | null | undefined): string {
+  return feeText ? `\n\nA late fee of ${feeText} has been added to this invoice.` : "";
+}
+
+function fallback(task: ReminderTask, invoice: Invoice, merchantName?: string, lateFeeText?: string | null): EmailDraft {
   const days = Math.floor((Date.now() - new Date(invoice.due_date).getTime()) / 86400000);
-  const amount = `$${(invoice.amount_cents / 100).toFixed(2)}`;
+  const amount = `${(invoice.amount_cents / 100).toFixed(2)}`;
   const link = `https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}`;
   const name = invoice.customer_name && invoice.customer_name !== "Customer" ? invoice.customer_name : "there";
   const sign = merchantName ? `${pickSignOff(task.stage)}\n${merchantName}` : pickSignOff(task.stage);
+  const fee = lateFeeSentence(lateFeeText);
   let body: string;
   if (task.stage === 1) body = `Hey ${name} — just a quick nudge that invoice #${invoice.stripe_invoice_id} for ${amount} was due on ${invoice.due_date}.\n\nNo worries if it's already on the way — here's the link if you need it:\n${link}\n\n${sign}`;
-  else if (task.stage === 2) body = `Hi ${name},\n\nFollowing up on invoice #${invoice.stripe_invoice_id} (${amount}, due ${invoice.due_date}). It's now ${days} days past due — is there anything blocking payment on your end? Happy to help if so.\n\nHere's the payment link: ${link}\n\n${sign}`;
-  else if (task.stage === 3) body = `Hi ${name},\n\nInvoice #${invoice.stripe_invoice_id} for ${amount} has been outstanding since ${invoice.due_date} (${days} days). This is our final notice before we flag it for further follow-up.\n\nPlease settle at your earliest convenience: ${link}\n\n${sign}`;
+  else if (task.stage === 2) body = `Hi ${name},\n\nFollowing up on invoice #${invoice.stripe_invoice_id} (${amount}, due ${invoice.due_date}). It's now ${days} days past due — is there anything blocking payment on your end? Happy to help if so.${fee}\n\nHere's the payment link: ${link}\n\n${sign}`;
+  else if (task.stage === 3) body = `Hi ${name},\n\nInvoice #${invoice.stripe_invoice_id} for ${amount} has been outstanding since ${invoice.due_date} (${days} days). This is our final notice before we flag it for further follow-up.${fee}\n\nPlease settle at your earliest convenience: ${link}\n\n${sign}`;
   else body = `Hi ${name},\n\nThis is a reminder about invoice #${invoice.stripe_invoice_id} for ${amount}, due on ${invoice.due_date}.\n\nYou can view and pay the invoice here: ${link}\n\n${sign}`;
   return { subject: `${getStageSubjectPrefix(task.stage)}: Invoice #${invoice.stripe_invoice_id}`, body };
 }
@@ -37,6 +49,7 @@ CONTEXT:
 - This invoice vs typical: {amount_delta}
 - Prior reminders sent for this invoice: {prior_reminder_count}
 - Prior reminder tone used: {prior_tones}
+- Late fee: {late_fee}
 - Hosted payment link: {payment_link}
 
 RULES:
@@ -57,6 +70,10 @@ RULES:
 7. Output ONLY the email body and subject line, no preamble.
 8. Never include an unsubscribe link in your output — the system adds a
    standard compliance footer automatically.
+9. If the late fee line is not 'none', mention it exactly once, softly, in the
+   form: "A late fee of {late_fee} has been added to this invoice." Only at
+   stage 2 or stage 3 — NEVER at stage 1. Never invent or change a fee amount;
+   use the exact value from the late fee line.
 
 OUTPUT FORMAT (JSON):
 {
@@ -66,10 +83,13 @@ OUTPUT FORMAT (JSON):
 
 /** Draft asynchronously with an OpenAI-compatible endpoint; templates remain the safe fallback. */
 export async function draftEmail(task: ReminderTask, invoice: Invoice, merchantName?: string, database?: Database): Promise<EmailDraft> {
-  const fallbackDraft = fallback(task, invoice, merchantName);
+  const db = database ?? getDb();
+  // Late fee (informational, Pro): the exact fragment the template must show
+  // and the reviewer will verify. Null at stage 1 / when not configured.
+  const lateFeeText = getLateFeeText(db, invoice.merchant_id, invoice, task.stage);
+  const fallbackDraft = fallback(task, invoice, merchantName, lateFeeText);
   const key = process.env.OPENAI_API_KEY;
   if (!key) return fallbackDraft;
-  const db = database ?? getDb();
   const prior = db.query("SELECT draft_subject FROM reminder_tasks WHERE invoice_id=? AND id<>? AND draft_subject<>'' ORDER BY created_at").all(invoice.id, task.id) as Array<{ draft_subject: string }>;
   const history = getCustomerHistory(db, invoice.merchant_id, invoice.customer_name, invoice.customer_email, invoice.id, invoice.amount_cents);
   const days = Math.floor((Date.now() - new Date(invoice.due_date).getTime()) / 86400000);
@@ -79,6 +99,7 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, merchantN
     sender_business_name: merchantName || "the business", customer_name: invoice.customer_name, amount, currency: invoice.currency.toUpperCase(),
     invoice_number: invoice.stripe_invoice_id, days_overdue: String(days), stage: String(task.stage), ...history,
     prior_reminder_count: String(prior.length), prior_tones: prior.map(p => p.draft_subject).join("; ") || "none", payment_link: paymentLink,
+    late_fee: lateFeeText ?? "none",
   };
   const system = SYSTEM_TEMPLATE.replace(/\{(\w+)\}/g, (_, name: string) => values[name] ?? "");
   try {

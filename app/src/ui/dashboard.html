@@ -44,6 +44,8 @@
       --badge-draft-bg: #DBEAFE; --badge-draft-text: #1E40AF;
       --badge-semi-bg: #FEF3C7;  --badge-semi-text: #92400E;
       --badge-full-bg: #D1FAE5;  --badge-full-text: #065F46;
+      /* Pro badge (custom escalation timing + late-fee automation) */
+      --badge-pro-bg: #EDE9FE;  --badge-pro-text: #5B21B6;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -567,6 +569,31 @@
       color: var(--warning); font-size: 0.82rem;
     }
 
+    /* ── Merchant settings card (sender branding / escalation timing / late fee) ── */
+    .settings-label {
+      display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted);
+      margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .settings-input {
+      width: 100%; padding: 9px 12px; border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm); font-size: 0.85rem; font-family: inherit;
+      color: var(--text); background: #fff;
+    }
+    .settings-input-sm { max-width: 150px; }
+    .settings-input:focus {
+      outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.12);
+    }
+    .settings-input:disabled {
+      background: #F3F4F6; color: var(--muted); cursor: not-allowed;
+    }
+    .settings-locked {
+      margin-top: 8px; padding: 8px 12px; border-radius: var(--radius-sm);
+      background: #F9FAFB; border: 1px dashed var(--border-strong);
+      font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 8px;
+    }
+    .badge-pro { background: var(--badge-pro-bg); color: var(--badge-pro-text); }
+    .badge-standard { background: var(--badge-draft-bg); color: var(--badge-draft-text); }
+
     /* ── Footer ── */
     .footer-card {
       text-align: center;
@@ -740,6 +767,95 @@
           <input type="checkbox" id="pause-toggle" aria-label="Pause automatic sending">
           <span class="slider"></span>
         </label>
+      </div>
+    </div>
+
+    <!-- Merchant Settings — sender branding (Standard+), escalation timing + late fee (Pro) -->
+    <div class="card" id="settings-card">
+      <h2>⚙️ Settings</h2>
+      <p class="subtitle">
+        Sender branding, escalation timing, and late-fee automation for your reminder emails.
+      </p>
+
+      <!-- Custom sender branding — any active paid plan (Standard+) -->
+      <div style="margin-top:16px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:0.95rem;">Sender branding</strong>
+          <span class="pill-badge badge-standard" id="branding-badge" style="margin-top:0;">Standard</span>
+        </div>
+        <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 2px;">
+          Your name appears as the sender of reminder emails; replies go to your Reply-To.
+          The from-address stays on our verified domain.
+        </p>
+        <div id="branding-fields">
+          <label class="settings-label" for="sender-name">Sender name</label>
+          <input type="text" id="sender-name" class="settings-input" maxlength="80" placeholder="e.g. Acme Billing" autocomplete="off">
+          <label class="settings-label" for="reply-to">Reply-To email</label>
+          <input type="email" id="reply-to" class="settings-input" placeholder="e.g. billing@acme.com" autocomplete="off">
+        </div>
+        <div class="settings-locked" id="branding-locked" style="display:none;">
+          <span class="pill-badge badge-standard" style="margin-top:0;">Standard</span>
+          Sender branding is included with Standard and Pro. Upgrade to customize.
+        </div>
+      </div>
+
+      <!-- Custom escalation timing — Pro -->
+      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:0.95rem;">Escalation timing</strong>
+          <span class="pill-badge badge-pro" id="timing-badge" style="margin-top:0;">Pro</span>
+        </div>
+        <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 2px;" id="timing-desc">
+          Stage 1: Day 1–6 &middot; Stage 2: Day 7–20 &middot; Stage 3: Day 21+
+        </p>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
+          <div>
+            <label class="settings-label" for="stage1-days">Stage 1 (days)</label>
+            <input type="number" id="stage1-days" class="settings-input settings-input-sm" min="1" max="89" step="1">
+          </div>
+          <div>
+            <label class="settings-label" for="stage2-days">Stage 2 (days)</label>
+            <input type="number" id="stage2-days" class="settings-input settings-input-sm" min="2" max="90" step="1">
+          </div>
+        </div>
+        <div class="settings-locked" id="timing-locked" style="display:none;">
+          <span class="pill-badge badge-pro" style="margin-top:0;">Pro</span>
+          Custom escalation timing requires a Pro subscription.
+        </div>
+      </div>
+
+      <!-- Late-fee automation — Pro, informational only -->
+      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong style="font-size:0.95rem;">Late-fee automation</strong>
+          <span class="pill-badge badge-pro" id="latefee-badge" style="margin-top:0;">Pro</span>
+        </div>
+        <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 2px;">
+          Mentioned softly in Stage 2–3 reminders. Informational only — nothing is ever charged.
+        </p>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
+          <div>
+            <label class="settings-label" for="late-fee-type">Type</label>
+            <select id="late-fee-type" class="settings-input settings-input-sm">
+              <option value="none">No late fee</option>
+              <option value="flat">Flat fee ($)</option>
+              <option value="percent">Percent (%)</option>
+            </select>
+          </div>
+          <div>
+            <label class="settings-label" for="late-fee-value">Value</label>
+            <input type="number" id="late-fee-value" class="settings-input settings-input-sm" min="0" max="100" step="0.01" placeholder="e.g. 25">
+          </div>
+        </div>
+        <div class="settings-locked" id="latefee-locked" style="display:none;">
+          <span class="pill-badge badge-pro" style="margin-top:0;">Pro</span>
+          Late-fee automation requires a Pro subscription.
+        </div>
+      </div>
+
+      <div style="margin-top:20px;">
+        <button id="save-settings-btn" onclick="saveMerchantSettings()">Save Settings</button>
+        <span id="save-settings-status"></span>
       </div>
     </div>
 
@@ -921,10 +1037,115 @@
             updateSelectedStyle(data.trust_mode);
           }
           applyPausedState(isPaused);
+          // Merchant settings pack: populate branding / timing / late-fee fields.
+          var s1 = data.stage1_days != null ? data.stage1_days : 6;
+          var s2 = data.stage2_days != null ? data.stage2_days : 20;
+          var senderNameEl = document.getElementById('sender-name');
+          var replyToEl = document.getElementById('reply-to');
+          var stage1El = document.getElementById('stage1-days');
+          var stage2El = document.getElementById('stage2-days');
+          var lfTypeEl = document.getElementById('late-fee-type');
+          var lfValueEl = document.getElementById('late-fee-value');
+          if (senderNameEl) senderNameEl.value = data.sender_name || '';
+          if (replyToEl) replyToEl.value = data.reply_to || '';
+          if (stage1El) stage1El.value = s1;
+          if (stage2El) stage2El.value = s2;
+          if (lfTypeEl) lfTypeEl.value = data.late_fee_type || 'none';
+          if (lfValueEl) lfValueEl.value = data.late_fee_value != null ? data.late_fee_value : 0;
+          updateTimingDesc(s1, s2);
+          applyMerchantSettingsGating();
           loadInbox();
         }
       } catch (e) {
         console.error('Failed to load settings:', e);
+      }
+    }
+
+    // Stage labels in the settings card reflect the merchant's saved boundaries.
+    function updateTimingDesc(s1, s2) {
+      var el = document.getElementById('timing-desc');
+      if (!el) return;
+      el.textContent = 'Stage 1: Day 1\u2013' + s1 + ' \u00b7 Stage 2: Day ' + (s1 + 1) + '\u2013' + s2 + ' \u00b7 Stage 3: Day ' + (s2 + 1) + '+';
+    }
+
+    // Show/hide + enable/disable the merchant-settings fields by entitlement:
+    // branding = any active paid plan (Standard+), timing + late fee = Pro.
+    function applyMerchantSettingsGating() {
+      var brandingFields = document.getElementById('branding-fields');
+      var brandingLocked = document.getElementById('branding-locked');
+      if (brandingFields) brandingFields.style.display = IS_SUB_ACTIVE ? 'block' : 'none';
+      if (brandingLocked) brandingLocked.style.display = IS_SUB_ACTIVE ? 'none' : 'flex';
+
+      ['stage1-days', 'stage2-days', 'late-fee-type', 'late-fee-value'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.disabled = !IS_PRO;
+      });
+      var timingLocked = document.getElementById('timing-locked');
+      var latefeeLocked = document.getElementById('latefee-locked');
+      if (timingLocked) timingLocked.style.display = IS_PRO ? 'none' : 'flex';
+      if (latefeeLocked) latefeeLocked.style.display = IS_PRO ? 'none' : 'flex';
+    }
+
+    // Save the merchant-settings fields the merchant is entitled to edit.
+    async function saveMerchantSettings() {
+      var statusEl = document.getElementById('save-settings-status');
+      var btn = document.getElementById('save-settings-btn');
+      var payload = {};
+      var canEdit = false;
+
+      if (IS_SUB_ACTIVE) {
+        var senderNameEl = document.getElementById('sender-name');
+        var replyToEl = document.getElementById('reply-to');
+        payload.sender_name = (senderNameEl ? senderNameEl.value : '').trim();
+        payload.reply_to = (replyToEl ? replyToEl.value : '').trim();
+        canEdit = true;
+      }
+      if (IS_PRO) {
+        var stage1El = document.getElementById('stage1-days');
+        var stage2El = document.getElementById('stage2-days');
+        var lfTypeEl = document.getElementById('late-fee-type');
+        var lfValueEl = document.getElementById('late-fee-value');
+        payload.stage1_days = parseInt(stage1El ? stage1El.value : '', 10);
+        payload.stage2_days = parseInt(stage2El ? stage2El.value : '', 10);
+        payload.late_fee_type = lfTypeEl ? lfTypeEl.value : 'none';
+        var lfRaw = parseFloat(lfValueEl ? lfValueEl.value : '');
+        payload.late_fee_value = isNaN(lfRaw) ? 0 : lfRaw;
+        canEdit = true;
+      }
+
+      if (!canEdit) {
+        statusEl.textContent = '\u2717 Upgrade to edit these settings.';
+        statusEl.style.color = 'var(--danger)';
+        return;
+      }
+
+      statusEl.textContent = 'Saving...';
+      statusEl.style.color = 'var(--muted)';
+      btn.disabled = true;
+
+      try {
+        var res = await fetch('/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          var data = await res.json();
+          statusEl.textContent = '\u2713 Saved!';
+          statusEl.style.color = 'var(--success)';
+          updateTimingDesc(data.stage1_days, data.stage2_days);
+          loadSettings(); // re-sync fields (server-normalized values)
+        } else {
+          var err = await res.json();
+          statusEl.textContent = '\u2717 ' + (err.error || 'Save failed');
+          statusEl.style.color = 'var(--danger)';
+        }
+      } catch (e) {
+        statusEl.textContent = '\u2717 Network error';
+        statusEl.style.color = 'var(--danger)';
+      } finally {
+        btn.disabled = false;
+        setTimeout(function() { statusEl.textContent = ''; }, 4000);
       }
     }
 
@@ -1007,6 +1228,7 @@
           var isPro = sub.tier === 'pro' && sub.status === 'active';
           var isActive = sub.tier && sub.status === 'active';
           IS_SUB_ACTIVE = isActive;
+          IS_PRO = isPro;
           if (isActive) {
             var price = sub.tier === 'pro' ? '29' : '15';
             var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
@@ -1057,6 +1279,7 @@
             subActions.style.display = 'none';
             proBadge.style.display = 'none';
           }
+          applyMerchantSettingsGating();
         }
       } catch (e) {
         console.error('Failed to load subscription:', e);
@@ -1187,6 +1410,7 @@
     var currentTrustMode = 'draft';
     var isPaused = false;
     var IS_SUB_ACTIVE = false;
+    var IS_PRO = false;
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {

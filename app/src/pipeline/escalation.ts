@@ -2,17 +2,23 @@
  * Escalation ladder: determines which stage an overdue invoice is at
  * based on the number of days past due.
  *
- * Stage 1: 1–6 days  — friendly reminder
- * Stage 2: 7–20 days — firmer follow-up
- * Stage 3: 21+ days  — final notice
+ * Defaults (hardcoded ladder used by every merchant unless they set custom
+ * Pro thresholds):
+ *   Stage 1: 1–6 days  — friendly reminder
+ *   Stage 2: 7–20 days — firmer follow-up
+ *   Stage 3: 21+ days  — final notice
+ *
+ * Pro merchants may customize the boundaries via PUT /settings
+ * (stage1_days / stage2_days); those values are validated so that
+ * 1 <= stage1Max < stage2Max <= 90 and threaded through the watcher here.
  */
 
-export function getEscalationStage(daysOverdue: number): 1 | 2 | 3 {
+export function getEscalationStage(daysOverdue: number, stage1Max = 6, stage2Max = 20): 1 | 2 | 3 {
   if (daysOverdue <= 0) {
     return 1; // treat current / future as stage 1
   }
-  if (daysOverdue <= 6) return 1;
-  if (daysOverdue <= 20) return 2;
+  if (daysOverdue <= stage1Max) return 1;
+  if (daysOverdue <= stage2Max) return 2;
   return 3;
 }
 

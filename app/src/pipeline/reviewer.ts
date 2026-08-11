@@ -6,6 +6,17 @@ export interface ReviewResult {
   issues: string[];
 }
 
+export interface ReviewOptions {
+  /**
+   * The exact late-fee fragment the draft must contain (from late-fee.ts).
+   * When set (merchant configured a fee AND stage >= 2), the draft must
+   * mention it — the reviewer re-derives the same fragment the drafter was
+   * given, so the fee MATH can never drift between drafting and review.
+   * Null/absent means no fee is expected and no check runs.
+   */
+  lateFeeText?: string | null;
+}
+
 /**
  * Validate a draft email against the actual invoice facts.
  *
@@ -15,8 +26,9 @@ export interface ReviewResult {
  *  - Amount (formatted as dollars) appears in the body
  *  - Due date (YYYY-MM-DD format) appears in the body or subject
  *  - A payment link (URL) is present in the body
+ *  - When a late fee applies (opts.lateFeeText), the exact fee fragment is present
  */
-export function reviewDraft(draft: EmailDraft, invoice: Invoice): ReviewResult {
+export function reviewDraft(draft: EmailDraft, invoice: Invoice, opts?: ReviewOptions): ReviewResult {
   const issues: string[] = [];
   const fullText = `${draft.subject}\n${draft.body}`;
 
@@ -57,6 +69,15 @@ export function reviewDraft(draft: EmailDraft, invoice: Invoice): ReviewResult {
     issues.push(
       `Missing or invalid payment link: no URL referencing invoice "${invoice.stripe_invoice_id}" found in draft body`
     );
+  }
+
+  // Check 5: late fee (when one applies, i.e. configured AND stage >= 2).
+  // The expected fragment comes from late-fee.ts — the same source the
+  // drafter used — so this validates the fee math end-to-end.
+  if (opts?.lateFeeText) {
+    if (!fullText.includes(opts.lateFeeText)) {
+      issues.push(`Missing late-fee mention: expected "${opts.lateFeeText}" not found in draft`);
+    }
   }
 
   return {
