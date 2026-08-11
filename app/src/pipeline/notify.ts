@@ -31,8 +31,13 @@ export interface NotifyResult {
  * Whether a merchant has a real, deliverable email address. The default
  * merchant (acct_default, email default@collections-copilot.local) is a
  * placeholder created by the sandbox — we must never fire real email at it.
+ *
+ * Exported so the weekly-summary send path can apply the same guard: the
+ * placeholder merchant must never be treated as a summary send target
+ * (a "send" to it can only ever produce a [STUB SEND] row that fakes a
+ * success on the dashboard).
  */
-function isPlaceholderMerchant(merchant: Merchant): boolean {
+export function isPlaceholderMerchant(merchant: Merchant): boolean {
   if (merchant.stripe_account_id === "acct_default") return true;
   const email = (merchant.email || "").trim().toLowerCase();
   if (!email || !email.includes("@")) return true;

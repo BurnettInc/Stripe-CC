@@ -24,6 +24,11 @@
  *     - 8b. overdue-after-refund → no new task, refund_id preserved
  *     - 8c. overdue-after-paid → no new task AND invoice status stays 'paid'
  *     - 8d. refund replay → single send_logs refund row (idempotent)
+ *  9. Weekly summary placeholder-stub fix: the placeholder merchant (1) must
+ *     NOT be a summary send target — skipped, no weekly_summary send_logs row,
+ *     no fake success, /stats summaryEmailsSent stays 0. A real merchant (2)
+ *     still gets its summary through the normal path, and its stub send is
+ *     never counted as a real send in /stats.
  *
  * Boot: DB_PATH=/tmp/cc-fullauto.db PORT=3100 env -u RESEND_API_KEY -u
  * SENDGRID_API_KEY -u OPENAI_API_KEY nohup bun run src/index.ts > /tmp/cc-fullauto-server.log 2>&1 &
@@ -35,6 +40,7 @@ import { Database } from "bun:sqlite";
 const BASE = process.env.TEST_BASE || "http://localhost:3100";
 const DB_PATH = process.env.TEST_DB_PATH || "/tmp/cc-fullauto.db";
 const SESSION = "fullauto-session";
+const SESSION_REAL = "fullauto-session-real"; // merchant 2 (real email) session
 
 function db(): Database {
   return new Database(DB_PATH);
@@ -158,6 +164,49 @@ function sendLogCount(invoiceId: number): number {
   ).get(invoiceId) as { n: number };
   d.close();
   return row.n;
+}
+
+/** Count weekly_summary rows in send_logs (any status). */
+function weeklySummaryRowCount(): number {
+  const d = db();
+  const row = d.query(`SELECT COUNT(*) AS n FROM send_logs WHERE type='weekly_summary'`).get() as { n: number };
+  d.close();
+  return row.n;
+}
+
+/**
+ * Seed a SECOND merchant (id 2) with a real, non-placeholder email plus a
+ * session and an active Pro subscription, so the weekly-summary path has a
+ * genuine send target to prove the job still runs for real merchants.
+ */
+function seedRealMerchant(): void {
+  const d = db();
+  d.run(
+    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode) VALUES (2, 'acct_summary_real', 'real@example.com', 'draft')"
+  );
+  d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 2, datetime('now', '+30 days'))", [SESSION_REAL]);
+  const existing = d.query("SELECT id FROM subscriptions WHERE merchant_id=2").get() as { id: number } | null;
+  if (existing) {
+    d.run("UPDATE subscriptions SET status='active', tier='pro' WHERE merchant_id=2");
+  } else {
+    d.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (2, 'sub_summary_real', 'pro', 'active')");
+  }
+  d.close();
+}
+
+/** POST /summary/send with the given session cookie. */
+async function postSummarySend(session: string): Promise<{ status: number; body: any }> {
+  const res = await fetch(`${BASE}/summary/send`, {
+    method: "POST",
+    headers: { Cookie: `session=${encodeURIComponent(session)}` },
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+/** GET /stats with the given session cookie. */
+async function getStats(session: string): Promise<any> {
+  const res = await fetch(`${BASE}/stats`, { headers: { Cookie: `session=${encodeURIComponent(session)}` } });
+  return res.json();
 }
 
 let passed = 0;
@@ -294,6 +343,37 @@ async function main() {
     String(lFirst.action).includes("stopped reminders") && logsAfterFirst === 1 && logsAfterReplay === 1 && String(lReplay.action).includes("idempotent"),
     JSON.stringify({ lFirst, lReplay, logsAfterFirst, logsAfterReplay }));
 
+  // ── 9. Weekly summary: placeholder merchants are NOT send targets ──
+  // The seeded placeholder (merchant 1, acct_default / default@collections-copilot.local)
+  // must never produce a fake "sent" summary: no weekly_summary send_logs row,
+  // no success claim, stats count stays 0. A real merchant still gets its
+  // summary through the normal path.
+  await setTrustMode("full");
+  const summariesBefore = weeklySummaryRowCount();
+  const phSummary = await postSummarySend(SESSION);
+  const phStats = await getStats(SESSION);
+  const summariesAfterPlaceholder = weeklySummaryRowCount();
+  record("9a. Placeholder merchant: weekly summary skipped — no send_logs row, no fake success, stats 0",
+    phSummary.status === 200 &&
+      phSummary.body.skipped === true &&
+      phSummary.body.sendResult && phSummary.body.sendResult.success === false &&
+      phSummary.body.sendResult.skipped === true &&
+      phStats.summaryEmailsSent === 0 &&
+      summariesAfterPlaceholder === summariesBefore,
+    JSON.stringify({ phSummary, phStats, summariesBefore, summariesAfterPlaceholder }));
+  // 9b. Real merchant: summary still sent (stub path logs success in test env),
+  // and the stub is never counted as a real send in /stats.
+  seedRealMerchant();
+  const realSummary = await postSummarySend(SESSION_REAL);
+  const realStats = await getStats(SESSION_REAL);
+  const summariesAfterReal = weeklySummaryRowCount();
+  record("9b. Real merchant: weekly summary still sent; stub not counted in stats",
+    realSummary.status === 200 &&
+      realSummary.body.skipped === undefined &&
+      realSummary.body.sendResult && realSummary.body.sendResult.success === true &&
+      summariesAfterReal === summariesBefore + 1 &&
+      realStats.summaryEmailsSent === 0,
+    JSON.stringify({ realSummary, realStats, summariesBefore, summariesAfterReal }));
   console.log(`\nRESULTS: ${passed} passed, ${failed} failed`);
   process.exit(failed === 0 ? 0 : 1);
 }

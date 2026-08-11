@@ -1644,7 +1644,10 @@
         if (res.status === 402) {
           showUpgradePrompt(data.error || 'Weekly recovery reports require a subscription. Upgrade to unlock.');
         } else if (res.ok) {
-          if (data.sendResult && data.sendResult.success === false) {
+          if (data.skipped || (data.sendResult && data.sendResult.skipped)) {
+            statusEl.textContent = 'ℹ Weekly summary not sent — this account has no real email configured.';
+            statusEl.style.color = 'var(--warning)';
+          } else if (data.sendResult && data.sendResult.success === false) {
             statusEl.textContent = '⚠ Summary generated, but the email could not be sent: ' + (data.sendResult.message || 'provider error');
             statusEl.style.color = 'var(--warning)';
           } else {
