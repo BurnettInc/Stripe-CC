@@ -197,10 +197,8 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
           db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
             draft.subject, draft.body, taskId,
           ]);
-          // Durable freemium counter: one lifetime draft per task, counted
-          // exactly once here (the /process and /approve paths skip drafting
-          // for tasks that already carry a draft, so they never double-count).
-          db.run("UPDATE merchants SET drafts_used = drafts_used + 1 WHERE id = ?", [invoice.merchant_id]);
+          // The freemium allowance is derived from drafted tasks (see
+          // freeDraftsRemaining in db.ts) — no counter write needed here.
           const review = reviewDraft(draft, invoice, {
             lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
           });

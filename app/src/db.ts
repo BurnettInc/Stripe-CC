@@ -256,10 +256,27 @@ const FREE_DRAFT_LIMIT = 5;
  */
 export const FREE_ALLOWANCE_MESSAGE = "You've used your free draft allowance. Subscribe to keep sending reminders.";
 
-/** Number of free drafts still available (an all-time, merchant-scoped cap). */
+/**
+ * Number of free drafts still available (an all-time, merchant-scoped cap).
+ *
+ * Derived from reality, not a stored counter: counts the merchant's
+ * reminder_tasks that carry a draft (joined through their invoice), so the
+ * value self-heals. Drafts created before the rev-23 counter existed (e.g.
+ * the E2E task, drafted mid-test) count immediately, and the count can never
+ * drift below the true number of drafts the merchant has used. The legacy
+ * `merchants.drafts_used` column is no longer written or read here (left in
+ * the schema — dropping it would need a table rebuild; it just stops being
+ * used).
+ *
+ * Rev-23 semantics: the allowance is consumed at draft time, once per task,
+ * lifetime. Sent / cancelled / rejected tasks that carry a draft still count
+ * (the draft was consumed); pending tasks with no draft do not.
+ */
 export function freeDraftsRemaining(db: Database, merchantId: number): number {
-  const merchant = db.query("SELECT drafts_used FROM merchants WHERE id = ?").get(merchantId) as { drafts_used: number } | null;
-  const used = merchant?.drafts_used ?? 0;
+  const row = db.query(
+    "SELECT COUNT(*) AS n FROM reminder_tasks rt JOIN invoices i ON rt.invoice_id = i.id WHERE i.merchant_id = ? AND rt.draft_body != ''"
+  ).get(merchantId) as { n: number } | undefined;
+  const used = row?.n ?? 0;
   return Math.max(0, FREE_DRAFT_LIMIT - used);
 }
 

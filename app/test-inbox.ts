@@ -285,69 +285,99 @@ async function run() {
   // ── 6. Free merchant: sends within 5-draft allowance; 402 only when exhausted ──
   try {
     setSubscription(null); // merchant 1 becomes free
-    const d = db();
-    d.run("UPDATE merchants SET drafts_used=0 WHERE id=1");
-    d.close();
-
+    // The allowance is DERIVED from drafted tasks (freeDraftsRemaining counts
+    // reminder_tasks with a draft joined to the merchant's invoices), not from
+    // the legacy merchants.drafts_used column — which is no longer written or
+    // read. Prove the column is ignored by setting it to a bogus value: the
+    // /stats counter and all gates must reflect the real drafted-task count,
+    // and the column must stay untouched at 5.
+    db().run("UPDATE merchants SET drafts_used=5 WHERE id=1");
+    const draftedCount = (): number =>
+      (db().query(
+        "SELECT COUNT(*) AS n FROM reminder_tasks rt JOIN invoices i ON rt.invoice_id=i.id WHERE i.merchant_id=1 AND rt.draft_body != ''"
+      ).get() as { n: number }).n;
+    const freeDrafts = async (): Promise<number> => {
+      const s = (await (await af("/stats")).json()) as any;
+      return s.free_drafts_remaining;
+    };
+    // Seed extra drafted tasks directly so the derived count is deterministic
+    // regardless of how many drafts earlier sequences left behind.
+    let seedSeq = 0;
+    const seedDraftedTask = (): void => {
+      const sid = `seed_inbox_${seedSeq++}`;
+      db().run(
+        "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, amount_cents, due_date, status) VALUES (?, 1, 'Seed Client', 1000, datetime('now'), 'overdue')",
+        [sid]
+      );
+      const inv = db().query("SELECT id FROM invoices WHERE stripe_invoice_id=?").get(sid) as { id: number };
+      db().run("INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body) VALUES (?, 1, 'reviewed', 'Seed', 'Seeded draft body')", [inv.id]);
+    };
+    // Force the derived count down to exactly n by clearing drafts off the
+    // oldest drafted tasks (test-only DB manipulation — simulates allowance
+    // freed up for a fresh draft).
+    const setDraftedCount = (n: number): void => {
+      let c = draftedCount();
+      while (c > n) {
+        const row = db().query(
+          "SELECT rt.id AS tid FROM reminder_tasks rt JOIN invoices i ON rt.invoice_id=i.id WHERE i.merchant_id=1 AND rt.draft_body != '' ORDER BY rt.id LIMIT 1"
+        ).get() as { tid: number } | null;
+        if (!row) break;
+        db().run("UPDATE reminder_tasks SET draft_body='', draft_subject='', status='pending' WHERE id=?", [row.tid]);
+        c = draftedCount();
+      }
+    };
+    const before = draftedCount(); // drafted tasks left by earlier sequences
     // (a) Allowance remaining: webhook task arrives auto-drafted → approve →
-    //     SENT without payment. drafts_used stays at 1 — the allowance is
-    //     charged at draft time (task creation), never at send (no double-count).
+    //     SENT without payment. The derived count rises at draft time (task
+    //     creation), never at send (no double-count).
     const wh1 = await fireOverdueWebhook(`${INV_PREFIX}_fa`, 3);
     const approve1 = await af(`/tasks/${wh1.taskId}/approve`, { method: "POST" });
     const a1 = await approve1.json();
-    const used1 = db().query("SELECT drafts_used FROM merchants WHERE id=1").get() as { drafts_used: number };
-
+    const fdA = await freeDrafts();
     // (b) Legacy-task simulation (pre-#29 tasks arrive pending with no draft):
-    //     allowance exhausted → approve → 402 subscription_required with the
-    //     free-draft-allowance upgrade message.
-    const wh2 = await fireOverdueWebhook(`${INV_PREFIX}_fb`, 2); // auto-drafts → drafts_used=2
+    //     with the allowance exhausted (derived count at 5), approve → 402
+    //     subscription_required with the free-draft-allowance upgrade message.
+    const wh2 = await fireOverdueWebhook(`${INV_PREFIX}_fb`, 2); // auto-drafts → +1
     db().run("UPDATE reminder_tasks SET status='pending', draft_body='', draft_subject='' WHERE id=?", [wh2.taskId]);
-    const d2 = db();
-    d2.run("UPDATE merchants SET drafts_used=5 WHERE id=1");
-    d2.close();
+    while (draftedCount() < 5) seedDraftedTask(); // exhaust the derived allowance
     const approve2 = await af(`/tasks/${wh2.taskId}/approve`, { method: "POST" });
     const a2 = await approve2.json();
-
     // (c) Allowance exhausted → the watcher stops creating tasks entirely
     //     (6th invoice gets no task) — the natural cap of the sendable set.
     const wh3 = await fireOverdueWebhook(`${INV_PREFIX}_fc`, 4);
-
     // (d) Allowance remaining + pending task with no draft: approve drafts
     //     inline (consuming one allowance) and then sends.
-    const d3 = db();
-    d3.run("UPDATE merchants SET drafts_used=1 WHERE id=1");
-    d3.close();
-    const wh4 = await fireOverdueWebhook(`${INV_PREFIX}_fd`, 2); // auto-drafts → drafts_used=2
-    db().run("UPDATE reminder_tasks SET status='pending', draft_body='', draft_subject='' WHERE id=?", [wh4.taskId]);
-    const approve4 = await af(`/tasks/${wh4.taskId}/approve`, { method: "POST" });
+    setDraftedCount(4); // free one allowance
+    const wh4 = await fireOverdueWebhook(`${INV_PREFIX}_fd`, 2); // auto-drafts → 5
+    db().run("UPDATE reminder_tasks SET status='pending', draft_body='', draft_subject='' WHERE id=?", [wh4.taskId]); // back to 4
+    const approve4 = await af(`/tasks/${wh4.taskId}/approve`, { method: "POST" }); // inline draft → 5 → sent
     const a4 = await approve4.json();
-    const used4 = db().query("SELECT drafts_used FROM merchants WHERE id=1").get() as { drafts_used: number };
-
-    // (e) Free merchant, Semi-Auto stage 1 (/process auto-send): the on-row
-    //     draft is sent within the allowance; drafts_used NOT charged again.
+    const fdD = await freeDrafts();
+    // (e) Free merchant, Semi-Auto stage 1 (/process auto-send): with one
+    //     allowance freed, the on-row draft is sent; the derived count is NOT
+    //     charged again at send time.
+    setDraftedCount(4);
     await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trust_mode: "semi" }) });
-    const wh5 = await fireOverdueWebhook(`${INV_PREFIX}_fe`, 3); // auto-drafts → drafts_used=4
+    const wh5 = await fireOverdueWebhook(`${INV_PREFIX}_fe`, 3); // auto-drafts → 5
     const proc5 = await processTask(wh5.taskId);
     const t5 = proc5.body.task;
-    const used5 = db().query("SELECT drafts_used FROM merchants WHERE id=1").get() as { drafts_used: number };
-
+    const fdE = await freeDrafts();
+    const column = db().query("SELECT drafts_used FROM merchants WHERE id=1").get() as { drafts_used: number };
     // (f) Full Auto stays Pro-gated for free merchants (Trust Mode gate intact).
     const fullAuto = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trust_mode: "full" }) });
-
     const pass =
-      approve1.status === 200 && a1.sent === true && a1.task.status === "sent" && used1.drafts_used === 1 &&
+      approve1.status === 200 && a1.sent === true && a1.task.status === "sent" && fdA === 5 - (before + 1) &&
       approve2.status === 402 && a2.error === "subscription_required" && a2.message.includes("free draft allowance") &&
       wh3.taskId === undefined &&
-      approve4.status === 200 && a4.sent === true && a4.task.status === "sent" && used4.drafts_used === 3 &&
-      proc5.status === 200 && t5.status === "sent" && used5.drafts_used === 4 &&
+      approve4.status === 200 && a4.sent === true && a4.task.status === "sent" && fdD === 0 &&
+      proc5.status === 200 && t5.status === "sent" && fdE === 0 &&
+      column.drafts_used === 5 && // legacy column ignored: never written, never read
       fullAuto.status === 402;
-
     record("6. Free tier: sends within 5-draft allowance (approve + semi auto-send), 402 only when exhausted, Full Auto gated", pass,
-      pass ? "" : JSON.stringify({ approve1: approve1.status, a1: a1.sent, used1: used1.drafts_used, approve2: approve2.status, a2, wh3: wh3.taskId, approve4: approve4.status, a4: a4.sent, used4: used4.drafts_used, proc5: proc5.status, t5: t5?.status, used5: used5.drafts_used, fullAuto: fullAuto.status }));
+      pass ? "" : JSON.stringify({ approve1: approve1.status, a1: a1.sent, fdA, before, approve2: approve2.status, a2, wh3: wh3.taskId, approve4: approve4.status, a4: a4.sent, fdD, proc5: proc5.status, t5: t5?.status, fdE, column: column.drafts_used, fullAuto: fullAuto.status }));
   } catch (e: any) {
     record("6. Free tier sends within allowance; 402 when exhausted", false, `Exception: ${e.message}`);
   }
-
   // ── 7. Paused: blocks auto-send (semi stage 1 + full), not manual approve/summary ──
   let pausedAutoTaskId = 0;
   let fullAutoPausedTaskId = 0;
