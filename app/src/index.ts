@@ -5,6 +5,7 @@ import { handleSettings } from "./routes/settings";
 import { handleBilling } from "./routes/billing";
 import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus } from "./routes/oauth";
 import { handleInvoices } from "./routes/invoices";
+import { handleSupport } from "./routes/support";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { requireSession } from "./middleware/session";
@@ -112,6 +113,17 @@ if (process.env.TOKEN_ENCRYPTION_KEY) {
   console.log(`   Token encryption: enabled (AES-256-GCM)`);
 } else {
   console.log(`   Token encryption: disabled (tokens stored in plaintext)`);
+}
+
+// Support API token status (Pro priority-support ops: token-gated merchant
+// lookup + first-response log for the Support agent). The /support/*
+// endpoints return 403 when this is unset — the API is effectively disabled,
+// mirroring how the FROM_EMAIL guard treats its env var (checked at boot,
+// logged clearly) without refusing to boot.
+if (process.env.SUPPORT_API_TOKEN) {
+  console.log(`   Support lookup API: enabled (SUPPORT_API_TOKEN set)`);
+} else {
+  console.log(`   Support lookup API disabled (SUPPORT_API_TOKEN unset)`);
 }
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -425,6 +437,15 @@ async function handleRequest(req: Request): Promise<Response> {
           status: 200,
           headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
         });
+      }
+
+      // /support/* — token-gated internal Support-agent APIs (Pro priority
+      // support): GET /support/lookup?email=... and GET|POST /support/log.
+      // Authenticated by the SUPPORT_API_TOKEN bearer token, NOT by a session
+      // (the Support agent has no merchant session). When SUPPORT_API_TOKEN is
+      // unset every request returns 403 — the API is effectively disabled.
+      if (path.startsWith("/support/")) {
+        return await handleSupport(db, req, path.slice("/support".length), url);
       }
 
       // 404 — return JSON, not plain text
