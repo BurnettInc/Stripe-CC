@@ -2,7 +2,7 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "CollectionsCopilot",
-  "version": "0.1.8",
+  "version": "0.1.11",
   "icon": "./icon.png",
   "stripe_api_access_type": "oauth",
   "distribution_type": "public",
@@ -35,11 +35,11 @@
   "permissions": [
     {
       "permission": "invoice_read",
-      "purpose": ""
+      "purpose": "Reads invoice details (amount, due date, status) so CollectionsCopilot can detect overdue invoices and draft accurate reminder emails."
     },
     {
       "permission": "customer_read",
-      "purpose": ""
+      "purpose": "Reads customer names and email addresses so reminder emails are addressed correctly and go to the right contact."
     }
   ]
 }
