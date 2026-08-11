@@ -35,6 +35,63 @@ function corsHeadersFor(req: Request): Record<string, string> {
 // Load the dashboard HTML once at startup
 const dashboardHtml = readFileSync(join(import.meta.dirname, "ui", "dashboard.html"), "utf-8");
 
+// ── Marketing site integration ──
+// The ENTIRE product runs as one Railway service: the backend serves its own
+// routes (API/webhook/OAuth/dashboard) AND the built TanStack Start site
+// (landing page at "/", /support, /privacy, /terms, /about). Static assets come
+// from the site build's dist/client; every other unmatched path falls through
+// to the site's SSR handler (dist/server/server.js — emitted by
+// `cd site && bun run build`, which the root Dockerfile runs at build time).
+const SITE_CLIENT_DIR = join(import.meta.dirname, "..", "..", "site", "dist", "client");
+
+// Loaded lazily on the first site request so the backend still boots in local
+// dev when the site hasn't been built. A variable specifier keeps TypeScript
+// (no TS2307) and bun build (stays a runtime import) happy; at runtime Bun
+// resolves it relative to this file → <repo>/site/dist/server/server.js.
+const SITE_SERVER_ENTRY = "../../site/dist/server/server.js";
+
+interface SiteHandler {
+  fetch(req: Request): Response | Promise<Response>;
+}
+
+let siteHandlerPromise: Promise<SiteHandler | null> | null = null;
+
+function getSiteHandler(): Promise<SiteHandler | null> {
+  if (!siteHandlerPromise) {
+    siteHandlerPromise = (async () => {
+      try {
+        const mod = (await import(SITE_SERVER_ENTRY)) as { default?: unknown };
+        const candidate = mod.default ?? mod;
+        const handler = candidate as SiteHandler;
+        if (typeof handler.fetch !== "function") {
+          console.error("[site] Built site SSR handler has no fetch() — check the site build.");
+          return null;
+        }
+        return handler;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[site] Site SSR handler unavailable (was the site built? run \`cd site && bun run build\`): ${message}`);
+        return null;
+      }
+    })();
+  }
+  return siteHandlerPromise;
+}
+
+// Serve a built site static asset (dist/client/<path>) for GET requests whose
+// path maps to a real file — e.g. /assets/*.js, /icon.svg. Paths are joined
+// onto SITE_CLIENT_DIR and must stay inside it (no traversal).
+async function serveSiteAsset(pathname: string): Promise<Response | null> {
+  const clean = pathname.replace(/^\/+/, "");
+  if (!clean || clean.includes("..")) return null;
+  const file = Bun.file(join(SITE_CLIENT_DIR, clean));
+  try {
+    return (await file.exists()) ? new Response(file) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Startup logging ──
 
 console.log(`🚀 Stripe Collections Copilot starting up...`);
@@ -135,8 +192,11 @@ async function handleRequest(req: Request): Promise<Response> {
     ensureDefaultMerchant(db);
 
     try {
-      // GET / — serve dashboard
-      if (path === "/" && req.method === "GET") {
+      // GET /dashboard — the app dashboard. Moved from "/" (which now serves
+      // the marketing site's landing page). dashboard.html talks to the backend
+      // with root-absolute paths (/tasks, /settings, /stripe/connect, ...), so
+      // the move doesn't affect its API calls.
+      if (path === "/dashboard" && req.method === "GET") {
         return new Response(dashboardHtml, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
@@ -448,6 +508,27 @@ async function handleRequest(req: Request): Promise<Response> {
         return await handleSupport(db, req, path.slice("/support".length), url);
       }
 
+      // ── Marketing site fallback ──
+      // Everything not handled by a backend route is served by the built
+      // TanStack Start site: static assets from dist/client first (GET only),
+      // then the SSR handler for any method (the site's server functions are
+      // POSTs to the page path, so non-GET requests must reach it too). The
+      // handler serves the landing page at "/", /support, /privacy, /terms,
+      // /about, and the SPA fallback itself.
+      if (req.method === "GET") {
+        const asset = await serveSiteAsset(path);
+        if (asset) return asset;
+      }
+      const siteHandler = await getSiteHandler();
+      if (siteHandler) {
+        try {
+          return await siteHandler.fetch(req);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`[site] SSR handler error for ${req.method} ${path}:`, message);
+        }
+      }
+
       // 404 — return JSON, not plain text
       return new Response(JSON.stringify({
         error: "Not found",
@@ -487,7 +568,8 @@ const server = Bun.serve({
 });
 
 console.log(`✅ Server listening on http://0.0.0.0:${PORT}`);
-console.log(`   Dashboard: http://0.0.0.0:${PORT}/`);
+console.log(`   Dashboard: http://0.0.0.0:${PORT}/dashboard`);
+console.log(`   Landing:   http://0.0.0.0:${PORT}/ (site SSR handler)`);
 console.log(`   Health:    http://0.0.0.0:${PORT}/health`);
 console.log(`   Stats:     http://0.0.0.0:${PORT}/stats`);
 console.log(`   Webhook:   POST http://0.0.0.0:${PORT}/webhook`);

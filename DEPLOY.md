@@ -5,6 +5,56 @@
 domain verified); support ops APIs are live. This file is the launch checklist the team owes the
 owner — what's verified live, and the remaining owner steps in order.
 
+## 🚂 Railway config — SINGLE SERVICE (replaces the split site/backend hosting)
+
+**Change (2026-08-11, PR #30):** the ENTIRE product now runs as ONE Railway service. The repo-root
+`Dockerfile` builds the TanStack Start site (`site/`) and then runs the Bun backend (`app/`), which
+serves the site's built assets + SSR handler for non-API paths. The old separate hosting of the
+marketing site is retired — the site no longer needs a second deployment target.
+
+### Railway service settings to change (one-time, by the lead)
+- **Root Directory: repo root** (was `app/`) — Railway auto-detects the root `Dockerfile`.
+  (`railway.json` at the repo root sets the Dockerfile builder + `/health` healthcheck; there is no
+  startCommand there, so the Dockerfile's `CMD` runs the backend.)
+- All existing service variables stay unchanged: `PORT` (injected), `DB_PATH=/data/app.db`
+  (volume `stripe-cc-volume` @ `/data`), Stripe keys/webhook secrets, `RESEND_API_KEY`,
+  `FROM_EMAIL`, `BASE_URL`, `SUPPORT_API_TOKEN`, `TOKEN_ENCRYPTION_KEY`, optional `OPENAI_API_KEY`.
+  `APP_API_URL` is NO LONGER required — see below.
+
+### URL layout after this change (on the Railway domain, e.g. https://stripe-cc-production.up.railway.app)
+- `/` — **landing page** (marketing site SSR: hero, pricing, /support, /privacy, /terms, /about).
+  "Stripe users should land on the landing page, not the dashboard" (owner direction) — satisfied.
+- `/dashboard` — **the app dashboard** (moved from `/`). Its root-absolute API calls
+  (`/tasks`, `/settings`, `/stripe/connect`, ...) are unaffected by the move.
+- All API/webhook/OAuth routes keep their exact paths and CORS: `/api/*`, `/health`, `/stats`,
+  `/tasks`, `/settings`, `/invoices/*`, `/subscription`, `/aggregate`, `/stripe/connect`,
+  `/stripe/connection`, `/stripe/oauth/callback`, `/oauth/callback`, `/billing` + `/billing/*`,
+  `/webhook`, `/summary`, `/summary/send`, `/support/lookup`, `/support/log`, `/unsubscribe`.
+  Backend routes always match before the site fallback (e.g. `/support` is a site page while
+  `/support/lookup` is a backend API).
+- Post-Stripe redirects (OAuth success/error, billing checkout/portal returns) now land on
+  `/dashboard?connected=true`, `/dashboard?error=...`, etc.
+
+### APP_API_URL default behavior
+The site's checkout server fn now defaults to `APP_API_URL || BASE_URL || http://localhost:3001`.
+On Railway, `BASE_URL` is already set, so the checkout call goes **same-origin** (the backend is
+the same service) — no `APP_API_URL` env var needed. Set `APP_API_URL` only if the backend were
+ever hosted separately again.
+
+### Deploy + verify steps
+1. In the Railway dashboard, set the service **Root Directory** to the repo root (leave
+   variables untouched) and deploy the merged `main`.
+2. Verify: `GET /` returns the landing page (200, HTML); `GET /dashboard` returns the dashboard
+   (200, HTML); `GET /health` 200; `POST /webhook` still verifies signatures (Stripe dashboard
+   shows the endpoint unchanged); OAuth flow lands on `/dashboard?connected=true` after
+   onboarding; checkout success/cancel land on `/dashboard?...`.
+3. If the site is ever served from the Stripe App domain or another host, point that host's
+   root at the Railway domain — no second deployment exists anymore.
+
+**Note for the Stripe App:** the app surface (`/stripe/connect`, `/stripe/oauth/callback`,
+`/oauth/callback`, `/webhook`, `/billing/*`, `/api/*`) is unchanged — same paths, same CORS
+headers (`dashboard.stripe.com` is in `allowedOrigins`).
+
 ## ✅ Verified live (no action needed)
 - **Backend**: `/health` 200; webhook handling (overdue detection, dispute → pause+notify,
   refund → stop, deauth → stop+disconnect, paid → notify); 3-stage escalation; Trust Mode

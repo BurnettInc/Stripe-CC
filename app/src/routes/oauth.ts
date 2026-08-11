@@ -17,7 +17,7 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
 
   if (!secretKey) {
     console.error("[oauth] STRIPE_SECRET_KEY not set — cannot start onboarding");
-    return new Response(null, { status: 302, headers: { Location: `${baseUrl}/?error=no_secret_key` } });
+    return new Response(null, { status: 302, headers: { Location: `${baseUrl}/dashboard?error=no_secret_key` } });
   }
 
   const stripe = new Stripe(secretKey);
@@ -59,7 +59,7 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
     console.error(`[oauth] Failed to create account/account link: ${message}`);
     return new Response(null, {
       status: 302,
-      headers: { Location: `${baseUrl}/?error=account_link_failed&detail=${encodeURIComponent(message)}` },
+      headers: { Location: `${baseUrl}/dashboard?error=account_link_failed&detail=${encodeURIComponent(message)}` },
     });
   }
 }
@@ -76,7 +76,7 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
   const accountId = url.searchParams.get("account");
 
   if (!accountId || !secretKey) {
-    return new Response(null, { status: 302, headers: { Location: `${baseUrl}/?error=missing_account` } });
+    return new Response(null, { status: 302, headers: { Location: `${baseUrl}/dashboard?error=missing_account` } });
   }
 
   try {
@@ -114,7 +114,7 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
     </div>
     <script>
       try { window.opener?.postMessage('oauth-complete', '*'); } catch(_) {}
-      setTimeout(function(){ window.location.href = '${baseUrl}/?connected=true'; }, 2000);
+      setTimeout(function(){ window.location.href = '${baseUrl}/dashboard?connected=true'; }, 2000);
     </script>
     </body></html>`;
     return new Response(html, {
@@ -128,7 +128,7 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
     const message = err instanceof Error ? err.message : String(err);
     return new Response(null, {
       status: 302,
-      headers: { Location: `${baseUrl}/?error=verify_failed&detail=${encodeURIComponent(message)}` },
+      headers: { Location: `${baseUrl}/dashboard?error=verify_failed&detail=${encodeURIComponent(message)}` },
     });
   }
 }

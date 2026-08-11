@@ -127,10 +127,10 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     typeof u === "string" && (u.startsWith("http://") || u.startsWith("https://"));
   const successUrl = isHttpUrl(body.successUrl)
     ? body.successUrl
-    : `${baseUrl}/?session_id={CHECKOUT_SESSION_ID}`;
+    : `${baseUrl}/dashboard?session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl = isHttpUrl(body.cancelUrl)
     ? body.cancelUrl
-    : `${baseUrl}/?cancelled=true`;
+    : `${baseUrl}/dashboard?cancelled=true`;
 
   const params = new URLSearchParams({
     "line_items[0][price]": priceId,
@@ -252,7 +252,7 @@ async function handlePortal(db: Database, merchantId?: number): Promise<Response
   const baseUrl = process.env.BASE_URL || `http://localhost:3001`;
   const params = new URLSearchParams({
     customer: customerId,
-    return_url: `${baseUrl}/?portal=return`,
+    return_url: `${baseUrl}/dashboard?portal=return`,
   });
 
   try {
