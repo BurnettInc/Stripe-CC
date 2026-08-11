@@ -392,9 +392,9 @@ async function run() {
     const proc1 = await processTask(wh1.taskId);
     const body1: string = proc1.body.draft?.body || "";
     const pass =
-      proc2.status === 200 && body2.includes("A late fee of $25.00 has been added to this invoice.") &&
+      proc2.status === 200 && body2.includes("A late fee of $25.00 may apply per your payment terms.") &&
       review2.approved === true &&
-      proc3.status === 200 && body3.includes("A late fee of $25.00 has been added to this invoice.") &&
+      proc3.status === 200 && body3.includes("A late fee of $25.00 may apply per your payment terms.") &&
       proc1.status === 200 && !body1.toLowerCase().includes("late fee");
     record("C2. Flat $25 fee in stage 2+3 drafts (+review passes); absent from stage 1", pass,
       pass ? "" : JSON.stringify({ s2: body2.substring(0, 200), s3: body3.substring(0, 200), s1: body1.substring(0, 200), review2 }));
@@ -412,7 +412,7 @@ async function run() {
     const review = proc.body.review || {};
     const pass =
       proc.status === 200 &&
-      body.includes("A late fee of $18.75 (1.5% of the invoice) has been added to this invoice.") &&
+      body.includes("A late fee of $18.75 (1.5% of the invoice) may apply per your payment terms.") &&
       review.approved === true;
     record("C3. Percent fee math: 1.5% of $1250 → '$18.75 (1.5% of the invoice)' + review approves", pass,
       pass ? "" : JSON.stringify({ body: body.substring(0, 300), review }));
@@ -430,7 +430,7 @@ async function run() {
     const config = getLateFeeConfig(db(), 1);
     const feeText = formatLateFeeText(config, invoice, 2); // merchant is percent 1.5 now
     const withFee = reviewDraft(
-      { subject: "Subject", body: `Invoice ${invoice.stripe_invoice_id} for $1250.00 due ${invoice.due_date}. A late fee of ${feeText} has been added to this invoice. Pay at https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}` },
+      { subject: "Subject", body: `Invoice ${invoice.stripe_invoice_id} for $1250.00 due ${invoice.due_date}. A late fee of ${feeText} may apply per your payment terms. Pay at https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}` },
       invoice, { lateFeeText: feeText },
     );
     const withoutFee = reviewDraft(
