@@ -58,9 +58,9 @@ anyway — keep 1 instance).
 
 ## 3. Environment variables
 
-Set these in the service → **Variables** tab. `NODE_ENV=production` and
-`STRIPE_WEBHOOK_SECRET` are boot-time requirements — the app refuses to start
-without them in production.
+Set these in the service → **Variables** tab. `NODE_ENV=production`, `STRIPE_WEBHOOK_SECRET`,
+and `FROM_EMAIL` are boot-time requirements — the app refuses to start without them in
+production.
 
 | Variable | Required | What it's for |
 |---|---|---|
@@ -72,7 +72,7 @@ without them in production.
 | `NODE_ENV` | ✅ | `production` (engages the boot guard and production behavior). |
 | `DB_PATH` | ✅ | `/data/app.db` — where SQLite lives (must match the volume mount path from step 2). |
 | `BUSINESS_ADDRESS` | ✅ (by law) | Physical mailing address for the CAN-SPAM footer on every outgoing email. |
-| `FROM_EMAIL` | ✅ (to send) | Sender address for reminders and summaries. |
+| `FROM_EMAIL` | ✅ | Sender address for reminders and summaries — must be on a **Resend-verified domain** (e.g. `reminders@mail.getcollectionscopilot.com`). **FATAL if missing** — the app exits at boot without it when `NODE_ENV=production` (the code-level fallback `noreply@stripecollectionscopilot.com` is unregistered, so Resend would reject every send). |
 | `SENDGRID_API_KEY` **or** `RESEND_API_KEY` | ✅ (to send) | Pick **one** email provider — the code supports both natively. With neither set, the app runs in **log-only mode** (emails are logged, never delivered). Do not launch without one. |
 | `OPENAI_API_KEY` | ✅ (for AI drafts) | Powers the AI drafter (product default model `gpt-4o-mini`). Without it, drafting falls back to templates. |
 | `PORT` | ❌ do **not** set | Railway injects `PORT` automatically; the app now honors it (`Number(process.env.PORT) || 3002`). Setting it manually can collide with Railway's value. |
@@ -138,6 +138,7 @@ curl https://<railway-url>/health
 
 If the deploy shows unhealthy, check **Deployments → logs**:
 - `FATAL: STRIPE_WEBHOOK_SECRET is not set…` → set the variable (step 3) and redeploy.
+- `FATAL: FROM_EMAIL is not set…` → set `FROM_EMAIL` to an address on a Resend-verified domain (step 3) and redeploy.
 - `Error: Cannot find module …` / bun errors → confirm the root directory is `app` and the Dockerfile/railway.json are present (step 1).
 - Volume permission errors on `app.db` → set `RAILWAY_RUN_UID=0` and redeploy.
 
@@ -152,7 +153,7 @@ a short downtime window during redeploy (expected — see step 2 caveats).
 - `railway.json` — builder=Dockerfile, start command, `/health` healthcheck, restart policy
 - `Dockerfile` — `oven/bun:1-alpine`, frozen-lockfile install, CA certs
 - `.dockerignore` — keeps `node_modules`, DB files, and env files out of the image
-- `src/index.ts` — `PORT` now honors `process.env.PORT` (Railway's dynamic port)
+- `src/index.ts` — `PORT` now honors `process.env.PORT` (Railway's dynamic port); boot guard exits unless `FROM_EMAIL` is set outside local dev
 - `src/db.ts` — `DB_PATH` support (default unchanged: `app.db` in the app dir)
 - `src/pipeline/canspam.ts` — unsubscribe links now derive from `BASE_URL`
 - `bun.lock` — committed so the Dockerfile's frozen install is reproducible

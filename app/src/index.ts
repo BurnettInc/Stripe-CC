@@ -62,6 +62,12 @@ if (sendgridKey) {
   console.log(`   Email provider: none (log-only mode)`);
 }
 
+// Effective from-address for outgoing reminders (shown when set — see the
+// FROM_EMAIL boot guard below for the production requirement).
+if (process.env.FROM_EMAIL) {
+  console.log(`   From address: ${process.env.FROM_EMAIL}`);
+}
+
 // Webhook signature verification
 if (process.env.STRIPE_WEBHOOK_SECRET) {
   console.log(`   Webhook verification: enabled`);
@@ -81,6 +87,24 @@ if (process.env.STRIPE_WEBHOOK_SECRET) {
     process.exit(1);
   }
   console.log(`   Webhook verification: disabled (test mode)`);
+}
+
+// From-address boot guard. sender.ts falls back to
+// noreply@stripecollectionscopilot.com when FROM_EMAIL is unset — that domain
+// is NOT registered, so Resend rejects every send from it and production
+// reminders would fail silently. Refuse to boot without FROM_EMAIL outside
+// local development, mirroring the STRIPE_WEBHOOK_SECRET guard above.
+if (!process.env.FROM_EMAIL) {
+  const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+  const isLocalDev = baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
+  const isProduction = process.env.NODE_ENV === "production";
+  if (isProduction || !isLocalDev) {
+    console.error(`   FATAL: FROM_EMAIL is not set and this server is not running on localhost.`);
+    console.error(`   (NODE_ENV=${process.env.NODE_ENV || "unset"}, BASE_URL=${baseUrl})`);
+    console.error(`   Outgoing reminders need a sender address on a Resend-verified domain — the fallback noreply@stripecollectionscopilot.com is not registered, so Resend would reject every send.`);
+    console.error(`   Set FROM_EMAIL (e.g. reminders@mail.getcollectionscopilot.com) and retry.`);
+    process.exit(1);
+  }
 }
 
 // Token encryption status (OAuth tokens at rest)
