@@ -312,67 +312,6 @@
     }
     #stripe-connect-action a[href="/stripe/connect"] svg { flex-shrink: 0; }
 
-    /* ── Pipeline step tracker ── */
-    .pipeline-steps {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 16px;
-      gap: 8px;
-    }
-    .step {
-      flex: 1;
-      text-align: center;
-      padding: 44px 4px 8px;               /* room for the indicator circle */
-      font-size: 0.78rem;
-      font-weight: 500;
-      color: var(--muted);
-      position: relative;
-      transition: color 0.2s ease;
-    }
-    .step::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: var(--bg);
-      border: 2px solid var(--border);
-      color: var(--muted);
-      font-size: 14px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1;
-    }
-    .step:not(:last-child)::after {
-      content: '';
-      position: absolute;
-      top: 16px;
-      left: calc(50% + 22px);
-      right: calc(-50% + 22px);
-      height: 2px;
-      background: var(--border);
-      z-index: 0;
-    }
-    .step.active { color: var(--primary); font-weight: 600; }
-    .step.active::before {
-      background: var(--primary-lighter);  /* indigo-100 */
-      border-color: var(--primary);        /* indigo-600 */
-      color: var(--primary);
-      box-shadow: inset 0 0 0 4px var(--card-bg);
-    }
-    .step.done { color: var(--success); }
-    .step.done::before {
-      content: '\2713';
-      background: var(--primary);
-      border-color: var(--primary);
-      color: #fff;
-    }
-    .step.done:not(:last-child)::after { background: var(--primary); }
     .status-bar {
       display: flex;
       align-items: center;
@@ -641,10 +580,6 @@
       .trust-pill { min-width: 0; }
       .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
       header { flex-direction: column; align-items: flex-start; }
-      .pipeline-steps { gap: 4px; }
-      .step { font-size: 0.7rem; padding: 40px 2px 6px; }
-      .step::before { width: 28px; height: 28px; }
-      .step:not(:last-child)::after { top: 14px; left: calc(50% + 18px); right: calc(-50% + 18px); }
     }
 
   </style>
@@ -944,21 +879,6 @@
       <div id="sub-error" style="margin-top: 14px; font-size: 0.85rem; display: none;"></div>
       <div id="sub-actions" style="margin-top: 20px; display: none;">
         <button onclick="manageBilling()" class="btn-outline" style="font-size:0.85rem;">⚙️ Manage Billing</button>
-      </div>
-    </div>
-
-    <!-- Pipeline Status -->
-    <div class="card">
-      <h2>📊 Pipeline Status</h2>
-      <div class="pipeline-steps">
-        <div class="step" id="step-watch">🔍 Watch</div>
-        <div class="step" id="step-draft">✏️ Draft</div>
-        <div class="step" id="step-review">✅ Review</div>
-        <div class="step" id="step-send">📨 Send</div>
-      </div>
-      <div class="status-bar">
-        <span class="status-dot"></span>
-        <span id="pipeline-message">System ready — waiting for webhook events</span>
       </div>
     </div>
 
