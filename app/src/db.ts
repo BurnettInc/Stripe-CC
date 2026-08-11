@@ -224,6 +224,17 @@ export function hasActiveSubscription(db: Database, merchantId: number): boolean
 }
 
 /**
+ * Whether the merchant's most recent subscription is an ACTIVE Pro one.
+ * Full Auto (trust_mode "full") is Pro-only — the settings PUT gates switching
+ * to it, enforceTierTrustMode demotes on downgrade, and the watcher's
+ * auto-send branch re-checks this before trusting a stored "full".
+ */
+export function isActiveProSubscriber(db: Database, merchantId: number): boolean {
+  const sub = getSubscriptionByMerchantId(db, merchantId);
+  return !!sub && sub.status === "active" && sub.tier === "pro";
+}
+
+/**
  * Tier enforcement: Full Auto (trust_mode "full") is Pro-only. If the
  * merchant's now-effective subscription is NOT an active Pro one (no sub,
  * cancelled, past_due, or tier != "pro"), demote trust_mode "full" → "semi"
@@ -232,8 +243,7 @@ export function hasActiveSubscription(db: Database, merchantId: number): boolean
  * Pro or when trust_mode isn't "full" — only writes on an actual change.
  */
 export function enforceTierTrustMode(db: Database, merchantId: number): void {
-  const sub = getSubscriptionByMerchantId(db, merchantId);
-  const isActivePro = !!sub && sub.status === "active" && sub.tier === "pro";
+  const isActivePro = isActiveProSubscriber(db, merchantId);
   if (isActivePro) return;
 
   const merchant = db.query("SELECT trust_mode FROM merchants WHERE id=?").get(merchantId) as { trust_mode: string } | null;
