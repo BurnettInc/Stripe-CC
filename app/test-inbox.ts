@@ -282,30 +282,70 @@ async function run() {
     record("5. PUT draft updates body → approve sends edited body", false, `Exception: ${e.message}`);
   }
 
-  // ── 6. Free merchant: approve → 402 ──
+  // ── 6. Free merchant: sends within 5-draft allowance; 402 only when exhausted ──
   try {
     setSubscription(null); // merchant 1 becomes free
-    // Reset the freemium draft counter so the free-tier gates (watcher task
-    // creation, /process draft step) don't interfere with this test — the
-    // subscription gate on /approve is what's under test here.
     const d = db();
     d.run("UPDATE merchants SET drafts_used=0 WHERE id=1");
     d.close();
-    const wh = await fireOverdueWebhook(`${INV_PREFIX}_d`, 2);
-    const proc = await processTask(wh.taskId); // free: drafts remaining -> drafts + reviews
-    const approve = await af(`/tasks/${wh.taskId}/approve`, { method: "POST" });
-    const a = await approve.json();
+
+    // (a) Allowance remaining: webhook task arrives auto-drafted → approve →
+    //     SENT without payment. drafts_used stays at 1 — the allowance is
+    //     charged at draft time (task creation), never at send (no double-count).
+    const wh1 = await fireOverdueWebhook(`${INV_PREFIX}_fa`, 3);
+    const approve1 = await af(`/tasks/${wh1.taskId}/approve`, { method: "POST" });
+    const a1 = await approve1.json();
+    const used1 = db().query("SELECT drafts_used FROM merchants WHERE id=1").get() as { drafts_used: number };
+
+    // (b) Legacy-task simulation (pre-#29 tasks arrive pending with no draft):
+    //     allowance exhausted → approve → 402 subscription_required with the
+    //     free-draft-allowance upgrade message.
+    const wh2 = await fireOverdueWebhook(`${INV_PREFIX}_fb`, 2); // auto-drafts → drafts_used=2
+    db().run("UPDATE reminder_tasks SET status='pending', draft_body='', draft_subject='' WHERE id=?", [wh2.taskId]);
+    const d2 = db();
+    d2.run("UPDATE merchants SET drafts_used=5 WHERE id=1");
+    d2.close();
+    const approve2 = await af(`/tasks/${wh2.taskId}/approve`, { method: "POST" });
+    const a2 = await approve2.json();
+
+    // (c) Allowance exhausted → the watcher stops creating tasks entirely
+    //     (6th invoice gets no task) — the natural cap of the sendable set.
+    const wh3 = await fireOverdueWebhook(`${INV_PREFIX}_fc`, 4);
+
+    // (d) Allowance remaining + pending task with no draft: approve drafts
+    //     inline (consuming one allowance) and then sends.
+    const d3 = db();
+    d3.run("UPDATE merchants SET drafts_used=1 WHERE id=1");
+    d3.close();
+    const wh4 = await fireOverdueWebhook(`${INV_PREFIX}_fd`, 2); // auto-drafts → drafts_used=2
+    db().run("UPDATE reminder_tasks SET status='pending', draft_body='', draft_subject='' WHERE id=?", [wh4.taskId]);
+    const approve4 = await af(`/tasks/${wh4.taskId}/approve`, { method: "POST" });
+    const a4 = await approve4.json();
+    const used4 = db().query("SELECT drafts_used FROM merchants WHERE id=1").get() as { drafts_used: number };
+
+    // (e) Free merchant, Semi-Auto stage 1 (/process auto-send): the on-row
+    //     draft is sent within the allowance; drafts_used NOT charged again.
+    await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trust_mode: "semi" }) });
+    const wh5 = await fireOverdueWebhook(`${INV_PREFIX}_fe`, 3); // auto-drafts → drafts_used=4
+    const proc5 = await processTask(wh5.taskId);
+    const t5 = proc5.body.task;
+    const used5 = db().query("SELECT drafts_used FROM merchants WHERE id=1").get() as { drafts_used: number };
+
+    // (f) Full Auto stays Pro-gated for free merchants (Trust Mode gate intact).
     const fullAuto = await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trust_mode: "full" }) });
 
     const pass =
-      proc.status === 200 && proc.body.task.status === "reviewed" &&
-      approve.status === 402 && a.error === "subscription_required" &&
+      approve1.status === 200 && a1.sent === true && a1.task.status === "sent" && used1.drafts_used === 1 &&
+      approve2.status === 402 && a2.error === "subscription_required" && a2.message.includes("free draft allowance") &&
+      wh3.taskId === undefined &&
+      approve4.status === 200 && a4.sent === true && a4.task.status === "sent" && used4.drafts_used === 3 &&
+      proc5.status === 200 && t5.status === "sent" && used5.drafts_used === 4 &&
       fullAuto.status === 402;
 
-    record("6. Free tier: approve 402 (upgrade prompt), Full Auto gate intact", pass,
-      pass ? "" : JSON.stringify({ procStatus: proc.status, approveStatus: approve.status, a, fullAuto: fullAuto.status }));
+    record("6. Free tier: sends within 5-draft allowance (approve + semi auto-send), 402 only when exhausted, Full Auto gated", pass,
+      pass ? "" : JSON.stringify({ approve1: approve1.status, a1: a1.sent, used1: used1.drafts_used, approve2: approve2.status, a2, wh3: wh3.taskId, approve4: approve4.status, a4: a4.sent, used4: used4.drafts_used, proc5: proc5.status, t5: t5?.status, used5: used5.drafts_used, fullAuto: fullAuto.status }));
   } catch (e: any) {
-    record("6. Free tier: approve 402, Full Auto gate intact", false, `Exception: ${e.message}`);
+    record("6. Free tier sends within allowance; 402 when exhausted", false, `Exception: ${e.message}`);
   }
 
   // ── 7. Paused: blocks auto-send (semi stage 1 + full), not manual approve/summary ──

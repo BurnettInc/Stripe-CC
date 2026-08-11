@@ -247,6 +247,15 @@ export function enforceTierTrustMode(db: Database, merchantId: number): void {
 
 const FREE_DRAFT_LIMIT = 5;
 
+/**
+ * Upgrade-prompt message shown when a free merchant exhausts the 5-draft
+ * allowance. Free merchants may SEND within the allowance (owner direction,
+ * rev 23) — the 402 appears only when sending would require drafting a NEW
+ * draft and no allowance remains. Single source of truth for the task
+ * approve/process gates and the UI copy.
+ */
+export const FREE_ALLOWANCE_MESSAGE = "You've used your free draft allowance. Subscribe to keep sending reminders.";
+
 /** Number of free drafts still available (an all-time, merchant-scoped cap). */
 export function freeDraftsRemaining(db: Database, merchantId: number): number {
   const merchant = db.query("SELECT drafts_used FROM merchants WHERE id = ?").get(merchantId) as { drafts_used: number } | null;
