@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-sdk/ui';
-import { BASE_URL } from '../api';
+import { BASE_URL, LANDING_URL } from '../api';
 type Tier = 'standard' | 'pro';
 type TrustMode = 'draft' | 'semi_auto' | 'full_auto';
 interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none' }
@@ -77,6 +77,8 @@ export default function OnboardingView() {
     {loading ? <Spinner /> : step === 0 ? <Box css={{ stack: 'y', gap: 'small' }}>
       <Box>CollectionsCopilot helps you get paid on time by sending thoughtful, personalized reminders for overdue Stripe invoices.</Box>
       <Button type="primary" onPress={() => setStep(connection?.connected ? (activeTier ? 3 : 2) : 1)}>Get Started</Button>
+      <Box css={{ color: 'secondary' }}>Want to see the full product before you begin?</Box>
+      <Button href={LANDING_URL} target="_blank">Learn more about plans and features</Button>
     </Box> : step === 1 ? <Box css={{ stack: 'y', gap: 'small' }}>
       <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect Stripe</Box>
       <Box css={{ color: 'secondary' }}>Connect the Stripe account whose overdue invoices you want CollectionsCopilot to monitor.</Box>
