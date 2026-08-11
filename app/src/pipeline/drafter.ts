@@ -12,10 +12,12 @@ function pickSignOff(stage: number): string { return SIGN_OFFS[(stage - 1) % SIG
  * Soft, informational late-fee sentence appended to Stage 2 / Stage 3
  * template-fallback bodies when the merchant configured a fee. Never stage 1,
  * never invented by the model — the exact fee fragment comes from late-fee.ts
- * so the reviewer can verify it.
+ * so the reviewer can verify it. Conditional by design: the pipeline never
+ * adds or charges a fee (read-only Stripe), so the copy only says one MAY
+ * apply per the merchant's payment terms — never an accomplished charge.
  */
 function lateFeeSentence(feeText: string | null | undefined): string {
-  return feeText ? `\n\nA late fee of ${feeText} has been added to this invoice.` : "";
+  return feeText ? `\n\nA late fee of ${feeText} may apply per your payment terms.` : "";
 }
 
 function fallback(task: ReminderTask, invoice: Invoice, merchantName?: string, lateFeeText?: string | null): EmailDraft {
@@ -71,9 +73,10 @@ RULES:
 8. Never include an unsubscribe link in your output — the system adds a
    standard compliance footer automatically.
 9. If the late fee line is not 'none', mention it exactly once, softly, in the
-   form: "A late fee of {late_fee} has been added to this invoice." Only at
+   form: "A late fee of {late_fee} may apply per your payment terms." Only at
    stage 2 or stage 3 — NEVER at stage 1. Never invent or change a fee amount;
-   use the exact value from the late fee line.
+   use the exact value from the late fee line. Never claim the fee has been
+   added or charged — it is conditional and informational only.
 
 OUTPUT FORMAT (JSON):
 {
