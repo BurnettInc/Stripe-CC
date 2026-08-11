@@ -1,0 +1,12 @@
+# Keep the image lean and avoid copying secrets/test data. The Dockerfile
+# installs deps and builds the site inside the image, so all of these are
+# recreated there.
+node_modules
+.git
+app/app.db*
+app/dist
+site/dist
+stripe-app
+*.log
+.env
+.env.local

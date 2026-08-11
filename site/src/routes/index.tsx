@@ -22,7 +22,9 @@ const getBusinessName = createServerFn({ method: "GET" }).handler(async () => {
  * backend can attribute the subscription to the authenticated merchant.
  *
  * APP_API_URL must point at the backend in production, e.g.
- * APP_API_URL=https://api.example.com. Defaults to the local backend.
+ * APP_API_URL=https://api.example.com. Defaults to BASE_URL (same-origin on
+ * Railway — one service serves both site and backend) and then the local
+ * backend.
  */
 const createCheckout = createServerFn({ method: "POST" })
   .validator((data: unknown) => {
@@ -33,7 +35,7 @@ const createCheckout = createServerFn({ method: "POST" })
     return d as { tier: "standard" | "pro" };
   })
   .handler(async ({ data }) => {
-    const apiUrl = (process.env.APP_API_URL || "http://localhost:3001").replace(/\/+$/, "");
+    const apiUrl = (process.env.APP_API_URL || process.env.BASE_URL || "http://localhost:3001").replace(/\/+$/, "");
     const siteBase = process.env.BASE_URL || "http://localhost:3000";
 
     // Forward the visitor's session cookie to the backend so its
@@ -158,7 +160,7 @@ function Home() {
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <a
-            href="#pricing"
+            href="/dashboard"
             className="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm"
           >
             Start recovering invoices →
@@ -564,7 +566,7 @@ function Home() {
               </ul>
               {plan.free ? (
                 <a
-                  href="#pricing"
+                  href="/dashboard"
                   className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   {plan.cta}
@@ -642,7 +644,7 @@ function Home() {
             finger.
           </p>
           <a
-            href="#pricing"
+            href="/dashboard"
             className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
           >
             Get Started
