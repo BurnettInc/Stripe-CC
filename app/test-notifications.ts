@@ -302,32 +302,32 @@ async function run() {
     d.run("UPDATE merchants SET disconnected=0 WHERE id=?", [merchantId]);
     d.close();
 
-    // Stage 2 send → notification.
-    const wh2 = await fireOverdueWebhook("INV-S2", 10, 1200, "client-s2@example.com");
+    // Stage 2 send → notification. With Full Auto (the seeded trust_mode),
+    // the WATCHER sends at webhook creation (PR #35) — /process is no longer
+    // the trigger, and the escalation notification lands during the awaited
+    // webhook send. So snapshot the notification log BEFORE the webhook.
     const beforeS2 = countNotificationLogs();
-    const proc2 = await af(`/tasks/${wh2.taskId}/process`, { method: "POST" });
-    const body2 = await proc2.json();
+    const wh2 = await fireOverdueWebhook("INV-S2", 10, 1200, "client-s2@example.com");
     const msg2 = latestNotificationMessage();
-    const s2Ok = body2.task?.status === "sent" && countNotificationLogs() === beforeS2 + 1 && msg2.includes("escalated to Stage 2");
+    const t2 = db().query("SELECT status FROM reminder_tasks WHERE id=?").get(wh2.taskId) as { status: string };
+    const s2Ok = t2.status === "sent" && countNotificationLogs() === beforeS2 + 1 && msg2.includes("escalated to Stage 2");
 
     // Stage 3 send → notification.
-    const wh3 = await fireOverdueWebhook("INV-S3", 25, 1300, "client-s3@example.com");
     const beforeS3 = countNotificationLogs();
-    const proc3 = await af(`/tasks/${wh3.taskId}/process`, { method: "POST" });
-    const body3 = await proc3.json();
+    const wh3 = await fireOverdueWebhook("INV-S3", 25, 1300, "client-s3@example.com");
     const msg3 = latestNotificationMessage();
-    const s3Ok = body3.task?.status === "sent" && countNotificationLogs() === beforeS3 + 1 && msg3.includes("escalated to Stage 3");
+    const t3 = db().query("SELECT status FROM reminder_tasks WHERE id=?").get(wh3.taskId) as { status: string };
+    const s3Ok = t3.status === "sent" && countNotificationLogs() === beforeS3 + 1 && msg3.includes("escalated to Stage 3");
 
     // Stage 1 send → NO notification.
-    const wh1 = await fireOverdueWebhook("INV-S1", 3, 1100, "client-s1@example.com");
     const beforeS1 = countNotificationLogs();
-    const proc1 = await af(`/tasks/${wh1.taskId}/process`, { method: "POST" });
-    const body1 = await proc1.json();
-    const s1Ok = body1.task?.status === "sent" && countNotificationLogs() === beforeS1;
+    const wh1 = await fireOverdueWebhook("INV-S1", 3, 1100, "client-s1@example.com");
+    const t1 = db().query("SELECT status FROM reminder_tasks WHERE id=?").get(wh1.taskId) as { status: string };
+    const s1Ok = t1.status === "sent" && countNotificationLogs() === beforeS1;
 
     const pass = s2Ok && s3Ok && s1Ok;
     record("escalation: merchant notified on stage 2/3 send success, silent on stage 1", pass,
-      pass ? "" : `s2=${JSON.stringify({status: body2.task?.status, msg: msg2})} s3=${JSON.stringify({status: body3.task?.status, msg: msg3})} s1=${JSON.stringify({status: body1.task?.status, countDelta: countNotificationLogs() - beforeS1})}`);
+      pass ? "" : `s2=${JSON.stringify({status: t2?.status, msg: msg2})} s3=${JSON.stringify({status: t3?.status, msg: msg3})} s1=${JSON.stringify({status: t1?.status, countDelta: countNotificationLogs() - beforeS1})}`);
   } catch (e: any) {
     record("escalation: notify on stage 2/3, not stage 1", false, `Exception: ${e.message}`);
   }

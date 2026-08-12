@@ -353,14 +353,19 @@ async function run() {
     const approve4 = await af(`/tasks/${wh4.taskId}/approve`, { method: "POST" }); // inline draft → 5 → sent
     const a4 = await approve4.json();
     const fdD = await freeDrafts();
-    // (e) Free merchant, Semi-Auto stage 1 (/process auto-send): with one
-    //     allowance freed, the on-row draft is sent; the derived count is NOT
-    //     charged again at send time.
+    // (e) Free merchant, Semi-Auto stage 1: the WATCHER auto-sends at webhook
+    //     creation (PR #35) — no /process click is needed anymore. With one
+    //     allowance freed, the webhook auto-drafts (derived count →5, allowance
+    //     consumed at draft time) and auto-sends immediately; the derived count
+    //     is NOT charged again at send time. /process on the already-sent task
+    //     returns 400 (double-process guard) — itself proof the send happened
+    //     at webhook time, before any manual step.
     setDraftedCount(4);
     await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trust_mode: "semi" }) });
-    const wh5 = await fireOverdueWebhook(`${INV_PREFIX}_fe`, 3); // auto-drafts → 5
-    const proc5 = await processTask(wh5.taskId);
-    const t5 = proc5.body.task;
+    const wh5 = await fireOverdueWebhook(`${INV_PREFIX}_fe`, 3); // auto-drafts → 5 AND auto-sends (semi stage 1)
+    const proc5 = await processTask(wh5.taskId); // 400: already sent by the watcher
+    const hist5 = await getTaskList(true);
+    const t5 = hist5.find((x: any) => x.id === wh5.taskId);
     const fdE = await freeDrafts();
     const column = db().query("SELECT drafts_used FROM merchants WHERE id=1").get() as { drafts_used: number };
     // (f) Full Auto stays Pro-gated for free merchants (Trust Mode gate intact).
@@ -370,11 +375,11 @@ async function run() {
       approve2.status === 402 && a2.error === "subscription_required" && a2.message.includes("free draft allowance") &&
       wh3.taskId === undefined &&
       approve4.status === 200 && a4.sent === true && a4.task.status === "sent" && fdD === 0 &&
-      proc5.status === 200 && t5.status === "sent" && fdE === 0 &&
+      proc5.status === 400 && String(proc5.body?.error).includes("already processed") && proc5.body?.currentStatus === "sent" && t5?.status === "sent" && fdE === 0 &&
       column.drafts_used === 5 && // legacy column ignored: never written, never read
       fullAuto.status === 402;
-    record("6. Free tier: sends within 5-draft allowance (approve + semi auto-send), 402 only when exhausted, Full Auto gated", pass,
-      pass ? "" : JSON.stringify({ approve1: approve1.status, a1: a1.sent, fdA, before, approve2: approve2.status, a2, wh3: wh3.taskId, approve4: approve4.status, a4: a4.sent, fdD, proc5: proc5.status, t5: t5?.status, fdE, column: column.drafts_used, fullAuto: fullAuto.status }));
+    record("6. Free tier: sends within 5-draft allowance (approve + semi watcher auto-send), 402 only when exhausted, Full Auto gated", pass,
+      pass ? "" : JSON.stringify({ approve1: approve1.status, a1: a1.sent, fdA, before, approve2: approve2.status, a2, wh3: wh3.taskId, approve4: approve4.status, a4: a4.sent, fdD, proc5: proc5.status, proc5Body: proc5.body, t5: t5?.status, fdE, column: column.drafts_used, fullAuto: fullAuto.status }));
   } catch (e: any) {
     record("6. Free tier sends within allowance; 402 when exhausted", false, `Exception: ${e.message}`);
   }
@@ -421,7 +426,16 @@ async function run() {
       proc2.status === 200 && t2.status === "reviewed" && proc2.body.message.includes("paused") &&
       inInbox1 && inInbox2 &&
       approve.status === 200 && a.task.status === "sent" &&
-      summary.status === 200 && s.sendResult?.success === true;
+      // Pause must NOT block the MANUAL weekly-summary route — only automatic
+      // sends are paused. The test merchant is the acct_default placeholder
+      // (no real email), so /summary/send legitimately SKIPS by design
+      // (placeholder guard, PR #39 / 12cd747): what proves pause doesn't gate
+      // it is that the route still runs to completion — 200 with a sendResult
+      // whose only reason for not sending is the placeholder, never "paused".
+      summary.status === 200 &&
+      s.sendResult !== undefined &&
+      (s.sendResult.success === true ||
+        (s.sendResult.skipped === true && s.sendResult.message.includes("no real email")));
 
     record("7. paused blocks semi/full auto-send (task kept) but not manual approve/summary", pass,
       pass ? "" : JSON.stringify({ proc1Status: proc1.status, t1: t1?.status, msg1: proc1.body.message, skipLog: skipLog.n, proc2Status: proc2.status, t2: t2?.status, inInbox1, inInbox2, approveStatus: approve.status, approveTask: a.task?.status, summaryStatus: summary.status, summarySend: s.sendResult }));
@@ -429,16 +443,24 @@ async function run() {
     record("7. paused blocks auto-send, not manual approve/summary", false, `Exception: ${e.message}`);
   }
 
-  // ── 8. Unpause resumes auto-send ──
+  // ── 8. Unpause resumes auto-send (watcher sends at webhook creation) ──
   try {
     await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paused: false, trust_mode: "semi" }) });
-    const wh = await fireOverdueWebhook(`${INV_PREFIX}_g`, 3); // stage 1 semi → auto-send
+    const wh = await fireOverdueWebhook(`${INV_PREFIX}_g`, 3); // semi stage 1 → watcher auto-sends at creation
+    // The watcher (PR #35) sends semi stage 1 at webhook time — no /process
+    // click is needed. /process on the already-sent task returns 400
+    // (double-process guard), which is itself proof the send happened at
+    // webhook time, before any manual step.
     const proc = await processTask(wh.taskId);
-    const t = proc.body.task;
-    const pass = proc.status === 200 && t.status === "sent";
-    record("8. unpaused: semi stage 1 auto-sends again", pass, pass ? "" : JSON.stringify({ status: proc.status, taskStatus: t?.status, msg: proc.body.message }));
+    const history = await getTaskList(true);
+    const t = history.find((x: any) => x.id === wh.taskId);
+    const pass =
+      proc.status === 400 && String(proc.body?.error).includes("already processed") &&
+      proc.body?.currentStatus === "sent" && t?.status === "sent";
+    record("8. unpaused: semi stage 1 auto-sends at webhook creation (process 400 = already sent)", pass,
+      pass ? "" : JSON.stringify({ status: proc.status, procBody: proc.body, taskStatus: t?.status }));
   } catch (e: any) {
-    record("8. unpaused: semi stage 1 auto-sends again", false, `Exception: ${e.message}`);
+    record("8. unpaused: semi stage 1 auto-sends at webhook creation", false, `Exception: ${e.message}`);
   }
 
   // ── cleanup ──
