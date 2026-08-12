@@ -304,7 +304,10 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/past-due" && req.method === "GET") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
-        return handlePastDuePage(db, auth.merchant_id);
+        // Optional ?status= filter tab (all|overdue|paid|refunded|disputed);
+        // the handler defaults to overdue when absent or unknown.
+        const status = url.searchParams.get("status") ?? "";
+        return handlePastDuePage(db, auth.merchant_id, status);
       }
 
       // GET /reminders — server-rendered history of sent reminder emails.
@@ -314,7 +317,10 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/reminders" && req.method === "GET") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
-        return handleRemindersPage(db, auth.merchant_id);
+        // Optional ?type= filter tab (all|real); defaults to all. The "real"
+        // view excludes [STUB SEND] test rows (see handleRemindersPage).
+        const type = url.searchParams.get("type") ?? "";
+        return handleRemindersPage(db, auth.merchant_id, type);
       }
 
       // POST /webhook — Stripe webhook events
