@@ -15,12 +15,18 @@ export interface SendResult {
 /**
  * Custom sender branding (Standard plan feature). The from-ADDRESS always
  * stays the global verified FROM_EMAIL — merchants only customize the display
- * name and an optional Reply-To address, both stored on their merchant row
- * (migration 009: sender_name, reply_to).
+ * name (stored on their merchant row, migration 009: sender_name).
+ *
+ * The Reply-To header is NO LONGER merchant-customizable (PR #56 removed the
+ * dashboard field). Every CUSTOMER reminder send uses the system-tracked
+ * address `reply+{invoice_id}@{REPLY_DOMAIN}` so customer replies route back
+ * to the inbound pipeline (reply-pause feature, D1a). The merchant's
+ * `reply_to` setting is repurposed as the FORWARD target — where captured
+ * customer replies get forwarded (see routes/inbound.ts) — and never appears
+ * in a Reply-To header.
  */
 export interface SenderBranding {
   senderName?: string | null;
-  replyTo?: string | null;
 }
 
 /** Strip characters that would break an RFC 5322 display-name. */
@@ -35,20 +41,40 @@ export function buildFromAddress(email: string, senderName?: string | null): str
 }
 
 /**
+ * The tracked Reply-To for a CUSTOMER reminder send: `reply+{invoice_id}@
+ * {REPLY_DOMAIN}` where invoice_id is the invoice's internal DB id (the value
+ * the Cloudflare worker parses from the plus tag and sends back as
+ * sequence_id). Null tasks (merchant notifications, weekly summaries) get no
+ * Reply-To — replies to account alerts are not tracked.
+ *
+ * REPLY_DOMAIN is env-driven so the feature works before the DNS/MX wiring
+ * exists (Cloudflare Email Routing is configured for the default below);
+ * never depends on a config call.
+ */
+export function trackedReplyToForTask(task: ReminderTask | null): string | undefined {
+  if (!task) return undefined;
+  const domain = process.env.REPLY_DOMAIN || "replies.getcollectionscopilot.com";
+  return `reply+${task.invoice_id}@${domain}`;
+}
+
+/**
  * Resolve a merchant's branding for a CUSTOMER reminder send. Returns {} for
  * null tasks (merchant notifications, weekly summaries) — those keep the
- * neutral global from, never merchant branding.
+ * neutral global from, never merchant branding. Only the sender display name
+ * is returned: the Reply-To header is always the system-tracked address (see
+ * trackedReplyToForTask); merchant.reply_to is the reply FORWARD target, not
+ * a header.
  */
 export function senderBrandingForTask(db: Database, task: ReminderTask | null): SenderBranding {
   if (!task) return {};
   const row = db
     .query(
-      `SELECT m.sender_name, m.reply_to
+      `SELECT m.sender_name
        FROM merchants m JOIN invoices i ON i.merchant_id = m.id
        WHERE i.id = ?`
     )
-    .get(task.invoice_id) as { sender_name: string | null; reply_to: string | null } | null;
-  return { senderName: row?.sender_name ?? null, replyTo: row?.reply_to ?? null };
+    .get(task.invoice_id) as { sender_name: string | null } | null;
+  return { senderName: row?.sender_name ?? null };
 }
 
 export interface SendOptions {
@@ -107,12 +133,15 @@ export async function sendEmailForReal(
   if (paidSkip) return paidSkip;
 
   // Custom sender branding: only customer reminders (task != null) carry the
-  // merchant's display name / Reply-To. Merchant account notifications pass
-  // task=null and keep the neutral global from.
+  // merchant's display name. The Reply-To header is ALWAYS the system-tracked
+  // reply+{invoice_id}@{REPLY_DOMAIN} address for customer reminders (so
+  // customer replies route back to the inbound pipeline); merchant account
+  // notifications pass task=null and keep the neutral global from with no
+  // Reply-To.
   const branding = senderBrandingForTask(db, task);
   const baseFrom = fromEmail || process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
   const from = buildFromAddress(baseFrom, branding.senderName);
-  const replyTo = branding.replyTo?.trim() || undefined;
+  const replyTo = trackedReplyToForTask(task);
 
   const subject = draft.subject;
   // CAN-SPAM: append the compliance footer (opt-out link + physical address)
@@ -235,11 +264,12 @@ export function sendEmail(
     : appendCanspamFooter(draft.body, ...footerContextFor(db, task));
 
   // The stub mirrors the real-send branding so log-only environments still
-  // show exactly what a provider send would carry.
+  // show exactly what a provider send would carry: the merchant display name
+  // on From, and the system-tracked Reply-To for customer reminders.
   const branding = senderBrandingForTask(db, task);
   const baseFrom = process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
   const from = buildFromAddress(baseFrom, branding.senderName);
-  const replyTo = branding.replyTo?.trim();
+  const replyTo = trackedReplyToForTask(task);
 
   const message = [
     `[STUB SEND] Would send email:`,
