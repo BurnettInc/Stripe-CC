@@ -15,6 +15,15 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const baseUrl = process.env.BASE_URL || "http://localhost:3002";
 
+  // Optional ?return=stripe (the Stripe App drawer's Connect buttons pass it):
+  // when set, both the onboarding refresh_url and the return_url keep the
+  // param so the OAuth callback lands the merchant back in Stripe's dashboard
+  // instead of the web dashboard. The web dashboard's own connect link has no
+  // return param → default behavior (web dashboard) stays unchanged.
+  const wantsStripe = new URL(req.url).searchParams.get("return") === "stripe";
+  const withReturn = (u: string) =>
+    wantsStripe ? `${u}${u.includes("?") ? "&" : "?"}return=stripe` : u;
+
   if (!secretKey) {
     console.error("[oauth] STRIPE_SECRET_KEY not set — cannot start onboarding");
     return new Response(null, { status: 302, headers: { Location: `${baseUrl}/dashboard?error=no_secret_key` } });
@@ -48,8 +57,8 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
       // NOTE: /api/stripe/connect, not /api/oauth/connect — the site/platform proxy
       // strips the /api prefix, and the backend only routes /stripe/connect (there
       // is no /oauth/connect route). This URL resumes onboarding via handleStripeConnect.
-      refresh_url: `${baseUrl}/api/stripe/connect`,
-      return_url: `${baseUrl}/api/oauth/callback?account=${accountId}`,
+      refresh_url: withReturn(`${baseUrl}/api/stripe/connect`),
+      return_url: withReturn(`${baseUrl}/api/oauth/callback?account=${accountId}`),
       type: "account_onboarding",
     });
 
@@ -74,6 +83,11 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const url = new URL(req.url);
   const accountId = url.searchParams.get("account");
+  // Optional ?return=stripe (the Stripe App drawer's Connect buttons pass it):
+  // when set, the success page offers a "Return to Stripe dashboard" link and
+  // auto-redirects to https://dashboard.stripe.com after ~3s instead of the
+  // web dashboard. Default (no return param) behavior is UNCHANGED.
+  const wantsStripe = url.searchParams.get("return") === "stripe";
 
   if (!accountId || !secretKey) {
     return new Response(null, { status: 302, headers: { Location: `${baseUrl}/dashboard?error=missing_account` } });
@@ -85,8 +99,12 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
 
     if (!account.details_submitted || !account.charges_enabled) {
       // Account exists but onboarding isn't complete — send the merchant back
-      // through the connect endpoint, which issues a fresh account link.
-      return new Response(null, { status: 302, headers: { Location: `${baseUrl}/api/stripe/connect` } });
+      // through the connect endpoint, which issues a fresh account link. Keep
+      // the return param so a drawer-initiated flow stays in Stripe.
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${baseUrl}/api/stripe/connect${wantsStripe ? "?return=stripe" : ""}` },
+      });
     }
 
     // ── Session creation (ported from the old Express OAuth callback) ──
@@ -102,7 +120,29 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
 
     console.log(`[oauth] Stripe account connected: ${accountId} (merchant ${merchantId})`);
 
-    const html = `<!DOCTYPE html>
+    // The Set-Cookie and the oauth-complete postMessage are identical in both
+    // paths — only the destination link/redirect differ.
+    const sessionCookie = `session=${encodeURIComponent(sessionToken)}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=2592000`;
+
+    const html = wantsStripe
+      ? `<!DOCTYPE html>
+    <html><head><title>Connected — CollectionsCopilot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="font-family:system-ui,sans-serif;text-align:center;padding-top:80px;background:#F9FAFB;">
+    <div style="background:white;max-width:420px;margin:0 auto;padding:40px 30px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+      <div style="font-size:48px;margin-bottom:16px;">✅</div>
+      <h2 style="margin:0 0 8px;color:#111827;">Stripe account connected!</h2>
+      <p style="color:#6B7280;margin:0 0 24px;">Your CollectionsCopilot app is set up. Taking you back to Stripe…</p>
+      <a href="https://dashboard.stripe.com" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:8px;">Return to Stripe dashboard</a>
+      <p style="color:#9CA3AF;margin:20px 0 0;font-size:13px;">or open your <a href="${baseUrl}/dashboard" style="color:#6B7280;">CollectionsCopilot dashboard</a></p>
+    </div>
+    <script>
+      try { window.opener?.postMessage('oauth-complete', '*'); } catch(_) {}
+      setTimeout(function(){ window.location.href = 'https://dashboard.stripe.com'; }, 3000);
+    </script>
+    </body></html>`
+      : `<!DOCTYPE html>
     <html><head><title>Connected — CollectionsCopilot</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     </head>
@@ -121,7 +161,7 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
       status: 200,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
-        "Set-Cookie": `session=${encodeURIComponent(sessionToken)}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=2592000`,
+        "Set-Cookie": sessionCookie,
       },
     });
   } catch (err: unknown) {

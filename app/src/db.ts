@@ -40,6 +40,13 @@ function runMigrations(db: Database) {
   if (!invoiceCols.some(c => c.name === "refund_id")) {
     db.exec("ALTER TABLE invoices ADD COLUMN refund_id TEXT DEFAULT NULL");
   }
+  // Manual pause flag (drawer Pause button): ISO timestamp set by the merchant
+  // via POST /tasks/pause. The watcher's stale guard skips manually-paused
+  // invoices exactly like reply-paused ones, so no new tasks are created and
+  // the pause is durable until POST /tasks/resume clears it.
+  if (!invoiceCols.some(c => c.name === "manually_paused_at")) {
+    db.exec("ALTER TABLE invoices ADD COLUMN manually_paused_at TEXT DEFAULT NULL");
+  }
 
   if (!hasType || (reminderCol && reminderCol.notnull === 1)) {
     // Need to migrate: recreate send_logs with type column + nullable reminder_task_id
@@ -420,7 +427,7 @@ export function getTaskById(db: Database, id: number) {
 export function getAllTasks(db: Database, merchantId: number, includeAll = false): Array<Record<string, unknown>> {
   const rows = db.query(`
     SELECT rt.*, i.stripe_invoice_id, i.customer_name, i.customer_email, i.amount_cents, i.currency, i.due_date, i.status as invoice_status,
-           i.reply_paused_at, i.reply_opt_out_at,
+           i.reply_paused_at, i.manually_paused_at, i.reply_opt_out_at,
            (SELECT reply_status FROM inbound_replies WHERE invoice_id = i.id ORDER BY id DESC LIMIT 1) AS reply_status
     FROM reminder_tasks rt
     JOIN invoices i ON rt.invoice_id = i.id
@@ -537,6 +544,8 @@ export interface Invoice {
   paid_notified: number;
   /** ISO timestamp set when a customer reply paused this invoice's sequence (reply-pause, D1a). */
   reply_paused_at: string | null;
+  /** ISO timestamp set by the merchant's Pause button in the Stripe App drawer (manual pause). */
+  manually_paused_at: string | null;
   /** ISO timestamp set by the D1b opt_out classification — stops THIS invoice's reminders only. */
   reply_opt_out_at: string | null;
   created_at: string;
@@ -544,12 +553,12 @@ export interface Invoice {
 
 /**
  * Whether an invoice's sequence is stopped (paid, disputed, refunded,
- * reply-paused, or the customer opted out of reminders for it). This is the
- * "stopped" model shared by the watcher's stale-event guard, the inbound
- * reply handler (never re-pause a stopped sequence), and any future auto-send
- * path: a stopped invoice must never be resurrected by a replayed/overdue
- * event or a late-arriving send. A null invoice counts as stopped (callers
- * treat unknown as "don't act").
+ * reply-paused, manually-paused, or the customer opted out of reminders for
+ * it). This is the "stopped" model shared by the watcher's stale-event guard,
+ * the inbound reply handler (never re-pause a stopped sequence), and any future
+ * auto-send path: a stopped invoice must never be resurrected by a
+ * replayed/overdue event or a late-arriving send. A null invoice counts as
+ * stopped (callers treat unknown as "don't act").
  */
 export function isInvoiceSequenceStopped(invoice: Invoice | null): boolean {
   if (!invoice) return true;
@@ -558,6 +567,7 @@ export function isInvoiceSequenceStopped(invoice: Invoice | null): boolean {
     !!invoice.dispute_id ||
     !!invoice.refund_id ||
     !!invoice.reply_paused_at ||
+    !!invoice.manually_paused_at ||
     !!invoice.reply_opt_out_at
   );
 }

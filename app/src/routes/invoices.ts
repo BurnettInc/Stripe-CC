@@ -26,7 +26,13 @@ export async function handleInvoices(db: Database, req: Request, rawPath: string
   if (!isTrustMode && req.method === "GET") {
     const task = db.query("SELECT * FROM reminder_tasks WHERE invoice_id=? ORDER BY created_at DESC, id DESC LIMIT 1").get(id) as Record<string, unknown> | null;
     const sent = db.query("SELECT COUNT(*) as count, MAX(created_at) as last_send_date FROM send_logs WHERE reminder_task_id=? AND type='reminder' AND status='success'").get((task?.id as number | undefined) ?? -1) as { count: number; last_send_date: string | null };
-    const sequenceStatus = task ? { emails_sent: sent.count, last_send_date: sent.last_send_date, next_scheduled: null, active: !["cancelled", "paused"].includes(String(task.status)), paused: task.status === "paused", stage: task.stage, status: task.status } : null;
+    // Paused reflects BOTH a parked task (status 'paused') and the invoice's
+    // pause flags (reply_paused_at from a customer reply, manually_paused_at
+    // from the drawer's Pause button) so the drawer detail view shows the true
+    // state even when the pause left no open task (reply pause cancels tasks).
+    const invoicePaused = !!invoice.reply_paused_at || !!invoice.manually_paused_at;
+    const taskPaused = task?.status === "paused";
+    const sequenceStatus = task ? { emails_sent: sent.count, last_send_date: sent.last_send_date, next_scheduled: null, active: !["cancelled", "paused"].includes(String(task.status)) && !invoicePaused, paused: taskPaused || invoicePaused, stage: task.stage, status: task.status } : null;
     return new Response(JSON.stringify({ ...invoice, sequence_status: sequenceStatus }), { headers: jsonHeaders });
   }
 

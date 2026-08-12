@@ -2,7 +2,7 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "CollectionsCopilot",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "icon": "./icon.png",
   "ui_extension": {
     "views": [
@@ -21,7 +21,9 @@
         "https://stripe-cc-production.up.railway.app/settings",
         "https://stripe-cc-production.up.railway.app/stripe/connection",
         "https://stripe-cc-production.up.railway.app/billing/checkout",
-        "https://stripe-cc-production.up.railway.app/invoices/"
+        "https://stripe-cc-production.up.railway.app/invoices/",
+        "https://stripe-cc-production.up.railway.app/overdue/summary",
+        "https://stripe-cc-production.up.railway.app/tasks/"
       ],
       "purpose": "Connect to CollectionsCopilot backend for automated invoice follow-ups."
     }
