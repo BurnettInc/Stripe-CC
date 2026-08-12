@@ -85,10 +85,22 @@ async function freeDrafts(): Promise<number> {
   const s = (await res.json()) as { free_drafts_remaining: number };
   return s.free_drafts_remaining;
 }
-async function statsJson(): Promise<{ free_drafts_remaining: number; free_drafts_unlimited: boolean }> {
+async function statsJson(): Promise<{
+  free_drafts_remaining: number;
+  free_drafts_unlimited: boolean;
+  stripeConnected: boolean;
+  stripeDisconnected: boolean;
+  stripeAccountId: string | null;
+}> {
   const res = await af("/stats");
   if (res.status !== 200) throw new Error(`GET /stats returned ${res.status}`);
-  return (await res.json()) as { free_drafts_remaining: number; free_drafts_unlimited: boolean };
+  return (await res.json()) as {
+    free_drafts_remaining: number;
+    free_drafts_unlimited: boolean;
+    stripeConnected: boolean;
+    stripeDisconnected: boolean;
+    stripeAccountId: string | null;
+  };
 }
 
 const results: { name: string; pass: boolean; detail: string }[] = [];
@@ -171,6 +183,47 @@ async function run(): Promise<void> {
   // Cleanup: remove the test subscription so the merchant is free again.
   db().run("DELETE FROM subscriptions WHERE stripe_subscription_id='sub_paid_test'");
 
+  // ── Stripe connection state (dashboard "Stripe" stat card) ──
+  // 10. No stripe_connections row → never connected.
+  stats = await statsJson();
+  record("10. no connection row → stripeConnected=false, stripeDisconnected=false, no account id",
+    stats.stripeConnected === false && stats.stripeDisconnected === false && stats.stripeAccountId === null,
+    `connected=${stats.stripeConnected} disconnected=${stats.stripeDisconnected} accountId=${stats.stripeAccountId}`);
+  // 11. A stripe_connections row (OAuth completed) → connected, account id exposed.
+  db().run(
+    "INSERT INTO stripe_connections (id, merchant_id, access_token, refresh_token, stripe_publishable_key) VALUES ('acct_fd_live', ?, 'plain', NULL, 'pk_live')",
+    [MERCHANT]
+  );
+  stats = await statsJson();
+  record("11. connection row present → stripeConnected=true, account id exposed",
+    stats.stripeConnected === true && stats.stripeDisconnected === false && stats.stripeAccountId === 'acct_fd_live',
+    `connected=${stats.stripeConnected} disconnected=${stats.stripeDisconnected} accountId=${stats.stripeAccountId}`);
+  // 12. account.application.deauthorized (merchants.disconnected=1) →
+  //     disconnected: not "connected" anymore, flagged for "Reconnect".
+  db().run("UPDATE merchants SET disconnected=1 WHERE id=?", [MERCHANT]);
+  stats = await statsJson();
+  record("12. deauthorized → stripeConnected=false, stripeDisconnected=true",
+    stats.stripeConnected === false && stats.stripeDisconnected === true,
+    `connected=${stats.stripeConnected} disconnected=${stats.stripeDisconnected}`);
+  // ── Real-link billing routes (Free Drafts stat card) ──
+  // The card must be a genuine <a href>, so GET /billing/checkout and
+  // GET /billing/portal must route (not 404/405). redirect:"manual" stops
+  // Bun's fetch from following the 302 so we can assert on it. Missing tier
+  // is deterministically 400; with a configured key checkout 302s to Stripe
+  // (or 502/503 without one). Portal with no subscription is 400 (or 302/502/
+  // 503 for a real subscriber / key problems) — never a dead 404/405.
+  const checkoutNoTier = await af("/billing/checkout");
+  record("13. GET /billing/checkout without tier → 400 (route wired for GET)",
+    checkoutNoTier.status === 400,
+    `status=${checkoutNoTier.status}`);
+  const checkoutGet = await af("/billing/checkout?tier=standard", { redirect: "manual" });
+  record("14. GET /billing/checkout?tier=standard → 302/502/503, never 404/405",
+    [302, 502, 503].includes(checkoutGet.status),
+    `status=${checkoutGet.status}`);
+  const portalGet = await af("/billing/portal", { redirect: "manual" });
+  record("15. GET /billing/portal → 302/400/502/503, never 404/405",
+    [302, 400, 502, 503].includes(portalGet.status),
+    `status=${portalGet.status}`);
   const passed = results.filter((r) => r.pass).length;
   const failed = results.filter((r) => !r.pass).length;
   console.log("\n═══════════════════════════════════════════════");

@@ -68,44 +68,70 @@ export async function handleBilling(
   action: "checkout" | "portal" | "webhook",
   sessionMerchantId?: number,
 ): Promise<Response> {
+  let response: Response;
   if (action === "checkout") {
-    return handleCheckout(db, req, sessionMerchantId);
+    response = await handleCheckout(db, req, sessionMerchantId);
+  } else if (action === "portal") {
+    response = await handlePortal(db, sessionMerchantId);
+  } else {
+    return handleBillingWebhook(db, req);
   }
-  if (action === "portal") {
-    return handlePortal(db, sessionMerchantId);
+  // Real-link entry (GET): the dashboard stat cards navigate with a plain
+  // <a href>, so turn the JSON {url} response into a 302 redirect the
+  // browser follows straight to Stripe (checkout session / customer portal).
+  // POST callers (subscribe(), the site, OnboardingView) keep the JSON.
+  if (req.method === "GET" && response.status === 200) {
+    try {
+      const data = (await response.clone().json()) as { url?: unknown };
+      if (typeof data.url === "string" && (data.url.startsWith("https://") || data.url.startsWith("http://"))) {
+        return new Response(null, { status: 302, headers: { Location: data.url } });
+      }
+    } catch {
+      // Not a JSON {url} body — fall through and return the response as-is.
+    }
   }
-  return handleBillingWebhook(db, req);
+  return response;
 }
 
 // ── Checkout Session creation ──
 
 async function handleCheckout(db: Database, req: Request, sessionMerchantId?: number): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
-
-  let body: { tier?: string; merchantId?: number; successUrl?: string; cancelUrl?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers });
+  // GET requests carry tier (and optional redirects) as query params - the
+  // real-link entry used by the dashboard "Free Drafts" stat card. POST
+  // requests carry them as JSON (the JS subscribe() helper / the site).
+  let tier: string | undefined;
+  let successUrlOpt: string | undefined;
+  let cancelUrlOpt: string | undefined;
+  if (req.method === "GET") {
+    const url = new URL(req.url);
+    tier = url.searchParams.get("tier") ?? undefined;
+    successUrlOpt = url.searchParams.get("success_url") ?? undefined;
+    cancelUrlOpt = url.searchParams.get("cancel_url") ?? undefined;
+  } else {
+    let body: { tier?: string; merchantId?: number; successUrl?: string; cancelUrl?: string };
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers });
+    }
+    tier = body.tier;
+    successUrlOpt = body.successUrl;
+    cancelUrlOpt = body.cancelUrl;
   }
-
-  const tier = body.tier;
   const merchantId = sessionMerchantId;
-
   if (!tier || !["standard", "pro"].includes(tier)) {
     return new Response(
       JSON.stringify({ error: "tier must be 'standard' or 'pro'" }),
       { status: 400, headers }
     );
   }
-
   if (!merchantId || typeof merchantId !== "number") {
     return new Response(
       JSON.stringify({ error: "merchantId (number) is required" }),
       { status: 400, headers }
     );
   }
-
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
     return new Response(
@@ -116,20 +142,18 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
       { status: 503, headers }
     );
   }
-
   const priceId = PRICE_IDS[tier];
   const baseUrl = process.env.BASE_URL || `http://localhost:3001`;
-
   // Optional redirect overrides let other surfaces (e.g. the marketing site)
   // reuse this single checkout implementation while keeping their own
   // success/cancel pages. Only http(s) URLs are accepted.
   const isHttpUrl = (u: unknown): u is string =>
     typeof u === "string" && (u.startsWith("http://") || u.startsWith("https://"));
-  const successUrl = isHttpUrl(body.successUrl)
-    ? body.successUrl
+  const successUrl = isHttpUrl(successUrlOpt)
+    ? successUrlOpt
     : `${baseUrl}/dashboard?session_id={CHECKOUT_SESSION_ID}`;
-  const cancelUrl = isHttpUrl(body.cancelUrl)
-    ? body.cancelUrl
+  const cancelUrl = isHttpUrl(cancelUrlOpt)
+    ? cancelUrlOpt
     : `${baseUrl}/dashboard?cancelled=true`;
 
   const params = new URLSearchParams({

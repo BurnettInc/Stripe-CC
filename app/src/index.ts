@@ -1,4 +1,4 @@
-import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscriber, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor } from "./db";
+import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscriber, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor, isMerchantDisconnected } from "./db";
 import { handleWebhook } from "./routes/webhook";
 import { handlePastDuePage, handleRemindersPage } from "./routes/pages";
 import { handleTasks } from "./routes/tasks";
@@ -10,6 +10,7 @@ import { handleSupport } from "./routes/support";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { requireSession } from "./middleware/session";
+import { getStripeConnection } from "./middleware/auth";
 
 // Railway injects PORT dynamically — honor it, fall back to 3002 for local dev.
 const PORT = Number(process.env.PORT) || 3002;
@@ -222,8 +223,16 @@ async function handleRequest(req: Request): Promise<Response> {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         const merchantId = auth.merchant_id;
-        const uptime = Math.floor((Date.now() - START_TIME) / 1000);
-
+        // Stripe connection state for the dashboard's Stripe stat card:
+        //   connected     — a stripe_connections row exists (OAuth completed)
+        //                   and the account has not been deauthorized
+        //   disconnected  — account.application.deauthorized set
+        //                   merchants.disconnected=1 (watcher)
+        //   never connected — no stripe_connections row at all
+        const stripeConn = getStripeConnection(db, merchantId);
+        const stripeDisconnected = isMerchantDisconnected(db, merchantId);
+        const stripeConnected = !!stripeConn && !stripeDisconnected;
+        const stripeAccountId = stripeConn?.id ?? null;
         // Total invoices processed (any status)
         const totalInvoicesRow = db.query("SELECT COUNT(*) as count FROM invoices WHERE merchant_id=?").get(merchantId) as { count: number };
         const totalInvoices = totalInvoicesRow.count;
@@ -282,9 +291,9 @@ async function handleRequest(req: Request): Promise<Response> {
           overInvoiceLimit,
           free_drafts_remaining: freeDrafts,
           free_drafts_unlimited: freeDraftsUnlimited,
-          uptime,
-          uptimeFormatted: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`,
-          startedAt: new Date(START_TIME).toISOString(),
+          stripeConnected,
+          stripeDisconnected,
+          stripeAccountId,
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -357,8 +366,12 @@ async function handleRequest(req: Request): Promise<Response> {
         });
       }
 
-      // POST /billing/checkout — create Stripe Checkout Session
-      if (path === "/billing/checkout" && req.method === "POST") {
+      // POST/GET /billing/checkout - create Stripe Checkout Session. POST
+      // (JSON body, returns {url}) is used by the JS subscribe() helper and
+      // the site; GET (?tier=standard|pro) is the real-link entry used by the
+      // dashboard "Free Drafts" stat card ("Upgrade for unlimited ->") and
+      // redirects straight to Stripe Checkout.
+      if (path === "/billing/checkout" && (req.method === "POST" || req.method === "GET")) {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         const response = await handleBilling(db, req, "checkout", auth.merchant_id);
@@ -366,8 +379,10 @@ async function handleRequest(req: Request): Promise<Response> {
         return response;
       }
 
-      // POST /billing/portal — create Stripe Customer Portal session
-      if (path === "/billing/portal" && req.method === "POST") {
+      // POST/GET /billing/portal - create Stripe Customer Portal session.
+      // POST returns {url}; GET is the real-link entry for the dashboard stat
+      // card's "Manage plan ->" (paid merchants) and 302-redirects to portal.
+      if (path === "/billing/portal" && (req.method === "POST" || req.method === "GET")) {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         const response = await handleBilling(db, req, "portal", auth.merchant_id);
