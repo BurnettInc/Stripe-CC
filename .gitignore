@@ -10,3 +10,4 @@ app.db*
 *.db-wal
 Stripe Collections Copilot/
 .railway/
+.build/

@@ -2,13 +2,8 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "CollectionsCopilot",
-  "version": "0.1.11",
+  "version": "0.1.13",
   "icon": "./icon.png",
-  "stripe_api_access_type": "oauth",
-  "distribution_type": "public",
-  "allowed_redirect_uris": [
-    "https://stripe-cc-production.up.railway.app/oauth/callback"
-  ],
   "ui_extension": {
     "views": [
       {
@@ -41,5 +36,10 @@
       "permission": "customer_read",
       "purpose": "Reads customer names and email addresses so reminder emails are addressed correctly and go to the right contact."
     }
-  ]
+  ],
+  "allowed_redirect_uris": [
+    "https://stripe-cc-production.up.railway.app/oauth/callback"
+  ],
+  "distribution_type": "public",
+  "stripe_api_access_type": "oauth"
 }
