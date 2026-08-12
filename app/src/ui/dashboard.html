@@ -633,14 +633,6 @@
           <span class="stat-sub-hint">View history &rarr;</span>
         </a>
       </div>
-      <div class="stat-card linkable">
-        <a class="stat-link" href="#inbox-section" title="Review sequences awaiting action in the approval queue">
-          <div class="stat-value" id="stat-active">—</div>
-          <div class="stat-label">Active Sequences</div>
-          <div class="stat-sub">pending / drafted / reviewed</div>
-          <span class="stat-sub-hint">Open approval queue &rarr;</span>
-        </a>
-      </div>
       <div class="stat-card">
         <div class="stat-value" id="stat-free-drafts">—</div>
         <div class="stat-label">Free Drafts</div>
@@ -937,7 +929,6 @@
           document.getElementById('stat-paid').textContent = (s.paidInvoices || 0) + ' paid · ' + (s.overdueInvoices ?? 0) + ' overdue';
           document.getElementById('stat-reminders').textContent = s.remindersSent || 0;
           document.getElementById('stat-emails').textContent = (s.emailsSent || 0) + ' real sends';
-          document.getElementById('stat-active').textContent = s.activeSequences || 0;
           // Free-drafts card: paid merchants (Standard or Pro active) have no
           // draft cap — show "Unlimited" instead of the misleading countdown.
           // Free merchants keep the truthful "N of 5" countdown.
