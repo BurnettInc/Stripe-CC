@@ -1,17 +1,23 @@
 /**
- * List-page filter tests — /past-due?status= and /reminders?type=.
+ * List-page filter tests — /past-due?status= and /reminders.
  *
- * The summary chips on the dashboard list pages are filter tabs: /past-due
- * supports all|overdue|paid|refunded|disputed (default overdue, matching the
- * pre-existing behavior), /reminders supports all|real (default all). This
- * suite proves the server-side filtering actually filters:
+ * The past-due summary chips are filter tabs: /past-due supports
+ * all|overdue|paid|refunded|disputed (default overdue). /reminders is a
+ * SINGLE list, newest first — every successful reminder send (real + test
+ * rows together); test (stub) rows are labeled with a muted "Test send" pill
+ * next to the customer name and carry a row-test marker class, so the
+ * client-side "Hide test sends" checkbox (off by default) can hide them
+ * without a reload. The old two-tab split (?type=all|real) is gone — ?type=
+ * is a no-op now. This suite proves:
  *   - /past-due default shows only overdue rows, with the Overdue chip marked
  *     selected and all five tabs rendered with correct counts
  *   - ?status=paid / refunded / disputed / all return exactly the rows for
  *     that view and move the selected state
- *   - /reminders default shows every success send (stub rows included, still
- *     labeled "Test send" — no-fake-sends rule preserved)
- *   - ?type=real excludes [STUB SEND] rows entirely
+ *   - /reminders renders ONE list (no tab chips at all), newest first, with
+ *     both real and stub rows; the stub row has the muted "Test send" pill +
+ *     row-test marker class, real rows have no pill
+ *   - /reminders renders the "Hide test sends" checkbox, unchecked by default
+ *   - ?type=real / ?type=bogus are no-ops (same single list, no tabs)
  *   - rows carry data-sort attributes and the table has sortable headers
  *     (the client-side sort input, verified by the served markup)
  *
@@ -83,7 +89,9 @@ function selectedChip(html: string): string | null {
 }
 
 function rows(html: string): string[] {
-  return Array.from(html.matchAll(/<div class="cell-strong">([^<]*)</g)).map((m) => m[1]);
+  // cell-strong divs may contain an inline pill (e.g. "Test send") after the
+  // name — trim so the captured name is exact.
+  return Array.from(html.matchAll(/<div class="cell-strong">([^<]*)</g)).map((m) => m[1].trim());
 }
 
 async function main(): Promise<void> {
@@ -113,16 +121,25 @@ async function main(): Promise<void> {
   const remAll = await get("/reminders");
   const remReal = await get("/reminders?type=real");
   const remBogus = await get("/reminders?type=bogus");
-  check("reminders default shows both sends, stub labeled Test send", rows(remAll).join(",") === "Ovd Alpha,Ovd Beta" && remAll.includes('chip-stub">Test send') && remAll.includes('chip-sent">Sent'), rows(remAll).join(","));
-  check("reminders default selects All sends", selectedChip(remAll) === "All sends · 2" && remAll.includes("1 real send"), selectedChip(remAll) ?? "none");
-  check("?type=real excludes the stub send", rows(remReal).join(",") === "Ovd Alpha" && !remReal.includes("STUB SEND"), rows(remReal).join(","));
-  check("?type=real selects Real sends", selectedChip(remReal) === "1 real send", selectedChip(remReal) ?? "none");
-  check("?type=bogus falls back to all", rows(remBogus).join(",") === rows(remAll).join(",") && selectedChip(remBogus) === "All sends · 2", rows(remBogus).join(","));
+
+  // Single list, newest first: both sends shown, real row first (seeded at
+  // -1 day) then the stub (seeded at -2 days). No tab chips at all.
+  check("reminders shows one list with both sends newest first", rows(remAll).join(",") === "Ovd Alpha,Ovd Beta", rows(remAll).join(","));
+  check("reminders has no filter tabs (All sends/Real sends gone)", !remAll.includes("All sends") && !remAll.includes("Real sends") && (remAll.match(/<a class="summary-chip/g) || []).length === 0, `chips=${(remAll.match(/<a class="summary-chip/g) || []).length}`);
+  check("reminders stub row has muted Test send pill next to customer name", remAll.includes('class="pill pill-muted">Test send'), "");
+  check("reminders stub row carries row-test marker class", remAll.includes('class="row-test"'), "");
+  check("reminders real rows have no Test send pill", (remAll.match(/class="pill pill-muted"/g) || []).length === 1 && (remAll.match(/class="row-test"/g) || []).length === 1, `pills=${(remAll.match(/class="pill pill-muted"/g) || []).length}`);
+  check("reminders stub send still labeled in Result column", remAll.includes('chip-stub">Test send') && remAll.includes('chip-sent">Sent'), "");
+  check("reminders renders Hide test sends toggle, unchecked by default", remAll.includes('<input type="checkbox" id="hide-test-sends" />') && remAll.includes("Hide test sends"), "");
+  check("reminders ?type=real is a no-op (single view)", rows(remReal).join(",") === rows(remAll).join(",") && (remReal.match(/<a class="summary-chip/g) || []).length === 0, rows(remReal).join(","));
+  check("reminders ?type=bogus is a no-op (single view)", rows(remBogus).join(",") === rows(remAll).join(","), rows(remBogus).join(","));
   check("reminders has sortable headers + data-sort cells", (remAll.match(/data-sort-key=/g) || []).length === 4 && (remAll.match(/data-sort="/g) || []).length >= 8, `keys=${(remAll.match(/data-sort-key=/g) || []).length}`);
 
   // Auth must still be enforced on the new query-param variants.
   const unauth = await fetch(BASE + "/past-due?status=all", { headers: { Cookie: "session=nope" } });
   check("query-param routes still require session auth", unauth.status === 401, `status=${unauth.status}`);
+  const unauthRem = await fetch(BASE + "/reminders?type=real", { headers: { Cookie: "session=nope" } });
+  check("reminders query-param route still requires session auth", unauthRem.status === 401, `status=${unauthRem.status}`);
 
   console.log(failures === 0 ? "ALL PASS" : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);

@@ -10,10 +10,16 @@ import { join } from "node:path";
 // the shared list-page shell (app/src/ui/list-page.html) with the dashboard's
 // design tokens, so the pages look like the dashboard they came from.
 //
-// Both pages are filterable via query params and sortable client-side:
+// /past-due is filterable via query params; both pages are sortable
+// client-side:
 //   /past-due?status=all|overdue|paid|refunded|disputed  (default overdue)
-//   /reminders?type=all|real                             (default all)
-// The summary chips are real <a> tabs (work without JS — server-side
+//   /reminders — single list, newest first: every successful reminder send
+//                (real + test rows together). Test (stub) rows are labeled
+//                with a muted "Test send" pill next to the customer name and
+//                can be hidden client-side by the "Hide test sends" checkbox
+//                (off by default; ?type= is deliberately a no-op — there is
+//                one dataset, not two views).
+// The past-due summary chips are real <a> tabs (work without JS — server-side
 // filtering); the table headers are client-side sorted by vanilla JS in
 // list-page.html (graceful no-op without JS). Lists stay capped at 200 rows.
 
@@ -216,22 +222,30 @@ const LOG_COLUMNS = `
 // Matches GET /stats emailsSent: a "real send" is any successful reminder
 // send whose provider_message is not a test-mode [STUB SEND]. A stub can
 // never count as a real send (the no-fake-sends rule); stubs still appear in
-// the "All sends" view, clearly labeled "Test send".
+// the list, labeled with a muted "Test send" pill (see handleRemindersPage),
+// and can be hidden with the client-side "Hide test sends" toggle.
 const REAL_ONLY_FILTER = " AND sl.provider_message NOT LIKE '%[STUB SEND]%'";
 
-export function handleRemindersPage(db: Database, merchantId: number, typeParam: string = "all"): Response {
-  const realOnly = typeParam === "real";
+export function handleRemindersPage(db: Database, merchantId: number): Response {
+  // One list, newest first — every successful reminder send, real and test
+  // (stub) alike. There is no ?type= split anymore: test rows are labeled
+  // per-row with a muted "Test send" pill and a row-test marker class, so the
+  // client-side "Hide test sends" checkbox can hide them without a reload.
+  // ORDER BY sl.created_at DESC, sl.id DESC = newest first (matches the
+  // subtitle copy; id DESC breaks ties deterministically for same-second rows).
 
   const countAll = (db.query(`SELECT COUNT(*) AS n FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id JOIN invoices i ON rt.invoice_id = i.id WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=?`).get(merchantId) as { n: number }).n;
   const countReal = (db.query(`SELECT COUNT(*) AS n FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id JOIN invoices i ON rt.invoice_id = i.id WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=?${REAL_ONLY_FILTER}`).get(merchantId) as { n: number }).n;
+  const countTest = countAll - countReal;
 
   const summary =
-    chipLink("/reminders?type=all", `All sends · ${countAll}`, !realOnly) +
-    chipLink("/reminders?type=real", `${countReal} real ${countReal === 1 ? "send" : "sends"}`, realOnly) +
-    (countAll > countReal ? `<span class="summary-note">test sends excluded from real sends</span>` : "");
+    `<label class="hide-tests-toggle"><input type="checkbox" id="hide-test-sends" /> Hide test sends</label>` +
+    `<span class="summary-note">${esc(`${countAll} send${countAll === 1 ? "" : "s"}`)}` +
+    (countTest > 0 ? ` · ${esc(`${countTest} test send${countTest === 1 ? "" : "s"} in list`)}` : "") +
+    "</span>";
 
   const logs = db.query(
-    `${LOG_COLUMNS}${realOnly ? REAL_ONLY_FILTER : ""} ORDER BY sl.created_at DESC, sl.id DESC LIMIT 200`
+    `${LOG_COLUMNS} ORDER BY sl.created_at DESC, sl.id DESC LIMIT 200`
   ).all(merchantId) as Array<{
     id: number; status: string; provider_message: string; sent_at: string;
     task_id: number; stage: number; draft_subject: string;
@@ -240,19 +254,18 @@ export function handleRemindersPage(db: Database, merchantId: number, typeParam:
 
   let rows = "";
   if (logs.length === 0) {
-    const stubOnly = realOnly && countAll > 0;
     rows =
-      `<div class="empty"><strong>${stubOnly ? "No real sends yet" : "No sent reminders yet"}</strong>` +
-      (stubOnly
-        ? "Test-mode stub sends are excluded from this view — switch to “All sends” to see them."
-        : "When reminders are sent, they'll show up here with their delivery details.") +
+      `<div class="empty"><strong>No sent reminders yet</strong>` +
+      "When reminders are sent, they'll show up here with their delivery details." +
       "</div>";
   } else {
     for (const log of logs) {
       const isStub = String(log.provider_message).includes("[STUB SEND]");
       rows +=
-        "<tr>" +
-          `<td><div class="cell-strong">${esc(log.customer_name || "Unknown customer")}</div>` +
+        "<tr" + (isStub ? ' class="row-test"' : "") + ">" +
+          `<td><div class="cell-strong">${esc(log.customer_name || "Unknown customer")}` +
+          (isStub ? ` <span class="pill pill-muted">Test send</span>` : "") +
+          "</div>" +
           (log.customer_email ? `<div class="cell-muted" style="font-size:0.75rem;">${esc(log.customer_email)}</div>` : "") +
           "</td>" +
           `<td class="cell-amount" data-sort="${log.amount_cents}">${esc(formatMoney(log.amount_cents, log.currency))}</td>` +
@@ -268,10 +281,8 @@ export function handleRemindersPage(db: Database, merchantId: number, typeParam:
   }
 
   return renderPage(
-    realOnly ? "Real sends" : "Sent reminders",
-    realOnly
-      ? "Reminder emails actually delivered to your customers, newest first."
-      : "Reminder emails sent to your customers, newest first. Test sends are labeled “Test send”.",
+    "Sent reminders",
+    "Reminder emails sent to your customers, newest first. Test sends are labeled “Test send”.",
     summary,
     rows
   );
