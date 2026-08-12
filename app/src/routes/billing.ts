@@ -7,6 +7,7 @@ import {
   getSubscriptionByStripeId,
   getSubscriptionByMerchantId,
   enforceTierTrustMode,
+  recordSubscriptionEvent,
 } from "../db";
 
 // Stripe API base. STRIPE_API_BASE lets endpoint tests point the backend at a
@@ -538,6 +539,7 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           console.log(`[billing] Subscription ${stripeSubscriptionId} already exists, skipping`);
         } else {
           createSubscription(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, stripe_customer_id: stripeCustomerId, tier });
+          recordSubscriptionEvent(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, event: "created", tier, status: "active" });
           console.log(`[billing] Subscription created: merchant=${merchantId} tier=${tier} sub=${stripeSubscriptionId} customer=${stripeCustomerId || "n/a"}`);
         }
 
@@ -553,6 +555,7 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
         const existing = getSubscriptionByStripeId(db, sub.id);
         if (existing) {
           updateSubscriptionStatus(db, sub.id, "cancelled");
+          recordSubscriptionEvent(db, { merchant_id: existing.merchant_id, stripe_subscription_id: sub.id, event: "cancelled", tier: existing.tier, status: "cancelled" });
           console.log(`[billing] Subscription ${sub.id} marked cancelled`);
           // Full Auto is Pro-only: demote trust_mode if this merchant lost Pro.
           enforceTierTrustMode(db, existing.merchant_id);
@@ -583,6 +586,7 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           }
 
           updateSubscriptionStatus(db, sub.id, status, tier);
+          recordSubscriptionEvent(db, { merchant_id: existing.merchant_id, stripe_subscription_id: sub.id, event: "updated", tier, status });
           console.log(`[billing] Subscription ${sub.id} updated: status=${status} tier=${tier || "unchanged"}`);
           // Full Auto is Pro-only: demote trust_mode if this merchant lost Pro
           // (downgrade to Standard, lapse to past_due, etc.).

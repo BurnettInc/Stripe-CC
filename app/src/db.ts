@@ -399,6 +399,62 @@ export function getSubscriptionByStripeId(db: Database, stripeSubscriptionId: st
     .get(stripeSubscriptionId) as Subscription | null;
 }
 
+// ── Internal admin tracking helpers (owner request 2026-08-12) ──
+// page_visits + subscription_events are the two new additive tables behind the
+// admin-only funnel dashboard (GET /admin). See migrations/012_add_admin_tracking.sql.
+
+/**
+ * Record a landing-page visit (POST /api/track). Privacy-minimal: only the
+ * fields the snippet sends (visitor_id, page, referrer, utm_*, ts) — no IP, no
+ * UA, no cookies. Idempotent-ish: the UNIQUE(visitor_id, page, ts) index makes
+ * a retried beacon with an identical payload a no-op (ts is generated per page
+ * load, so an identical ts means the same visit). Returns whether a row was
+ * actually inserted.
+ */
+export function recordPageVisit(
+  db: Database,
+  params: {
+    visitor_id: string;
+    page: string;
+    referrer: string;
+    utm_source: string;
+    utm_medium: string;
+    utm_campaign: string;
+    ts: string;
+  }
+): boolean {
+  const result = db.run(
+    `INSERT OR IGNORE INTO page_visits (visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, ts)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [params.visitor_id, params.page, params.referrer, params.utm_source, params.utm_medium, params.utm_campaign, params.ts]
+  );
+  return result.changes > 0;
+}
+
+/**
+ * Record a subscription lifecycle event (append-only log behind the admin
+ * dashboard's "subscription events" view). Called from the /billing webhook
+ * handler at every material transition: checkout.session.completed → 'created',
+ * customer.subscription.updated → 'updated', customer.subscription.deleted →
+ * 'cancelled'. Existing subscriptions rows are never modified — this is purely
+ * additive, so prod data stays pristine.
+ */
+export function recordSubscriptionEvent(
+  db: Database,
+  params: {
+    merchant_id: number;
+    stripe_subscription_id: string;
+    event: "created" | "updated" | "cancelled";
+    tier?: string | null;
+    status?: string | null;
+  }
+): void {
+  db.run(
+    "INSERT INTO subscription_events (merchant_id, stripe_subscription_id, event, tier, status) VALUES (?, ?, ?, ?, ?)",
+    [params.merchant_id, params.stripe_subscription_id, params.event, params.tier ?? null, params.status ?? null]
+  );
+}
+
 // ── Query helpers ──
 
 export function getMerchantById(db: Database, id: number) {

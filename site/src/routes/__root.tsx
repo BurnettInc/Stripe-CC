@@ -52,6 +52,17 @@ function RootDocument({ children }: { children: ReactNode }) {
     <html lang="en">
       <head>
         <HeadContent />
+        {/* Internal page-visit tracking (owner 2026-08-12): first-party,
+            privacy-minimal — no IP, no UA, no cookies. A per-browser UUID in
+            localStorage identifies the visitor; each page load POSTs
+            {visitor_id, page, referrer, utm_*, ts} to /api/track. Fires on
+            page load for every marketing page (this is the site root layout). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var k='cc_vid',v=localStorage.getItem(k);if(!v){v=(crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)}));localStorage.setItem(k,v)}var q=new URLSearchParams(location.search),p={visitor_id:v,page:location.pathname,referrer:document.referrer.slice(0,500),utm_source:q.get('utm_source')||'',utm_medium:q.get('utm_medium')||'',utm_campaign:q.get('utm_campaign')||'',ts:new Date().toISOString()},b=new Blob([JSON.stringify(p)],{type:'application/json'});if(navigator.sendBeacon){navigator.sendBeacon('/api/track',b)}else{var x=new XMLHttpRequest();x.open('POST','/api/track',true);x.send(b)}}catch(e){}})();",
+          }}
+        />
       </head>
       <body>
         {children}
