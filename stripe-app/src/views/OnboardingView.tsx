@@ -77,7 +77,7 @@ export default function OnboardingView() {
       <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect Stripe</Box>
       <Box css={{ color: 'secondary' }}>Connect the Stripe account whose overdue invoices you want CollectionsCopilot to monitor.</Box>
       {connection?.connected ? <Banner type="default" title="✓ Stripe connected" description={`Connected as ${connection.account_name || 'your Stripe account'}.`} /> : <>
-        <Button type="primary" href={`${BASE_URL}/stripe/connect`} target="_blank">Connect Stripe</Button>
+        <Button type="primary" href={`${BASE_URL}/stripe/connect?return=stripe`} target="_blank">Connect Stripe</Button>
         <Button type="secondary" onPress={() => { void loadStatus(); }}>Check status</Button>
       </>}
       {connection?.connected && <Button onPress={advanceFromConnect}>Continue</Button>}

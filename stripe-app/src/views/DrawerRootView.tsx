@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-sdk/ui';
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
+import OverviewView from './OverviewView';
 import SettingsView from './SettingsView';
 import OnboardingView from './OnboardingView';
 import { BASE_URL, DASHBOARD_URL } from '../api';
@@ -90,8 +91,11 @@ export default function DrawerRootView(props?: { oauthContext?: ExtensionContext
   }
 
   if (subscription?.status === 'active') {
+    // The substantive drawer: overdue-invoice summary + controls first, then
+    // Trust Mode / connection status, then the web-dashboard escape hatch.
     return (
       <Box css={{ stack: 'y', gap: 'small' }}>
+        <OverviewView />
         <SettingsView {...props} />
         <Button href={DASHBOARD_URL} target="_blank" type="secondary">
           Open full dashboard
