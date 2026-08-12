@@ -352,20 +352,6 @@
        the button sits closer to the last settings input (see media query). */
     .save-settings-row { margin-top: 20px; }
 
-    /* Stripe connect button (injected by JS with inline styles — override them) */
-    #stripe-connect-action a[href="/stripe/connect"] {
-      background: var(--primary) !important;
-      border-radius: var(--radius-sm) !important;
-      padding: 12px 24px !important;
-      font-size: 0.9rem !important;
-      font-weight: 600 !important;
-      box-shadow: var(--shadow);
-      transition: background 0.15s ease;
-    }
-    #stripe-connect-action a[href="/stripe/connect"]:hover {
-      background: var(--primary-hover) !important;
-    }
-    #stripe-connect-action a[href="/stripe/connect"] svg { flex-shrink: 0; }
 
     .status-bar {
       display: flex;
@@ -468,6 +454,20 @@
       font-weight: 600;
       line-height: 1.5;
     }
+    /* ── Billing error banner (surfaces ?billing=error after a failed
+         GET /billing/checkout|portal redirect) ── */
+    .billing-error-banner {
+      display: none;
+      margin-bottom: 24px;
+      padding: 14px 20px;
+      border-radius: var(--radius);
+      background: #FFF5F5;
+      border: 1px solid #FECACA;
+      color: #B91C1C;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .billing-error-banner a { color: var(--primary); font-weight: 600; text-decoration: underline; }
 
     /* ── Pause toggle switch ── */
     .switch { position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; }
@@ -682,6 +682,11 @@
     <div class="paused-banner" id="paused-banner">
       ⏸️ Collections paused — no automatic emails will be sent. Your drafts are safe and manual approvals still work.
     </div>
+    <!-- Shown after a failed GET /billing/checkout|portal navigation (?billing=error) -->
+    <div class="billing-error-banner" id="billing-error-banner">
+      We couldn't open the billing page — your plan or Stripe connection may need attention.
+      <a href="mailto:support@getcollectionscopilot.com">Contact support</a> if this keeps happening.
+    </div>
 
     <!-- Stats Cards -->
     <div class="stats-grid">
@@ -729,18 +734,6 @@
         </p>
         <button onclick="subscribe('pro')" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:0.85rem;font-weight:600;cursor:pointer;white-space:nowrap;">Upgrade to Pro</button>
       </div>
-    </div>
-
-    <!-- Stripe Connect -->
-    <div class="card" id="stripe-connect-card">
-      <h2>🔗 Stripe Account</h2>
-      <p class="subtitle">
-        Connect your Stripe account via OAuth — no manual API keys needed.
-      </p>
-      <div id="stripe-connect-status">
-        <p class="loading-placeholder" style="color: var(--muted); font-size: 0.85rem;">Loading connection status...</p>
-      </div>
-      <div id="stripe-connect-action" style="margin-top: 16px;"></div>
     </div>
 
     <!-- Trust Mode -->
@@ -1008,6 +1001,10 @@
         var res = await fetch('/stats');
         if (res.ok) {
           var s = await res.json();
+          // Stripe-connection gate for subscribe(): /stats already carries the
+          // connection state (PR #49), so this is the single source of truth
+          // for STIPE_CONNECTED now that the old /stripe/connection card is gone.
+          STIPE_CONNECTED = !!s.stripeConnected;
           document.getElementById('stat-invoices').textContent = s.totalInvoices || 0;
           document.getElementById('stat-paid').textContent = (s.paidInvoices || 0) + ' paid · ' + (s.overdueInvoices ?? 0) + ' overdue';
           document.getElementById('stat-reminders').textContent = s.remindersSent || 0;
@@ -1385,8 +1382,8 @@
       var originalText = btn.textContent;
 
       // Pre-gate: don't even call checkout if no Stripe account is connected.
-      // The status card (/stripe/connection) is public, so we keep our own
-      // in-memory flag updated by loadStripeConnection.
+      // /stats carries the connection state (stripeConnected), so loadStats()
+      // keeps this in-memory flag fresh — it gates the subscribe buttons below.
       if (!STIPE_CONNECTED) {
         errorEl.textContent = '\u2717 Connect your Stripe account before subscribing';
         errorEl.style.display = 'block';
@@ -1453,39 +1450,6 @@
         alert('Network error — could not reach billing');
         target.disabled = false;
         target.textContent = orig;
-      }
-    }
-
-    // ── Stripe Connect ──
-    async function loadStripeConnection() {
-      var statusEl = document.getElementById('stripe-connect-status');
-      var actionEl = document.getElementById('stripe-connect-action');
-      try {
-        var res = await fetch('/stripe/connection');
-        if (res.ok) {
-          var data = await res.json();
-          if (data.connected) {
-            STIPE_CONNECTED = true;
-            statusEl.innerHTML =
-              '<div class="sub-active-badge">' +
-              '<span style="width:9px;height:9px;border-radius:50%;background:var(--success);"></span>' +
-              '✓ Connected as ' + (data.account_id || 'Stripe Account') +
-              '</div>';
-            actionEl.innerHTML = '';
-          } else {
-            STIPE_CONNECTED = false;
-            statusEl.innerHTML =
-              '<p style="color:var(--muted);font-size:0.85rem;">No Stripe account connected. Connect via OAuth for automatic setup.</p>';
-            actionEl.innerHTML =
-              '<a href="/stripe/connect" style="display:inline-flex;align-items:center;gap:8px;padding:10px 22px;background:#635BFF;color:white;border:none;border-radius:8px;font-size:0.9rem;font-weight:500;text-decoration:none;">' +
-              '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;"><path fill-rule="evenodd" clip-rule="evenodd" d="M7.204 2.632c.425-.442 1.167-.442 1.592 0l5.368 5.579c.07.073.11.17.11.273v4.766a.75.75 0 01-.75.75h-3.5a.75.75 0 01-.75-.75V9.5H6.726v3.75a.75.75 0 01-.75.75h-3.5a.75.75 0 01-.75-.75V8.484a.387.387 0 01.11-.273l5.368-5.58z" fill="white"/></svg>' +
-              'Connect with Stripe' +
-              '</a>';
-          }
-        }
-      } catch (e) {
-        console.error('Failed to load Stripe connection:', e);
-        statusEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load connection status</p>';
       }
     }
 
@@ -1847,10 +1811,17 @@
       errorEl.style.color = 'var(--warning)';
     }
     // ── Initialize ──
+    // Surface the billing-error notice when a GET /billing/checkout|portal
+    // navigation bounced back here with ?billing=error.
+    (function () {
+      if (new URLSearchParams(window.location.search).get('billing') === 'error') {
+        var bannerEl = document.getElementById('billing-error-banner');
+        if (bannerEl) bannerEl.style.display = 'block';
+      }
+    })();
     loadSubscription();
     loadSettings();
     loadInbox();
-    loadStripeConnection();
     loadStats();
     checkHealth();
     updateTimestamp();
