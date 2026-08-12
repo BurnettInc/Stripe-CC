@@ -166,21 +166,9 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
       <Box css={{ stack: 'y', gap: 'small' }}>
         <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
         <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to access CollectionsCopilot invoice details.</Box>
-        <Button
-          onPress={() => {
-            const width = 800;
-            const height = 700;
-            const left = (window.screen.width - width) / 2;
-            const top = (window.screen.height - height) / 2;
-            window.open(
-              `${BASE_URL}/stripe/connect`,
-              'stripe-connect',
-              `width=${width},height=${height},left=${left},top=${top}`,
-            );
-          }}
-        >
-          Connect Stripe
-        </Button>
+        <Button type="primary" href={`${BASE_URL}/stripe/connect`} target="_blank">Connect Stripe</Button>
+        <Box css={{ color: 'secondary', font: 'caption' }}>Connecting opens a new tab. When you've finished onboarding there, come back and check your status.</Box>
+        <Button type="secondary" onPress={() => { void load(); }}>Check status</Button>
       </Box>
     ) : <>
     {error && <Banner type="critical" title="Something went wrong" description={error} actions={<Button onPress={() => { void load(); }}>Retry</Button>} />}

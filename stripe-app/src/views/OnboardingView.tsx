@@ -50,18 +50,6 @@ export default function OnboardingView() {
   }, []);
   useEffect(() => { void loadStatus(); }, [loadStatus]);
 
-  const subscribe = async (tier: Tier) => {
-    setBusy(true); setError(null);
-    try {
-      const response = await fetch(`${BASE_URL}/billing/checkout`, { credentials: 'include', method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tier }) });
-      if (response.status === 401) throw new Error('Connect your Stripe account before subscribing.');
-      if (!response.ok) throw new Error('Could not start checkout. Please try again.');
-      const result = (await response.json()) as { url?: string };
-      if (!result.url) throw new Error('Checkout did not return a valid URL.');
-      window.location.assign(result.url);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not start checkout. Please try again.'); setBusy(false); }
-  };
-
   const saveTrustMode = async () => {
     setBusy(true); setError(null);
     try {
@@ -88,12 +76,15 @@ export default function OnboardingView() {
     </Box> : step === 1 ? <Box css={{ stack: 'y', gap: 'small' }}>
       <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect Stripe</Box>
       <Box css={{ color: 'secondary' }}>Connect the Stripe account whose overdue invoices you want CollectionsCopilot to monitor.</Box>
-      {connection?.connected ? <Banner type="default" title="✓ Stripe connected" description={`Connected as ${connection.account_name || 'your Stripe account'}.`} /> : <Button type="primary" onPress={() => { window.location.href = `${BASE_URL}/stripe/connect`; }}>Connect Stripe</Button>}
+      {connection?.connected ? <Banner type="default" title="✓ Stripe connected" description={`Connected as ${connection.account_name || 'your Stripe account'}.`} /> : <>
+        <Button type="primary" href={`${BASE_URL}/stripe/connect`} target="_blank">Connect Stripe</Button>
+        <Button type="secondary" onPress={() => { void loadStatus(); }}>Check status</Button>
+      </>}
       {connection?.connected && <Button onPress={advanceFromConnect}>Continue</Button>}
     </Box> : step === 2 ? <Box css={{ stack: 'y', gap: 'medium' }}>
       <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Choose your plan</Box>
       <Box css={{ color: 'secondary' }}>Start your collection workflow with a plan that fits your business.</Box>
-      {plans.map((plan) => <Box key={plan.tier} css={{ stack: 'y', gap: 'small', backgroundColor: 'surface', padding: 'medium' }}><Box css={{ font: 'subheading', fontWeight: 'semibold' }}>{plan.name}</Box><Box css={{ font: 'heading', fontWeight: 'semibold' }}>{plan.price}</Box><Box css={{ stack: 'y', gap: 'xsmall' }}>{plan.features.map((feature) => <Box key={feature}>✓ {feature}</Box>)}</Box><Button type="primary" disabled={busy} onPress={() => { void subscribe(plan.tier); }}>{busy ? 'Loading…' : `Subscribe to ${plan.name}`}</Button></Box>)}
+      {plans.map((plan) => <Box key={plan.tier} css={{ stack: 'y', gap: 'small', backgroundColor: 'surface', padding: 'medium' }}><Box css={{ font: 'subheading', fontWeight: 'semibold' }}>{plan.name}</Box><Box css={{ font: 'heading', fontWeight: 'semibold' }}>{plan.price}</Box><Box css={{ stack: 'y', gap: 'xsmall' }}>{plan.features.map((feature) => <Box key={feature}>✓ {feature}</Box>)}</Box><Button type="primary" href={`${BASE_URL}/billing/checkout?tier=${plan.tier}`} target="_blank">Subscribe to {plan.name}</Button></Box>)}
     </Box> : step === 3 ? <Box css={{ stack: 'y', gap: 'medium' }}>
       <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Choose your Trust Mode</Box><Box css={{ color: 'secondary' }}>Control how much autonomy CollectionsCopilot has when following up on overdue invoices.</Box>
       {modes.map((mode) => <Box key={mode.value} css={{ stack: 'y', gap: 'xsmall', backgroundColor: 'surface', padding: 'medium' }}><Button disabled={busy} onPress={() => setTrustMode(mode.value)}>{trustMode === mode.value ? `✓ ${mode.label}` : mode.label}</Button><Box css={{ color: 'secondary' }}>{mode.description}</Box></Box>)}
