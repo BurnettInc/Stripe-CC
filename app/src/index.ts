@@ -379,9 +379,33 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/subscription" && req.method === "GET") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
-        const { getSubscriptionByMerchantId } = await import("./db");
+        const { getSubscriptionByMerchantId, isDevPro } = await import("./db");
         const sub = getSubscriptionByMerchantId(db, auth.merchant_id);
-        return new Response(JSON.stringify(sub || { tier: null, status: "none" }), {
+        if (sub) {
+          return new Response(JSON.stringify(sub), {
+            headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
+          });
+        }
+        // Dev-only Pro preview flag (merchants.dev_pro=1): no subscription row,
+        // but the merchant is entitled to Pro — return the same shape a paid
+        // Pro merchant's /subscription returns (tier 'pro' + status 'active')
+        // so the Stripe App drawer shows the paid OverviewView and the
+        // dashboard renders the Pro plan state. `dev_pro: true` lets any UI
+        // distinguish the preview from a real subscription.
+        if (isDevPro(db, auth.merchant_id)) {
+          return new Response(JSON.stringify({
+            tier: "pro",
+            status: "active",
+            dev_pro: true,
+            merchant_id: auth.merchant_id,
+            stripe_subscription_id: null,
+            stripe_customer_id: null,
+            created_at: null,
+          }), {
+            headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify({ tier: null, status: "none" }), {
           headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
         });
       }

@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { getSubscriptionByMerchantId } from "../db";
+import { getSubscriptionByMerchantId, isDevPro } from "../db";
 
 /**
  * Support backend pack — token-gated internal APIs for the Support agent
@@ -37,14 +37,17 @@ export function requireSupportToken(req: Request): boolean {
 
 /**
  * GET /support/lookup?email=... → enough context to triage a support email:
- *   { found, merchantId?, tier, subscriptionStatus, accountEmail?, senderName? }
+ *   { found, merchantId?, tier, subscriptionStatus, devPro, accountEmail?, senderName? }
  *
  * tier ('standard'|'pro'|null) and subscriptionStatus ('active'|'none'|null)
  * come from the SAME source of truth as the rest of the app —
  * getSubscriptionByMerchantId (most recent subscription, ORDER BY
  * created_at DESC). subscriptionStatus is 'active' for an active sub,
  * 'none' when the merchant has never subscribed, and null when the most
- * recent sub exists but is not active (cancelled / past_due).
+ * recent sub exists but is not active (cancelled / past_due). A dev-flagged
+ * Pro merchant (merchants.dev_pro=1, no subscription row) reports
+ * tier 'pro' / subscriptionStatus 'active' with devPro: true, mirroring how
+ * the rest of the app treats the flag.
  */
 export function handleSupportLookup(db: Database, req: Request, url: URL): Response {
   const email = (url.searchParams.get("email") ?? "").trim().toLowerCase();
@@ -53,21 +56,25 @@ export function handleSupportLookup(db: Database, req: Request, url: URL): Respo
   }
 
   const merchant = db
-    .query("SELECT id, email, sender_name FROM merchants WHERE LOWER(email) = ?")
-    .get(email) as { id: number; email: string; sender_name: string | null } | null;
+    .query("SELECT id, email, sender_name, dev_pro FROM merchants WHERE LOWER(email) = ?")
+    .get(email) as { id: number; email: string; sender_name: string | null; dev_pro: number } | null;
   if (!merchant) {
     return json({ found: false }, 200);
   }
 
+  const devPro = merchant.dev_pro === 1;
   const sub = getSubscriptionByMerchantId(db, merchant.id);
-  const tier = sub?.tier ?? null;
-  const subscriptionStatus = sub ? (sub.status === "active" ? "active" : null) : "none";
+  const tier = devPro ? "pro" : (sub?.tier ?? null);
+  const subscriptionStatus = devPro
+    ? "active"
+    : (sub ? (sub.status === "active" ? "active" : null) : "none");
 
   return json({
     found: true,
     merchantId: merchant.id,
     tier,
     subscriptionStatus,
+    devPro,
     accountEmail: merchant.email,
     senderName: merchant.sender_name,
   }, 200);

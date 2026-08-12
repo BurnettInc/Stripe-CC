@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { ensureDefaultMerchant, getSubscriptionByMerchantId, isActivePaidSubscriber } from "../db";
+import { ensureDefaultMerchant, isActivePaidSubscriber, isActiveProSubscriber } from "../db";
 
 interface MerchantRow {
   id: number;
@@ -178,9 +178,9 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
           { status: 400, headers }
         );
       }
-      // Custom escalation timing is a Pro feature.
-      const sub = getSubscriptionByMerchantId(db, merchantId);
-      if (!sub || sub.tier !== "pro" || sub.status !== "active") {
+      // Custom escalation timing is a Pro feature (active Pro subscription —
+      // dev_pro counts, see isActiveProSubscriber).
+      if (!isActiveProSubscriber(db, merchantId)) {
         return new Response(
           JSON.stringify({ error: "Custom escalation timing requires a Pro subscription. Upgrade to unlock." }),
           { status: 402, headers }
@@ -225,9 +225,9 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
         lateFeeType = lft;
         lateFeeValue = Math.round(lfv * 100) / 100; // normalize to 2 decimals
       }
-      // Late-fee automation is a Pro feature.
-      const sub = getSubscriptionByMerchantId(db, merchantId);
-      if (!sub || sub.tier !== "pro" || sub.status !== "active") {
+      // Late-fee automation is a Pro feature (active Pro subscription —
+      // dev_pro counts, see isActiveProSubscriber).
+      if (!isActiveProSubscriber(db, merchantId)) {
         return new Response(
           JSON.stringify({ error: "Late-fee automation requires a Pro subscription. Upgrade to unlock." }),
           { status: 402, headers }
@@ -236,10 +236,10 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
     }
 
     // Full Auto (hands-off sending) is a Pro-only feature: require an active
-    // Pro subscription before allowing the merchant to switch to it.
+    // Pro subscription (dev_pro counts) before allowing the merchant to switch
+    // to it.
     if (trustMode === "full") {
-      const sub = getSubscriptionByMerchantId(db, merchantId);
-      if (!sub || sub.tier !== "pro" || sub.status !== "active") {
+      if (!isActiveProSubscriber(db, merchantId)) {
         return new Response(
           JSON.stringify({ error: "Full Auto mode requires a Pro subscription. Upgrade to unlock." }),
           { status: 402, headers }
