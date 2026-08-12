@@ -84,6 +84,19 @@ export interface SendOptions {
    * caller is responsible for including any required contact line itself.
    */
   skipCanspam?: boolean;
+  /**
+   * Override the Reply-To header. Normally derived from the task (the tracked
+   * reply+{invoice_id}@{REPLY_DOMAIN} address); reply-pause D1b passes it
+   * explicitly for reply sends, which carry no reminder task.
+   */
+  replyTo?: string;
+  /**
+   * Override the sender display name. Normally derived from the task's
+   * invoice merchant (senderBrandingForTask); reply sends (task = null) pass
+   * the merchant's sender_name explicitly so replies look like they come from
+   * the same sender as the reminders.
+   */
+  senderName?: string | null;
 }
 
 /**
@@ -137,11 +150,13 @@ export async function sendEmailForReal(
   // reply+{invoice_id}@{REPLY_DOMAIN} address for customer reminders (so
   // customer replies route back to the inbound pipeline); merchant account
   // notifications pass task=null and keep the neutral global from with no
-  // Reply-To.
-  const branding = senderBrandingForTask(db, task);
+  // Reply-To. D1b reply sends (task = null) override both via SendOptions.
+  const branding = opts?.senderName !== undefined
+    ? { senderName: opts.senderName }
+    : senderBrandingForTask(db, task);
   const baseFrom = fromEmail || process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
   const from = buildFromAddress(baseFrom, branding.senderName);
-  const replyTo = trackedReplyToForTask(task);
+  const replyTo = opts?.replyTo ?? trackedReplyToForTask(task);
 
   const subject = draft.subject;
   // CAN-SPAM: append the compliance footer (opt-out link + physical address)
@@ -265,11 +280,14 @@ export function sendEmail(
 
   // The stub mirrors the real-send branding so log-only environments still
   // show exactly what a provider send would carry: the merchant display name
-  // on From, and the system-tracked Reply-To for customer reminders.
-  const branding = senderBrandingForTask(db, task);
+  // on From, and the system-tracked Reply-To for customer reminders. D1b
+  // reply sends (task = null) override both via SendOptions.
+  const branding = opts?.senderName !== undefined
+    ? { senderName: opts.senderName }
+    : senderBrandingForTask(db, task);
   const baseFrom = process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
   const from = buildFromAddress(baseFrom, branding.senderName);
-  const replyTo = trackedReplyToForTask(task);
+  const replyTo = opts?.replyTo ?? trackedReplyToForTask(task);
 
   const message = [
     `[STUB SEND] Would send email:`,

@@ -5,7 +5,8 @@
  *   (a) reminder sends ALWAYS carry the tracked Reply-To reply+{invoice}@
  *       replies.getcollectionscopilot.com — the merchant's reply_to (now the
  *       reply FORWARD target) never appears in a Reply-To header;
- *   (b) inbound webhook happy path: row inserted (reply_status 'captured'),
+ *   (b) inbound webhook happy path: row inserted (reply_status 'captured' —
+ *       advanced to 'pending_approval' by the D1b AI hook when no key is set),
  *       invoice paused, open tasks cancelled, reply forwarded to the forward
  *       target + merchant notified, 200 fast;
  *   (b3) a second DIFFERENT reply on an already reply-paused invoice is
@@ -200,7 +201,7 @@ async function main(): Promise<void> {
     const notifyAfter = countLogType("merchant_notification");
 
     check("(b) webhook 200 captured + paused", res.status === 200 && body.status === "captured" && body.paused === true, JSON.stringify(body));
-    check("(b) inbound_replies row stored with captured status + full contract", row.id !== undefined && row.merchant_id === MERCHANT && row.invoice_id === invId && row.sequence_key === String(invId) && row.received_at === "2026-08-12T15:00:00Z" && row.from_email === "jane@customer.com" && row.from_name === "Jane Customer" && row.subject === "Re: Friendly Reminder" && row.body === "Hi — I'll pay next week, just waiting on my accountant." && row.idempotency_key === "msg-happy-1" && row.reply_status === "captured", JSON.stringify(row));
+    check("(b) inbound_replies row stored with full contract + D1b-processed status", row.id !== undefined && row.merchant_id === MERCHANT && row.invoice_id === invId && row.sequence_key === String(invId) && row.received_at === "2026-08-12T15:00:00Z" && row.from_email === "jane@customer.com" && row.from_name === "Jane Customer" && row.subject === "Re: Friendly Reminder" && row.body === "Hi — I'll pay next week, just waiting on my accountant." && row.idempotency_key === "msg-happy-1" && (row.reply_status === "captured" || row.reply_status === "pending_approval") && row.classification === "other" && row.confidence === 0 && (row.draft_reply_body as string).length > 0, JSON.stringify(row));
     check("(b) invoice reply_paused_at set", typeof inv.reply_paused_at === "string" && inv.reply_paused_at.length > 0, JSON.stringify(inv));
     check("(b) open reminder task cancelled", openTasks(invId) === 0, `open=${openTasks(invId)}`);
     check("(b) reply forwarded to merchant reply_to (forward target)", forward !== null && forward.provider_message.includes(FORWARD_TARGET), forward?.provider_message ?? "no row");
