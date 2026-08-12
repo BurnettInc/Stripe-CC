@@ -373,7 +373,12 @@ async function handleRequest(req: Request): Promise<Response> {
       // redirects straight to Stripe Checkout.
       if (path === "/billing/checkout" && (req.method === "POST" || req.method === "GET")) {
         const auth = requireSession(db, req);
-        if (auth instanceof Response) return auth;
+        if (auth instanceof Response) {
+          // GET is a browser navigation (dashboard stat-card link): never show
+          // a raw JSON auth error — bounce back to the dashboard gracefully.
+          if (req.method === "GET") return new Response(null, { status: 302, headers: { Location: "/dashboard?billing=error" } });
+          return auth;
+        }
         const response = await handleBilling(db, req, "checkout", auth.merchant_id);
         for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;
@@ -384,7 +389,12 @@ async function handleRequest(req: Request): Promise<Response> {
       // card's "Manage plan ->" (paid merchants) and 302-redirects to portal.
       if (path === "/billing/portal" && (req.method === "POST" || req.method === "GET")) {
         const auth = requireSession(db, req);
-        if (auth instanceof Response) return auth;
+        if (auth instanceof Response) {
+          // GET is a browser navigation (dashboard stat-card link): never show
+          // a raw JSON auth error — bounce back to the dashboard gracefully.
+          if (req.method === "GET") return new Response(null, { status: 302, headers: { Location: "/dashboard?billing=error" } });
+          return auth;
+        }
         const response = await handleBilling(db, req, "portal", auth.merchant_id);
         for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;

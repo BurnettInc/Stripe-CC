@@ -80,15 +80,29 @@ export async function handleBilling(
   // <a href>, so turn the JSON {url} response into a 302 redirect the
   // browser follows straight to Stripe (checkout session / customer portal).
   // POST callers (subscribe(), the site, OnboardingView) keep the JSON.
-  if (req.method === "GET" && response.status === 200) {
-    try {
-      const data = (await response.clone().json()) as { url?: unknown };
-      if (typeof data.url === "string" && (data.url.startsWith("https://") || data.url.startsWith("http://"))) {
-        return new Response(null, { status: 302, headers: { Location: data.url } });
+  //
+  // A GET navigation must NEVER land on a raw JSON error screen. Any outcome
+  // other than a usable 302 — missing STRIPE_SECRET_KEY (503), no
+  // subscription / not active (400), unresolvable customer, Stripe session
+  // failure (502), or a 200 without a usable url — redirects back to the
+  // dashboard with ?billing=error, which the dashboard surfaces as a notice.
+  if (req.method === "GET") {
+    if (response.status === 200) {
+      try {
+        const data = (await response.clone().json()) as { url?: unknown };
+        if (typeof data.url === "string" && (data.url.startsWith("https://") || data.url.startsWith("http://"))) {
+          return new Response(null, { status: 302, headers: { Location: data.url } });
+        }
+      } catch {
+        // Not a JSON {url} body — fall through to the graceful redirect below.
       }
-    } catch {
-      // Not a JSON {url} body — fall through and return the response as-is.
+    } else {
+      const body = await response.clone().text();
+      console.error(`[billing] GET ${req.url} failed with ${response.status}: ${body.slice(0, 300)}`);
     }
+    // Relative redirect: the browser resolves it against its current origin
+    // (works on Railway, www domain, and local dev).
+    return new Response(null, { status: 302, headers: { Location: "/dashboard?billing=error" } });
   }
   return response;
 }
@@ -230,9 +244,14 @@ async function handlePortal(db: Database, merchantId?: number): Promise<Response
       { status: 400, headers }
     );
   }
-  if (sub.status !== "active") {
+  // Same gate the dashboard's Free Drafts card uses for its "Manage plan →"
+  // link (isActivePaidSubscriber: active + standard/pro). If the card shows
+  // "Upgrade for unlimited →" (no active paid sub), the portal must not
+  // pretend there is a plan to manage — GET callers get redirected to
+  // /dashboard?billing=error, POST callers get this 400.
+  if (sub.status !== "active" || (sub.tier !== "standard" && sub.tier !== "pro")) {
     return new Response(
-      JSON.stringify({ error: `No active subscription (status: ${sub.status}). Resubscribe to manage billing.` }),
+      JSON.stringify({ error: `No active paid subscription (status: ${sub.status}). Resubscribe to manage billing.` }),
       { status: 400, headers }
     );
   }
