@@ -508,6 +508,16 @@
     }
     .task-status-chip.chip-drafted { background: var(--tm-draft-bg); color: var(--badge-draft-text); }
     .task-status-chip.chip-pending { background: var(--bg); color: var(--muted); }
+    /* Per-invoice pause-reason chips — why a sequence is paused (rendered
+       defensively: only when the backend row carries the matching field). */
+    .pause-reason-chip {
+      display: inline-block; padding: 3px 10px; border-radius: 9999px;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    }
+    .pause-reason-chip.reply  { background: #DBEAFE; color: #1E40AF; }
+    .pause-reason-chip.dispute { background: #FEE2E2; color: #991B1B; }
+    .pause-reason-chip.paid   { background: #D1FAE5; color: #065F46; }
+    .pause-reason-chip.review { background: #FEF3C7; color: #92400E; }
     .task-subject { font-weight: 600; font-size: 0.85rem; color: var(--text); margin-bottom: 4px; }
     .task-draft-body {
       background: var(--bg);
@@ -805,14 +815,12 @@
           <span class="pill-badge badge-standard" id="branding-badge" style="margin-top:0;">Standard</span>
         </div>
         <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 2px;">
-          Your name appears as the sender of reminder emails; replies go to your Reply-To.
+          Your name appears as the sender of reminder emails.
           The from-address stays on our verified domain.
         </p>
         <div id="branding-fields">
           <label class="settings-label" for="sender-name">Sender name</label>
           <input type="text" id="sender-name" class="settings-input" maxlength="80" placeholder="e.g. Acme Billing" autocomplete="off">
-          <label class="settings-label" for="reply-to">Reply-To email</label>
-          <input type="email" id="reply-to" class="settings-input" placeholder="e.g. billing@acme.com" autocomplete="off">
         </div>
         <div class="settings-locked" id="branding-locked" style="display:none;">
           <span class="pill-badge badge-standard" style="margin-top:0;">Standard</span>
@@ -905,6 +913,7 @@
       </h2>
       <p class="subtitle">
         Emails drafted and ready for you. Approve to send, edit the draft, or reject.
+        Customer replies pause that invoice's sequence and wait here for your response.
       </p>
       <div id="inbox-full-auto" style="display:none;">
         <div class="status-bar">
@@ -1118,13 +1127,11 @@
           var s1 = data.stage1_days != null ? data.stage1_days : 6;
           var s2 = data.stage2_days != null ? data.stage2_days : 20;
           var senderNameEl = document.getElementById('sender-name');
-          var replyToEl = document.getElementById('reply-to');
           var stage1El = document.getElementById('stage1-days');
           var stage2El = document.getElementById('stage2-days');
           var lfTypeEl = document.getElementById('late-fee-type');
           var lfValueEl = document.getElementById('late-fee-value');
           if (senderNameEl) senderNameEl.value = data.sender_name || '';
-          if (replyToEl) replyToEl.value = data.reply_to || '';
           if (stage1El) stage1El.value = s1;
           if (stage2El) stage2El.value = s2;
           if (lfTypeEl) lfTypeEl.value = data.late_fee_type || 'none';
@@ -1196,9 +1203,7 @@
 
       if (IS_SUB_ACTIVE) {
         var senderNameEl = document.getElementById('sender-name');
-        var replyToEl = document.getElementById('reply-to');
         payload.sender_name = (senderNameEl ? senderNameEl.value : '').trim();
-        payload.reply_to = (replyToEl ? replyToEl.value : '').trim();
         canEdit = true;
       }
       if (IS_PRO) {
@@ -1504,6 +1509,45 @@
       var cls = status === 'reviewed' ? '' : status === 'drafted' ? ' chip-drafted' : status === 'pending' ? ' chip-pending' : '';
       return '<span class="task-status-chip' + cls + '">' + esc(map[status] || status) + '</span>';
     }
+    // ── Per-invoice pause reasons + held reply drafts (defensive render) ──
+    // The task inbox lists per-invoice sequences. The backend spec (D1a)
+    // delivers per-invoice pause-reason data on the /tasks payload; today the
+    // rows already carry dispute_id, refund_id and invoice_status. Expected
+    // fields this UI keys off (renders a chip ONLY when present, so it
+    // degrades gracefully to today's output until D1a ships):
+    //   reply_paused_at  — timestamp set when a customer reply paused this
+    //                      invoice's sequence (D1a)
+    //   reply_status     — status like 'reply_paused' marking the pause reason
+    //                      (D1a)
+    //   status           — task status; a reply-paused row may carry
+    //                      'reply_paused' directly (D1a)
+    //   dispute_id       — set when a dispute paused the invoice (live today)
+    //   invoice_status   — invoice status from the invoices join; 'paid' means
+    //                      the sequence stopped on payment (live today)
+    function hasReplyPause(t) {
+      return !!(t && (t.reply_paused_at || t.reply_status || t.status === 'reply_paused'));
+    }
+    function pauseReasonChipFor(t) {
+      if (hasReplyPause(t)) {
+        return '<span class="pause-reason-chip reply">Reply received</span>';
+      }
+      if (t && t.dispute_id) {
+        return '<span class="pause-reason-chip dispute">Dispute</span>';
+      }
+      if (t && (t.invoice_status === 'paid' || t.status === 'paid')) {
+        return '<span class="pause-reason-chip paid">Payment received</span>';
+      }
+      return '';
+    }
+    // A held customer reply awaiting the merchant's action appears in this
+    // inbox as a task row carrying reply data — flag it so it is
+    // distinguishable from a plain reminder draft.
+    function replyReviewChipFor(t) {
+      if (hasReplyPause(t) && t && (t.awaiting_approval || t.status === 'reviewed' || t.status === 'drafted')) {
+        return '<span class="pause-reason-chip review">Reply draft awaiting review</span>';
+      }
+      return '';
+    }
 
     function showTaskError(id, message) {
       var el = document.getElementById('task-error-' + id);
@@ -1601,6 +1645,8 @@
             '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
               '<span class="stage-badge st' + t.stage + '">Stage ' + t.stage + '</span>' +
               statusChipFor(t.status) +
+              pauseReasonChipFor(t) +
+              replyReviewChipFor(t) +
             '</div>' +
           '</div>' +
           '<div class="task-meta">' +

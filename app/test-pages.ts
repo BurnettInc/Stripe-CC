@@ -141,6 +141,29 @@ async function main(): Promise<void> {
   const unauthRem = await fetch(BASE + "/reminders?type=real", { headers: { Cookie: "session=nope" } });
   check("reminders query-param route still requires session auth", unauthRem.status === 401, `status=${unauthRem.status}`);
 
+  // ── Reply-pause copy pass (owner 2026-08-12): landing page + dashboard UI ──
+  // The backend serves the built TanStack site at "/" (SSR, unauthenticated)
+  // and dashboard.html at /dashboard. Assert the copy describes the
+  // reply-pause behavior the backend is being built to deliver (sequence
+  // auto-pauses on reply, merchant notified, message forwarded) and that the
+  // Reply-To customization field is gone from sender branding (Reply-To is now
+  // the system-tracked reply+{invoice}@replies.getcollectionscopilot.com).
+  const landing = await (await fetch(BASE + "/")).text();
+  // SSR HTML escapes apostrophes (&#x27;) inside text nodes, so match either form.
+  check("landing FAQ: reply pauses the sequence automatically", /their sequence pauses automatically and you(&#x27;|')re notified immediately/.test(landing), "");
+  check("landing FAQ: reply forwarded to your inbox", landing.includes("forwarded straight to your inbox"), "");
+  check("landing FAQ: no near-term-roadmap reply copy", !landing.includes("near-term roadmap") && !landing.includes("reply detection isn't automatic"), "");
+  check("landing FAQ: opt-out copy is per-invoice scope", landing.includes("use the link in any reminder to stop follow-ups on that invoice") && !landing.includes("unsubscribe link in any email we send"), "");
+  check("landing FAQ: reply question still present", landing.includes("What happens if a customer replies?"), "");
+
+  const dash = await (await fetch(BASE + "/dashboard")).text();
+  check("dashboard: Reply-To customization field removed", !dash.includes('id="reply-to"') && !dash.includes("Reply-To email") && !dash.includes("payload.reply_to"), "");
+  check("dashboard: sender-name branding field kept", dash.includes('id="sender-name"'), "");
+  check("dashboard: sender helper line no longer mentions Reply-To", !dash.includes("replies go to your Reply-To"), "");
+  check("dashboard: pause-reason chips renderer present (reply/dispute/paid)", dash.includes("pauseReasonChipFor") && dash.includes("Reply received") && dash.includes("Dispute") && dash.includes("Payment received"), "");
+  check("dashboard: reply-draft-awaiting-review chip + inbox copy present", dash.includes("Reply draft awaiting review") && dash.includes("Customer replies pause that invoice's sequence and wait here for your response."), "");
+  check("dashboard: chip keys documented defensively (reply_paused_at/dispute_id/invoice_status)", dash.includes("reply_paused_at") && dash.includes("dispute_id") && dash.includes("invoice_status"), "");
+
   console.log(failures === 0 ? "ALL PASS" : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);
 }
