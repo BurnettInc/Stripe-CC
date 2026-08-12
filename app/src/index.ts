@@ -314,15 +314,15 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // GET /reminders — server-rendered history of sent reminder emails.
       // Drilled into from the dashboard "Sent Reminders" stat card. Every row
-      // is a send_logs 'success' entry; test-mode stub sends are labeled as
-      // "Test send" so a stub can never be mistaken for a real delivery.
+      // is a send_logs 'success' entry; test-mode stub sends are labeled with
+      // a muted "Test send" pill next to the customer name (and carry a
+      // row-test marker class) so a stub can never be mistaken for a real
+      // delivery, and can be hidden with the "Hide test sends" checkbox.
       if (path === "/reminders" && req.method === "GET") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
-        // Optional ?type= filter tab (all|real); defaults to all. The "real"
-        // view excludes [STUB SEND] test rows (see handleRemindersPage).
-        const type = url.searchParams.get("type") ?? "";
-        return handleRemindersPage(db, auth.merchant_id, type);
+        // Single list — no ?type= split (the page has one dataset).
+        return handleRemindersPage(db, auth.merchant_id);
       }
 
       // POST /webhook — Stripe webhook events

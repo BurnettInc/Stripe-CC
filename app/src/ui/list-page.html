@@ -130,6 +130,25 @@
     .chip-stage.st2 { background: var(--badge-semi-bg); color: var(--badge-semi-text); }
     .chip-stage.st3 { background: #FEE2E2; color: #991B1B; }
 
+    /* ── Pills — small inline row labels (e.g. "Test send" next to a name) ── */
+    .pill {
+      display: inline-block; padding: 2px 8px; margin-left: 6px;
+      border-radius: 9999px; border: 1px solid var(--border);
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.3px;
+      text-transform: uppercase; white-space: nowrap; vertical-align: middle;
+    }
+    .pill-muted { background: #F3F4F6; color: var(--muted); }
+
+    /* ── "Hide test sends" checkbox (reminders page) ── */
+    .hide-tests-toggle {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 0.8rem; font-weight: 600; color: var(--body);
+      cursor: pointer; user-select: none;
+    }
+    .hide-tests-toggle input {
+      width: 15px; height: 15px; cursor: pointer; accent-color: var(--primary);
+    }
+
     /* ── Empty state ── */
     .empty {
       padding: 48px 24px; text-align: center; color: var(--muted); font-size: 0.9rem;
@@ -239,6 +258,22 @@
         else { state.key = key; state.dir = "asc"; }
         sortTable(table, key, state.dir);
       });
+
+      // "Hide test sends" toggle (reminders page only — the checkbox is not
+      // rendered on /past-due). Test (stub) rows carry class "row-test" and a
+      // muted "Test send" pill; checking the box hides them client-side with
+      // no reload. The hidden state survives the client-side table sort above
+      // because display:none stays on the elements as rows are re-ordered.
+      var hideToggle = document.getElementById("hide-test-sends");
+      if (hideToggle) {
+        hideToggle.addEventListener("change", function () {
+          var hidden = hideToggle.checked;
+          var testRows = document.querySelectorAll("tr.row-test");
+          for (var i = 0; i < testRows.length; i++) {
+            testRows[i].style.display = hidden ? "none" : "";
+          }
+        });
+      }
     })();
   </script>
 </body>
