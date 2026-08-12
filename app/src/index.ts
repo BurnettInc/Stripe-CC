@@ -7,7 +7,7 @@ import { handleInboundReply } from "./routes/inbound";
 import { handleReplies } from "./routes/replies";
 import { handleSettings } from "./routes/settings";
 import { handleBilling } from "./routes/billing";
-import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus } from "./routes/oauth";
+import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus, handleOAuthSession, handleOAuthSuccess } from "./routes/oauth";
 import { handleInvoices } from "./routes/invoices";
 import { handleSupport } from "./routes/support";
 import { readFileSync } from "node:fs";
@@ -470,6 +470,23 @@ async function handleRequest(req: Request): Promise<Response> {
       // GET /oauth/callback — alias (matches manifest's allowed_redirect_uris as well)
       if ((path === "/stripe/oauth/callback" || path === "/oauth/callback" || path === "/api/oauth/callback") && req.method === "GET") {
         return handleStripeOAuthCallback(db, req);
+      }
+
+      // GET /oauth/session — cross-host session handoff (sets the www-host
+      // session cookie for merchants who connected through the Stripe App;
+      // first-party navigation so it works under third-party cookie blocking).
+      // Served on ANY host — the same Railway service answers both
+      // www.getcollectionscopilot.com and the Railway host — so the callback's
+      // redirect target needs no host-specific routing.
+      if (path === "/oauth/session" && req.method === "GET") {
+        return handleOAuthSession(db, req);
+      }
+
+      // GET /oauth/success — final "Stripe account connected" page of the
+      // handoff chain, always served from the Railway host so the
+      // oauth-complete postMessage keeps its current origin.
+      if (path === "/oauth/success" && req.method === "GET") {
+        return handleOAuthSuccess(req);
       }
 
       // GET /stripe/connection — current connection status
