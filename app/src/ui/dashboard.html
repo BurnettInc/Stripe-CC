@@ -429,17 +429,6 @@
       box-shadow: 0 4px 14px rgba(79, 70, 229, 0.12);
     }
     .tier-card.featured .price { color: var(--primary-hover); }
-    .sub-active-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 16px;
-      border-radius: 9999px;
-      font-weight: 600;
-      font-size: 0.9rem;
-      background: var(--success-light);
-      color: var(--success);
-    }
 
     /* ── Paused banner ── */
     .paused-banner {
@@ -627,6 +616,26 @@
       font-size: 0.75rem;
       color: var(--muted);
       margin-top: 4px;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .footer-links a {
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-decoration: none;
+    }
+    .footer-links a:hover {
+      color: var(--primary);
+      text-decoration: underline;
+    }
+    .footer-links .footer-sep {
+      color: var(--muted);
+      font-size: 0.8rem;
     }
 
     /* ── Loading states ── */
@@ -877,6 +886,17 @@
       </div>
     </div>
 
+    <!-- Weekly recovery report — on-demand summary email (not a billing control) -->
+    <div class="card" id="report-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div>
+          <h2 style="margin:0;">📊 Weekly recovery report</h2>
+          <p class="subtitle" style="margin:4px 0 0;">A summary of your overdue invoices and recovery progress — emailed on demand.</p>
+        </div>
+        <button id="summary-btn" class="btn-outline" style="font-size:0.8rem;padding:8px 16px;white-space:nowrap;" onclick="sendSummaryNow()">📧 Send weekly summary</button>
+      </div>
+      <div id="summary-status" style="margin-top:10px;font-size:0.85rem;min-height:0;"></div>
+    </div>
     <!-- Task Inbox — emails awaiting merchant approval -->
     <div class="card" id="inbox-section">
       <h2 style="display:flex;align-items:center;gap:8px;">
@@ -905,11 +925,7 @@
 
     <!-- Subscription -->
     <div class="card" id="subscription-card">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-        <h2 style="margin:0;">💳 Subscription</h2>
-        <button id="summary-btn" class="btn-outline" style="font-size:0.8rem;padding:8px 16px;white-space:nowrap;" onclick="sendSummaryNow()">📧 Send weekly summary</button>
-      </div>
-      <div id="summary-status" style="margin-top:8px;font-size:0.85rem;min-height:0;"></div>
+      <h2 style="margin:0;">💳 Subscription</h2>
       <div id="sub-status" style="margin-top: 14px; margin-bottom: 20px;">
         <p class="loading-placeholder" style="color: var(--muted); font-size: 0.85rem;">Loading subscription status...</p>
       </div>
@@ -917,10 +933,7 @@
       <div id="plan-card" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:#fff;padding:24px;box-shadow:var(--shadow);margin-bottom:20px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
           <div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-              <span id="plan-name" style="font-size:1.1rem;font-weight:700;"></span>
-              <span id="plan-price-badge" class="sub-active-badge" style="font-size:0.78rem;padding:4px 12px;"></span>
-            </div>
+            <span id="plan-name" style="font-size:1.1rem;font-weight:700;"></span>
             <p id="plan-since" style="margin:6px 0 0;font-size:0.85rem;color:var(--muted);"></p>
             <p style="margin:2px 0 0;font-size:0.8rem;color:var(--muted);">Switch or cancel anytime from Manage Billing.</p>
           </div>
@@ -970,6 +983,13 @@
 
     <!-- Footer / Meta -->
     <div class="card footer-card">
+      <div class="footer-links">
+        <a href="/support">Support</a>
+        <span class="footer-sep">·</span>
+        <a href="/terms">Terms</a>
+        <span class="footer-sep">·</span>
+        <a href="/privacy">Privacy</a>
+      </div>
       <p>CollectionsCopilot v0.1.0</p>
       <div class="updated-at" id="last-updated">Loading...</div>
     </div>
@@ -1316,17 +1336,13 @@
             var price = sub.tier === 'pro' ? '29' : '15';
             var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
             var dateStr = sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '—';
-            // "Your plan" card replaces the pricing block for active subscribers
-            document.getElementById('plan-name').textContent = tierName + ' plan';
-            document.getElementById('plan-price-badge').textContent = '$' + price + '/mo';
+            // The plan card is the single source of truth for plan details
+            // (name + price, since date, Manage Billing) — no duplicate pill.
+            document.getElementById('plan-name').textContent = tierName + ' plan — $' + price + '/mo';
             document.getElementById('plan-since').textContent = 'Since ' + dateStr;
             if (planCard) planCard.style.display = 'block';
             if (pricing) pricing.style.display = 'none';
-            statusEl.innerHTML =
-              '<div class="sub-active-badge">' +
-              '<span style="width:9px;height:9px;border-radius:50%;background:var(--success);"></span>' +
-              tierName + ' plan ($' + price + '/mo) — Since ' + dateStr +
-              '</div>';
+            statusEl.innerHTML = '';
             // Plan card carries its own Manage Billing button — hide the old one
             subActions.style.display = 'none';
             proBadge.style.display = isPro ? 'inline-block' : 'none';
