@@ -209,10 +209,11 @@ async function run(): Promise<void> {
   // The card must be a genuine <a href>, so GET /billing/checkout and
   // GET /billing/portal must route (not 404/405). redirect:"manual" stops
   // Bun's fetch from following the 302 so we can assert on it. A GET
-  // navigation must NEVER land on a raw JSON error screen: every failure
-  // path (missing tier, no subscription, unresolvable customer, missing key)
-  // now bounces back to /dashboard?billing=error as a 302. A merchant with a
-  // real active subscription + customer gets a genuine 302 to Stripe.
+  // navigation must NEVER land on a raw JSON error screen: checkout failures
+  // bounce back to /dashboard?billing=error as a 302; the portal's
+  // unresolvable-subscription path degrades to a small HTML "no active
+  // subscription" page (X-Billing-Fallback) linking to checkout. A merchant
+  // with a real active subscription + customer gets a genuine 302 to Stripe.
   const checkoutNoTier = await af("/billing/checkout", { redirect: "manual" });
   record("13. GET /billing/checkout without tier → 302 /dashboard?billing=error (graceful, not raw JSON)",
     checkoutNoTier.status === 302 && checkoutNoTier.headers.get("location") === "/dashboard?billing=error",
@@ -221,11 +222,16 @@ async function run(): Promise<void> {
   record("14. GET /billing/checkout?tier=standard → 302/502/503, never 404/405/raw JSON",
     [302, 502, 503].includes(checkoutGet.status),
     `status=${checkoutGet.status}`);
-  // No subscription (free merchant) → graceful 302, never a raw 400 JSON.
+  // No subscription (free merchant) → the portal degrades to a clean HTML
+  // "no active subscription" page with a checkout link — never a raw 400 JSON
+  // or a Stripe error screen.
   const portalGet = await af("/billing/portal", { redirect: "manual" });
-  record("15. GET /billing/portal with no subscription → 302 /dashboard?billing=error (graceful)",
-    portalGet.status === 302 && portalGet.headers.get("location") === "/dashboard?billing=error",
-    `status=${portalGet.status} location=${portalGet.headers.get("location")}`);
+  const portalGetText = await portalGet.clone().text();
+  record("15. GET /billing/portal with no subscription → 200 HTML fallback page (checkout link, no raw JSON)",
+    portalGet.status === 200 && (portalGet.headers.get("content-type") || "").includes("text/html") &&
+      portalGet.headers.get("x-billing-fallback") === "no-subscription" &&
+      portalGetText.includes("/billing/checkout?tier=pro") && !portalGetText.includes("No such customer"),
+    `status=${portalGet.status} location=${portalGet.headers.get("location")} fallback=${portalGet.headers.get("x-billing-fallback")}`);
   // Active paid subscription with a REAL Stripe customer → genuine 302 to the
   // Stripe Customer Portal (the owner-reported broken flow, happy path).
   // Uses a real test-mode customer created on the platform account, so the
@@ -242,27 +248,33 @@ async function run(): Promise<void> {
   db().run("DELETE FROM subscriptions WHERE stripe_subscription_id='sub_paid_customer'");
   // Active paid subscription WITHOUT a resolvable customer (the prod E2E
   // leftover: stripe_subscription_id is fake, stripe_customer_id is null) →
-  // the Stripe lookup fails → graceful 302 back to the dashboard, not the raw
-  // 502 JSON error screen the owner hit.
+  // the Stripe lookup fails and the fallback chain is exhausted → the clean
+  // HTML "no active subscription" page, never the raw 502 JSON error screen
+  // the owner hit.
   db().run(
     "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, stripe_customer_id, tier, status) VALUES (?, 'sub_fake_no_customer', NULL, 'pro', 'active')",
     [MERCHANT]
   );
   const portalBroken = await af("/billing/portal", { redirect: "manual" });
-  record("17. GET /billing/portal (active sub, unresolvable customer) → 302 /dashboard?billing=error, no raw 502 JSON",
-    portalBroken.status === 302 && portalBroken.headers.get("location") === "/dashboard?billing=error",
-    `status=${portalBroken.status} location=${portalBroken.headers.get("location")}`);
+  const portalBrokenText = await portalBroken.clone().text();
+  record("17. GET /billing/portal (active sub, unresolvable customer) → 200 HTML fallback page, no raw 502 JSON",
+    portalBroken.status === 200 && (portalBroken.headers.get("content-type") || "").includes("text/html") &&
+      portalBroken.headers.get("x-billing-fallback") === "no-subscription" &&
+      !portalBrokenText.includes("No such subscription") && !portalBrokenText.includes("502"),
+    `status=${portalBroken.status} location=${portalBroken.headers.get("location")} fallback=${portalBroken.headers.get("x-billing-fallback")}`);
   db().run("DELETE FROM subscriptions WHERE stripe_subscription_id='sub_fake_no_customer'");
   // No session cookie → GET navigation still graceful (never a raw 401 JSON).
   const portalNoAuth = await fetch(`${BASE}/billing/portal`, { redirect: "manual" });
   record("18. GET /billing/portal without a session → 302 /dashboard?billing=error (graceful)",
     portalNoAuth.status === 302 && portalNoAuth.headers.get("location") === "/dashboard?billing=error",
     `status=${portalNoAuth.status} location=${portalNoAuth.headers.get("location")}`);
-  // POST /billing/portal keeps JSON behavior for the JS manageBilling() helper.
+  // POST /billing/portal keeps JSON behavior for the JS manageBilling() helper:
+  // no subscription → clean 404 JSON with a checkout_url, no Stripe internals.
   const portalPost = await af("/billing/portal", { method: "POST" });
   const portalPostBody = await portalPost.json().catch(() => null);
-  record("19. POST /billing/portal (no subscription) → 400 JSON, unchanged for JS callers",
-    portalPost.status === 400 && portalPostBody && typeof portalPostBody.error === "string" && !portalPost.headers.get("location"),
+  record("19. POST /billing/portal (no subscription) → 404 JSON + checkout_url, unchanged shape for JS callers",
+    portalPost.status === 404 && portalPostBody && typeof portalPostBody.error === "string" &&
+      portalPostBody.checkout_url === "/billing/checkout?tier=pro" && !portalPost.headers.get("location"),
     `status=${portalPost.status} body=${JSON.stringify(portalPostBody)}`);
   const passed = results.filter((r) => r.pass).length;
   const failed = results.filter((r) => !r.pass).length;
