@@ -416,6 +416,16 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       );
     }
 
+    // Reply opt-out guard (D1b): the customer asked to stop reminders about
+    // THIS invoice (invoices.reply_opt_out_at). The opt-out survives resume
+    // and blocks every pipeline send path for this invoice.
+    if (invoice.reply_opt_out_at) {
+      return new Response(
+        JSON.stringify({ error: "Cannot process: this customer opted out of reminders for this invoice." }),
+        { status: 400, headers }
+      );
+    }
+
     const subscribed = hasActiveSubscription(db, merchantId);
     const pipelineLog: string[] = [];
 

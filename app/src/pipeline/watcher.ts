@@ -139,21 +139,24 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
       // Stale/replayed-event guard: a re-fired overdue/payment_failed event
       // for an invoice we've already stopped must NOT resurrect the sequence.
       // Snapshot the pre-existing row BEFORE the upsert: if the invoice is
-      // paid, disputed, refunded, or reply-paused, skip entirely WITHOUT
-      // upserting — the upsert would flip status back from 'paid' to 'overdue'
-      // (defeating the sender's paid-skip guard) and create a NEW task that
-      // would re-dun a stopped customer at the next escalation stage.
+      // paid, disputed, refunded, reply-paused, or the customer opted out of
+      // reminders for it (reply_opt_out_at), skip entirely WITHOUT upserting —
+      // the upsert would flip status back from 'paid' to 'overdue' (defeating
+      // the sender's paid-skip guard) and create a NEW task that would re-dun
+      // a stopped customer at the next escalation stage.
       const existingRow = db
         .query("SELECT * FROM invoices WHERE stripe_invoice_id = ?")
         .get(stripeInvoiceId) as Invoice | null;
-      if (existingRow && (existingRow.status === "paid" || existingRow.dispute_id || existingRow.refund_id || existingRow.reply_paused_at)) {
+      if (existingRow && (existingRow.status === "paid" || existingRow.dispute_id || existingRow.refund_id || existingRow.reply_paused_at || existingRow.reply_opt_out_at)) {
         const stopped = existingRow.status === "paid"
           ? "paid"
           : existingRow.dispute_id
             ? "disputed"
             : existingRow.refund_id
               ? "refunded"
-              : "reply-paused";
+              : existingRow.reply_opt_out_at
+                ? "opt-out"
+                : "reply-paused";
         console.log(
           `[watcher] stale ${event.type} for invoice ${stripeInvoiceId} skipped — invoice already ${stopped}`
         );

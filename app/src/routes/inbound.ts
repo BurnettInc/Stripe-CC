@@ -18,8 +18,19 @@
  *   5. Forwards the original reply to the merchant's real inbox
  *      (merchant.reply_to ?? merchant.email) and notifies them via the
  *      standard notify machinery.
- *   6. Responds 200 fast. No content classification here — that's D1b (the
- *      schema already carries its columns; reply_status stays 'captured').
+ *   6. Responds 200 fast. D1b (pipeline/reply-ai.ts) then processes the reply
+ *      INLINE right here: classify → draft → conditional send / hold / opt-out
+ *      (see below). The webhook response therefore includes the AI processing
+ *      time (bounded by a 20s LLM timeout); on any AI failure the reply stays
+ *      captured-and-held (safe default) — the webhook itself never 5xxs.
+ *
+ * ── reply_status state machine (see migrations/011 for the full picture) ──
+ *   captured         stored here (D1a)
+ *   pending_approval classified + drafted + held for approve/edit/reject (D1b)
+ *   auto_sent        question + high confidence + Full Auto: sent automatically
+ *   sent             merchant approved (optionally after editing) and it sent
+ *   rejected         merchant rejected the draft
+ *   handled          terminal: opt-out confirmation sent / no response needed
  *
  * ── Inbound payload contract (the worker sends EXACTLY this) ──
  *   POST {BASE_URL}/inbound/reply
@@ -50,6 +61,7 @@ import { getInvoiceById, getMerchantById, cancelTasksForInvoice, logSend } from 
 import type { Invoice, Merchant } from "../db";
 import { notifyMerchant, isPlaceholderMerchant } from "../pipeline/notify";
 import { sendEmailForReal } from "../pipeline/sender";
+import { processReplyAI } from "../pipeline/reply-ai";
 import type { EmailDraft } from "../pipeline/drafter";
 
 const INBOUND_TOKEN = process.env.INBOUND_WEBHOOK_TOKEN;
@@ -81,6 +93,7 @@ function stoppedReason(invoice: Invoice): string {
   if (invoice.dispute_id) return "disputed";
   if (invoice.refund_id) return "refunded";
   if (invoice.reply_paused_at) return "reply-paused";
+  if (invoice.reply_opt_out_at) return "opt-out";
   return "";
 }
 
@@ -232,6 +245,27 @@ export async function handleInboundReply(db: Database, req: Request): Promise<Re
     );
   } catch (err: unknown) {
     console.warn(`[inbound] merchant notification failed for invoice ${invoice.stripe_invoice_id}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // ── D1b: AI classification + draft + conditional send (inline) ──
+  // Runs only for the FIRST delivery (the duplicate path above already
+  // returned), so worker retries can never double-process. Any failure inside
+  // processReplyAI is contained (safe hold: 'other' + confidence 0 →
+  // pending_approval); the webhook still answers 200.
+  const replyId = Number(inserted.lastInsertRowid);
+  try {
+    const outcome = await processReplyAI(db, replyId);
+    console.log(`[inbound] reply ${replyId} processed → ${outcome?.status ?? "noop"} (${outcome?.classification ?? "n/a"}, action ${outcome?.action ?? "n/a"})`);
+  } catch (err: unknown) {
+    console.warn(`[inbound] AI processing failed for reply ${replyId}: ${err instanceof Error ? err.message : String(err)} — safe hold`);
+    try {
+      const row = db.query("SELECT reply_status FROM inbound_replies WHERE id=?").get(replyId) as { reply_status: string } | null;
+      if (row?.reply_status === "captured") {
+        db.run("UPDATE inbound_replies SET classification='other', confidence=0, reply_status='pending_approval' WHERE id=?", [replyId]);
+      }
+    } catch {
+      // nothing more we can do — the row is already captured + paused (safe)
+    }
   }
 
   return json({ status: "captured", paused, invoice_id: invoice.id, sequence_key: seq }, 200);

@@ -3,6 +3,7 @@ import { handleWebhook } from "./routes/webhook";
 import { handlePastDuePage, handleRemindersPage } from "./routes/pages";
 import { handleTasks } from "./routes/tasks";
 import { handleInboundReply } from "./routes/inbound";
+import { handleReplies } from "./routes/replies";
 import { handleSettings } from "./routes/settings";
 import { handleBilling } from "./routes/billing";
 import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus } from "./routes/oauth";
@@ -372,6 +373,15 @@ async function handleRequest(req: Request): Promise<Response> {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         return handleTasks(db, req, path.slice("/tasks".length), auth.merchant_id);
+      }
+
+      // GET/POST /replies... — reply review queue (reply-pause D1b): list,
+      // approve, edit, reject held customer replies. Same session auth as
+      // /tasks; the future dashboard UI consumes these for one-click actions.
+      if (path.startsWith("/replies")) {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        return handleReplies(db, req, path.slice("/replies".length), auth.merchant_id);
       }
 
       // GET/PUT /settings — merchant settings
