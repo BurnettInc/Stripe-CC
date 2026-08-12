@@ -1005,6 +1005,29 @@
   </div>
 
   <script>
+    // ── Cross-host session handoff (self-heal) ──
+    // The session cookie is host-only: browsers that connected before the
+    // OAuth handoff shipped have a Railway-host cookie but no www-host cookie,
+    // so every relative API call on the www dashboard 401s. On the FIRST 401
+    // of a page load, bounce through the backend's /oauth/handoff (a top-level
+    // navigation to the Railway host, where the cookie lives): it validates
+    // the session and 302s through /oauth/session?token=... on the www host,
+    // which sets the www cookie and returns to the dashboard — self-healed,
+    // no manual reconnect. The one-shot sessionStorage guard stops any
+    // redirect loop: a user with no session at all lands back here, the guard
+    // blocks the second redirect, and the normal error UI shows.
+    // __CC_HANDOFF_URL__ is replaced at serve time (GET /dashboard) with
+    // <BASE_URL>/oauth/handoff.
+    var HANDOFF_URL = '__CC_HANDOFF_URL__';
+    function handoffIf401(res) {
+      if (!res || res.status !== 401) return false;
+      var guard;
+      try { guard = sessionStorage.getItem('cc_handoff'); } catch (e) { return false; }
+      if (guard) return false;
+      try { sessionStorage.setItem('cc_handoff', '1'); } catch (e) { /* attempt the handoff anyway */ }
+      window.location.href = HANDOFF_URL;
+      return true;
+    }
     // ── Health check ──
     async function checkHealth() {
       var statusEl = document.getElementById('server-status');
@@ -1028,6 +1051,7 @@
     async function loadStats() {
       try {
         var res = await fetch('/stats');
+        if (handoffIf401(res)) return;
         if (res.ok) {
           var s = await res.json();
           // Stripe-connection gate for subscribe(): /stats already carries the
@@ -1113,6 +1137,7 @@
     async function loadSettings() {
       try {
         var res = await fetch('/settings');
+        if (handoffIf401(res)) return;
         if (res.ok) {
           var data = await res.json();
           currentTrustMode = data.trust_mode || 'draft';
@@ -1331,6 +1356,7 @@
       var fullAutoPill = document.querySelector('.trust-pill[data-mode="full"]');
       try {
         var res = await fetch('/subscription');
+        if (handoffIf401(res)) return;
         if (res.ok) {
           var sub = await res.json();
           var isPro = sub.tier === 'pro' && sub.status === 'active';
@@ -1561,6 +1587,7 @@
       var listEl = document.getElementById('inbox-list');
       try {
         var res = await fetch('/tasks');
+        if (handoffIf401(res)) return;
         if (!res.ok) {
           listEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load tasks (HTTP ' + res.status + ').</p>';
           return;

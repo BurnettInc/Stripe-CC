@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { ensureDefaultMerchant, resolveMerchant } from "../db";
 import { saveStripeConnection, getStripeConnection } from "../middleware/auth";
+import { readCookie } from "../middleware/session";
 import Stripe from "stripe";
 
 // ── Cross-host session handoff ──
@@ -82,6 +83,45 @@ export function handleOAuthSession(db: Database, req: Request): Response {
   return new Response(null, {
     status: 302,
     headers: { Location: dest, "Set-Cookie": sessionCookieFor(token) },
+  });
+}
+
+/**
+ * GET /oauth/handoff — the dashboard's self-healing session handoff.
+ * The web dashboard's JS bounces here (a top-level navigation to the Railway
+ * host) when a relative API fetch returns 401 — the browser has a Railway-host
+ * session cookie but no www-host cookie, which is exactly the state of any
+ * merchant who connected before the /oauth/session handoff shipped (their
+ * OAuth callback minted a session and set the cookie for the Railway host
+ * only). The session cookie is read from the request exactly like
+ * requireSession does (same token lookup, same cookie parsing), because this
+ * request IS a normal first-party navigation to the Railway host — the
+ * browser sends the cookie. With a valid session the response 302s through
+ * the www-host /oauth/session endpoint (token + next = the www dashboard),
+ * which sets the www-host cookie and returns the browser to the dashboard —
+ * self-healed, no manual reconnect needed. No/invalid session → 302 straight
+ * to the www dashboard: that user has no session anywhere, and the
+ * dashboard's one-shot sessionStorage guard (cc_handoff) prevents any
+ * redirect loop.
+ */
+export function handleOAuthHandoff(db: Database, req: Request): Response {
+  const token = readCookie(req, "session") ?? "";
+
+  const row = token
+    ? (db
+        .query("SELECT merchant_id FROM sessions WHERE token = ? AND expires_at > datetime('now')")
+        .get(token) as { merchant_id: number } | null)
+    : null;
+
+  if (!row) {
+    return new Response(null, { status: 302, headers: { Location: WWW_DASHBOARD_URL } });
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: `${WWW_BASE}/oauth/session?token=${encodeURIComponent(token)}&next=${encodeURIComponent(WWW_DASHBOARD_URL)}`,
+    },
   });
 }
 

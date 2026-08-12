@@ -22,6 +22,10 @@
  *   - /oauth/success renders the same success HTML as before in both return
  *     modes (postMessage oauth-complete + auto-redirect preserved)
  *   - the callback's pre-existing missing-account redirect is unchanged
+ *   - /oauth/handoff (the dashboard's self-heal bounce): valid Railway-host
+ *     session COOKIE → 302 to www /oauth/session?token=<seeded>&next=<www
+ *     dashboard>; no cookie / expired / unknown cookie → 302 to the www
+ *     dashboard (the one-shot dashboard guard stops any loop)
  *
  * Runs against a booted server sharing its SQLite DB:
  *
@@ -146,6 +150,27 @@ async function main(): Promise<void> {
   // ── (e) callback's pre-existing missing-account redirect (no Stripe call) ──
   const cb = await get(`${BASE}/stripe/oauth/callback`);
   check("e1: callback without account → missing_account redirect", cb.status === 302 && (cb.headers.get("location") || "").endsWith("/dashboard?error=missing_account"), `loc=${cb.headers.get("location")}`);
+
+  // ── (f) /oauth/handoff — the dashboard's self-heal bounce ──
+  // The dashboard's JS redirects to <backend>/oauth/handoff on its first 401;
+  // the browser sends the Railway-host session cookie on that navigation. The
+  // endpoint must NOT itself set a cookie (the www-host /oauth/session hop
+  // does that) and must pass the RAW token through the Location so the hop
+  // can validate it.
+  const handoff = `${BASE}/oauth/handoff`;
+  const f1 = await fetch(handoff, { redirect: "manual", headers: { Cookie: `session=${SESSION}` } });
+  const expectedHandoff = `https://www.getcollectionscopilot.com/oauth/session?token=${SESSION}&next=${encodeURIComponent(WWW_DASHBOARD)}`;
+  check("f1: valid session cookie → 302 to www /oauth/session with token+next", f1.status === 302 && f1.headers.get("location") === expectedHandoff, `loc=${f1.headers.get("location")}`);
+  check("f2: handoff itself sets NO cookie", f1.headers.get("set-cookie") === null, f1.headers.get("set-cookie") || "");
+
+  const f2 = await fetch(handoff, { redirect: "manual" });
+  check("f3: no cookie → 302 to www dashboard", f2.status === 302 && f2.headers.get("location") === WWW_DASHBOARD, `loc=${f2.headers.get("location")}`);
+
+  const f3 = await fetch(handoff, { redirect: "manual", headers: { Cookie: `session=${EXPIRED}` } });
+  check("f4: expired session cookie → 302 to www dashboard", f3.status === 302 && f3.headers.get("location") === WWW_DASHBOARD, `loc=${f3.headers.get("location")}`);
+
+  const f4 = await fetch(handoff, { redirect: "manual", headers: { Cookie: "session=no-such-token" } });
+  check("f5: unknown session cookie → 302 to www dashboard", f4.status === 302 && f4.headers.get("location") === WWW_DASHBOARD, `loc=${f4.headers.get("location")}`);
 
   console.log(failures === 0 ? "ALL PASS" : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);
