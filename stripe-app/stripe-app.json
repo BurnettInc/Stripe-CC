@@ -2,7 +2,7 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "CollectionsCopilot",
-  "version": "0.1.11",
+  "version": "0.1.13",
   "icon": "./icon.png",
   "stripe_api_access_type": "oauth",
   "distribution_type": "public",
