@@ -168,6 +168,25 @@
       display: block; margin-top: 2px; font-size: 0.7rem;
       color: var(--primary); font-weight: 600;
     }
+    /* Status-style stat card (Stripe connection when connected): a genuine
+       status, not an action — default cursor (no pointer), no hover ring,
+       green accent, no "→" hint — so it never reads as a dead button. */
+    .stat-card.stat-status { cursor: default; }
+    .stat-card.stat-status:hover { border-color: var(--border); box-shadow: var(--shadow); }
+    .stat-card.stat-status .stat-value {
+      font-size: 1.2rem;
+      color: #16A34A;               /* green-600 */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+    }
+    .stat-card .status-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: #22C55E;          /* green-500 */
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+      flex: 0 0 auto;
+    }
 
     /* ── Cards ── */
     .card {
@@ -633,15 +652,21 @@
           <span class="stat-sub-hint">View history &rarr;</span>
         </a>
       </div>
-      <div class="stat-card">
-        <div class="stat-value" id="stat-free-drafts">—</div>
-        <div class="stat-label">Free Drafts</div>
-        <div class="stat-sub" id="stat-free-drafts-sub">of 5 remaining</div>
+      <div class="stat-card linkable">
+        <a class="stat-link" id="stat-free-drafts-link" href="/billing/checkout?tier=standard" title="Upgrade for unlimited drafts">
+          <div class="stat-value" id="stat-free-drafts">—</div>
+          <div class="stat-label">Free Drafts</div>
+          <div class="stat-sub" id="stat-free-drafts-sub">of 5 remaining</div>
+          <span class="stat-sub-hint" id="stat-free-drafts-hint">Upgrade for unlimited &rarr;</span>
+        </a>
       </div>
-      <div class="stat-card">
-        <div class="stat-value" id="stat-uptime">—</div>
-        <div class="stat-label">Uptime</div>
-        <div class="stat-sub" id="stat-started">—</div>
+      <!-- Stripe connection: loadStats() renders a genuine status (green dot,
+           no pointer/hover, no hint) when connected, or a real link to
+           /stripe/connect when not connected / deauthorized. -->
+      <div class="stat-card" id="stat-stripe-card">
+        <div class="stat-value">—</div>
+        <div class="stat-label">Stripe</div>
+        <div class="stat-sub">—</div>
       </div>
     </div>
 
@@ -930,19 +955,56 @@
           document.getElementById('stat-reminders').textContent = s.remindersSent || 0;
           document.getElementById('stat-emails').textContent = (s.emailsSent || 0) + ' real sends';
           // Free-drafts card: paid merchants (Standard or Pro active) have no
-          // draft cap — show "Unlimited" instead of the misleading countdown.
-          // Free merchants keep the truthful "N of 5" countdown.
+          // draft cap — "Unlimited" + "Manage plan →" (Stripe Customer Portal).
+          // Free merchants keep the truthful "N of 5" countdown + "Upgrade for
+          // unlimited →" (checkout). The whole card is a real <a> either way,
+          // so it never reads as a dead button.
           var freeDraftsValue = document.getElementById('stat-free-drafts');
           var freeDraftsSub = document.getElementById('stat-free-drafts-sub');
+          var freeDraftsLink = document.getElementById('stat-free-drafts-link');
+          var freeDraftsHint = document.getElementById('stat-free-drafts-hint');
           if (s.free_drafts_unlimited) {
             if (freeDraftsValue) freeDraftsValue.textContent = 'Unlimited';
-            if (freeDraftsSub) freeDraftsSub.textContent = 'drafts — no limit on your plan';
+            if (freeDraftsSub) freeDraftsSub.textContent = 'no limit on your plan';
+            if (freeDraftsLink) { freeDraftsLink.href = '/billing/portal'; freeDraftsLink.title = 'Manage your subscription'; }
+            if (freeDraftsHint) freeDraftsHint.textContent = 'Manage plan \u2192';
           } else {
             if (freeDraftsValue) freeDraftsValue.textContent = (s.free_drafts_remaining ?? 0) + ' of 5';
             if (freeDraftsSub) freeDraftsSub.textContent = 'of 5 remaining';
+            if (freeDraftsLink) { freeDraftsLink.href = '/billing/checkout?tier=standard'; freeDraftsLink.title = 'Upgrade for unlimited drafts'; }
+            if (freeDraftsHint) freeDraftsHint.textContent = 'Upgrade for unlimited \u2192';
           }
-          document.getElementById('stat-uptime').textContent = s.uptimeFormatted || '—';
-          document.getElementById('stat-started').textContent = 'Since ' + new Date(s.startedAt).toLocaleString();
+          // Stripe connection card: a genuine STATUS when connected (green dot,
+          // no pointer/hover, no "→"), a real link to /stripe/connect when not
+          // connected or deauthorized.
+          var stripeCard = document.getElementById('stat-stripe-card');
+          if (stripeCard) {
+            if (s.stripeConnected) {
+              stripeCard.className = 'stat-card stat-status';
+              stripeCard.innerHTML =
+                '<div class="stat-value"><span class="status-dot"></span>Connected</div>' +
+                '<div class="stat-label">Stripe</div>' +
+                '<div class="stat-sub">' + (s.stripeAccountId || 'Account connected') + '</div>';
+            } else if (s.stripeDisconnected) {
+              stripeCard.className = 'stat-card linkable';
+              stripeCard.innerHTML =
+                '<a class="stat-link" href="/stripe/connect" title="Reconnect your Stripe account">' +
+                  '<div class="stat-value">—</div>' +
+                  '<div class="stat-label">Stripe</div>' +
+                  '<div class="stat-sub">Deauthorized</div>' +
+                  '<span class="stat-sub-hint">Reconnect Stripe &rarr;</span>' +
+                '</a>';
+            } else {
+              stripeCard.className = 'stat-card linkable';
+              stripeCard.innerHTML =
+                '<a class="stat-link" href="/stripe/connect" title="Connect your Stripe account">' +
+                  '<div class="stat-value">—</div>' +
+                  '<div class="stat-label">Stripe</div>' +
+                  '<div class="stat-sub">Not connected</div>' +
+                  '<span class="stat-sub-hint">Connect Stripe &rarr;</span>' +
+                '</a>';
+            }
+          }
           // Standard 50-invoice cap banner — shown only while over the limit
           // (active Standard with >= 50 overdue invoices; the watcher blocks
           // new tracking until the count drops back under 50).
