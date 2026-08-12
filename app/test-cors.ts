@@ -37,6 +37,11 @@ const DENIED = [
   "https://evil.example.com",
   "https://collectionscopilot.ctonew.app",
 ];
+// The Stripe sandbox/preview drawer runs in a sandboxed iframe: the browser
+// serializes its origin as the literal string "null" (with no Referer, thanks
+// to the sandbox page's Referrer-Policy: no-referrer). The backend answers
+// ACAO: null for exactly this value -- see corsHeadersFor() in src/index.ts.
+const SANDBOX_ORIGIN = "null";
 let failures = 0;
 function check(label: string, cond: boolean, detail = ""): void {
   if (cond) console.log(`PASS  ${label}`);
@@ -88,6 +93,20 @@ async function main(): Promise<void> {
     headers: { "Access-Control-Request-Method": "GET" },
   });
   check("OPTIONS with no Origin gets no ACAO", noOriginOpt.headers.get("access-control-allow-origin") === null, `acao=${noOriginOpt.headers.get("access-control-allow-origin")}`);
+
+  // Stripe sandbox drawer: Origin: null (sandboxed iframe). The backend must
+  // answer ACAO: null + credentials, and no Referer must be required.
+  const sandboxGet = await fetch(`${BASE}/subscription`, { headers: { Origin: SANDBOX_ORIGIN } });
+  check("GET /subscription answers ACAO null for sandbox origin", sandboxGet.headers.get("access-control-allow-origin") === "null", `acao=${sandboxGet.headers.get("access-control-allow-origin")}`);
+  check("GET /subscription credentials true for sandbox origin", sandboxGet.headers.get("access-control-allow-credentials") === "true", `creds=${sandboxGet.headers.get("access-control-allow-credentials")}`);
+  const sandboxOpt = await fetch(`${BASE}/subscription`, {
+    method: "OPTIONS",
+    headers: { Origin: SANDBOX_ORIGIN, "Access-Control-Request-Method": "GET" },
+  });
+  check("OPTIONS /subscription preflight 204 for sandbox origin", sandboxOpt.status === 204, `status=${sandboxOpt.status}`);
+  check("OPTIONS /subscription answers ACAO null for sandbox origin", sandboxOpt.headers.get("access-control-allow-origin") === "null", `acao=${sandboxOpt.headers.get("access-control-allow-origin")}`);
+  const sandboxConn = await fetch(`${BASE}/stripe/connection`, { headers: { Origin: SANDBOX_ORIGIN } });
+  check("GET /stripe/connection answers ACAO null for sandbox origin", sandboxConn.headers.get("access-control-allow-origin") === "null", `acao=${sandboxConn.headers.get("access-control-allow-origin")}`);
 
   // Same checks on another fetch target (/stripe/connection is public 200).
   for (const origin of ALLOWED) {

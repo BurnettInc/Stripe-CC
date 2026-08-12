@@ -91,16 +91,25 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
   const [loading, setLoading] = useState(Boolean(invoiceId));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unauthenticated, setUnauthenticated] = useState(false);
 
   const load = useCallback(async () => {
     if (!invoiceId) return;
     setLoading(true);
     setError(null);
+    setUnauthenticated(false);
     try {
       const [invoiceResponse, modeResponse] = await Promise.all([
         fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}`, { credentials: 'include' }),
         fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}/trust-mode`, { credentials: 'include' }),
       ]);
+      // A 401 here simply means there is no backend session yet (the merchant
+      // hasn't connected Stripe) — show the connect prompt instead of a hard
+      // error. Network-level failures still fall through to the catch path.
+      if (invoiceResponse.status === 401 || modeResponse.status === 401) {
+        setUnauthenticated(true);
+        return;
+      }
       if (!invoiceResponse.ok || !modeResponse.ok) throw new Error('Unable to load invoice collection status.');
       const invoicePayload = (await invoiceResponse.json()) as InvoiceDetails | { invoice?: InvoiceDetails };
       const details = 'invoice' in invoicePayload && invoicePayload.invoice ? invoicePayload.invoice : invoicePayload as InvoiceDetails;
@@ -153,6 +162,27 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
   const stage = invoice?.escalation_stage ?? invoice?.escalationStage;
 
   return <ContextView title="Collections Copilot"><Box css={{ stack: 'y', gap: 'medium' }}>
+    {unauthenticated ? (
+      <Box css={{ stack: 'y', gap: 'small' }}>
+        <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
+        <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to access CollectionsCopilot invoice details.</Box>
+        <Button
+          onPress={() => {
+            const width = 800;
+            const height = 700;
+            const left = (window.screen.width - width) / 2;
+            const top = (window.screen.height - height) / 2;
+            window.open(
+              `${BASE_URL}/stripe/connect`,
+              'stripe-connect',
+              `width=${width},height=${height},left=${left},top=${top}`,
+            );
+          }}
+        >
+          Connect Stripe
+        </Button>
+      </Box>
+    ) : <>
     {error && <Banner type="critical" title="Something went wrong" description={error} actions={<Button onPress={() => { void load(); }}>Retry</Button>} />}
     {loading ? <Spinner /> : invoice ? <>
       <Box css={{ stack: 'y', gap: 'xsmall' }}>
@@ -178,5 +208,6 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
         {saving && <Spinner />}
       </Box>
     </> : <Box css={{ color: 'secondary' }}>Invoice details are unavailable.</Box>}
+    </>}
   </Box></ContextView>;
 }

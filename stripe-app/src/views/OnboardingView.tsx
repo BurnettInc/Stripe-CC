@@ -35,7 +35,13 @@ export default function OnboardingView() {
         fetch(`${BASE_URL}/subscription`, { credentials: 'include' }),
         fetch(`${BASE_URL}/stripe/connection`, { credentials: 'include' }),
       ]);
-      if (!subscriptionResponse.ok || !connectionResponse.ok) throw new Error('Unable to load your setup status.');
+      // A non-OK response (401 when there is no backend session yet — the
+      // merchant hasn't connected — or any other non-OK) means "not set up
+      // yet": leave subscription/connection null so the step logic below
+      // shows the Get Started / connect flow instead of a hard error. Only
+      // network-level failures (fetch throws, e.g. CORS) fall through to the
+      // catch path and surface the critical banner.
+      if (!subscriptionResponse.ok || !connectionResponse.ok) return;
       setSubscription((await subscriptionResponse.json()) as SubscriptionResponse);
       setConnection((await connectionResponse.json()) as ConnectionResponse);
     } catch (cause) {
