@@ -25,14 +25,82 @@ function resolveOwnedTask(db: Database, taskId: number, merchantId: number): Ret
 }
 
 /**
- * POST /tasks/resume — resume a reply-paused invoice's sequence.
+ * POST /tasks/pause — manually pause an invoice's reminder sequence (the
+ * Stripe App drawer's per-invoice Pause button).
  *
  * Body: `{ "invoice_id": 5 }` (the invoice's internal DB id — the same id the
  * tracked Reply-To `reply+5@replies.getcollectionscopilot.com` carries).
  *
  * Semantics:
- * - Clears invoices.reply_paused_at (the pause flag the inbound reply handler
- *   set; all Trust Modes pause on reply).
+ * - Sets invoices.manually_paused_at = now (durable pause flag).
+ * - Stops the sequence durably: any open task (pending/drafted/reviewed) for
+ *   the invoice is set to status 'paused', so nothing sends and the task
+ *   disappears from the approval inbox (getAllTasks only lists
+ *   pending/drafted/reviewed).
+ * - The watcher skips manually-paused invoices in its stale-event guard
+ *   (watcher.ts), so a re-fired overdue/payment_failed event can NOT recreate
+ *   a task while the pause is set — the pause holds until /tasks/resume.
+ * - Idempotent: pausing an already-manually-paused invoice is a 200 no-op
+ *   (open tasks are still re-parked defensively).
+ *
+ * Errors: 400 malformed body (missing/invalid invoice_id); 404 unknown or
+ * not-owned invoice. Session-authenticated like every /tasks route.
+ */
+async function handlePause(db: Database, req: Request, merchantId: number): Promise<Response> {
+  let body: { invoice_id?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers });
+  }
+  const raw = body.invoice_id;
+  const invoiceId = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw.trim()) : NaN;
+  if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+    return new Response(
+      JSON.stringify({ error: "invoice_id is required and must be a positive integer (the invoice's internal id from the reply+ tag)" }),
+      { status: 400, headers }
+    );
+  }
+
+  const invoice = getInvoiceById(db, invoiceId);
+  if (!invoice || invoice.merchant_id !== merchantId) {
+    return new Response(JSON.stringify({ error: "Invoice not found" }), { status: 404, headers });
+  }
+
+  const parkTasks = () => db.run(
+    "UPDATE reminder_tasks SET status='paused' WHERE invoice_id=? AND status IN ('pending','drafted','reviewed')",
+    [invoiceId]
+  );
+
+  if (invoice.manually_paused_at) {
+    // Idempotent no-op: already manually paused. Re-park open tasks as
+    // defense-in-depth (a race could have slipped a task through).
+    parkTasks();
+    console.log(`[tasks] merchant ${merchantId} pause invoice ${invoiceId} -> no-op (already manually paused)`);
+    return new Response(JSON.stringify({
+      ok: true, invoice_id: invoiceId, paused: true,
+      message: "Invoice sequence is already paused.",
+    }), { status: 200, headers });
+  }
+
+  db.run("UPDATE invoices SET manually_paused_at=? WHERE id=?", [new Date().toISOString(), invoiceId]);
+  const parked = parkTasks().changes;
+  console.log(`[tasks] merchant ${merchantId} pause invoice ${invoiceId} -> paused (${parked} open task(s) parked)`);
+  return new Response(JSON.stringify({
+    ok: true, invoice_id: invoiceId, paused: true,
+  }), { status: 200, headers });
+}
+
+/**
+ * POST /tasks/resume — resume a paused invoice's sequence.
+ *
+ * Body: `{ "invoice_id": 5 }` (the invoice's internal DB id — the same id the
+ * tracked Reply-To `reply+5@replies.getcollectionscopilot.com` carries).
+ *
+ * Semantics:
+ * - Clears invoices.reply_paused_at AND invoices.manually_paused_at (the pause
+ *   flags the inbound reply handler and the drawer's Pause button set; all
+ *   Trust Modes pause on reply, and manual pause is merchant-initiated).
  * - Re-opens the sequence the way the watcher creates a task: when the
  *   invoice is still overdue and has no open (pending/drafted/reviewed) task,
  *   creates a fresh task at the invoice's CURRENT escalation stage and
@@ -44,7 +112,9 @@ function resolveOwnedTask(db: Database, taskId: number, merchantId: number): Ret
  * - Does NOT clear invoices.reply_opt_out_at (a per-invoice opt-out set by
  *   the D1b opt_out classification is the customer's request and survives
  *   resume) and does NOT clear dispute/refund stops.
- * - Idempotent: resuming an invoice that is not reply-paused is a 200 no-op.
+ * - Idempotent: resuming an invoice that is not paused is a 200 no-op.
+ * - The response's `cleared` array lists which pause type(s) were cleared
+ *   ('manual' | 'reply'), so callers can distinguish the resume source.
  *
  * Errors: 400 malformed body (missing/invalid invoice_id); 404 unknown or
  * not-owned invoice. Session-authenticated like every /tasks route.
@@ -70,16 +140,21 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
     return new Response(JSON.stringify({ error: "Invoice not found" }), { status: 404, headers });
   }
 
-  const wasPaused = !!invoice.reply_paused_at;
-  db.run("UPDATE invoices SET reply_paused_at=NULL WHERE id=?", [invoiceId]);
+  const wasReplyPaused = !!invoice.reply_paused_at;
+  const wasManuallyPaused = !!invoice.manually_paused_at;
+  const wasPaused = wasReplyPaused || wasManuallyPaused;
+  const cleared: string[] = [];
+  if (wasReplyPaused) cleared.push("reply");
+  if (wasManuallyPaused) cleared.push("manual");
+  db.run("UPDATE invoices SET reply_paused_at=NULL, manually_paused_at=NULL WHERE id=?", [invoiceId]);
   if (!wasPaused) {
-    console.log(`[tasks] merchant ${merchantId} resume invoice ${invoiceId} -> no-op (was not reply-paused)`);
+    console.log(`[tasks] merchant ${merchantId} resume invoice ${invoiceId} -> no-op (was not paused)`);
     return new Response(JSON.stringify({
-      ok: true, invoice_id: invoiceId, paused: false, task_created: false,
+      ok: true, invoice_id: invoiceId, paused: false, task_created: false, cleared,
       message: "Invoice sequence was not paused — nothing to resume.",
     }), { status: 200, headers });
   }
-  console.log(`[tasks] merchant ${merchantId} resume invoice ${invoiceId} -> pause cleared`);
+  console.log(`[tasks] merchant ${merchantId} resume invoice ${invoiceId} -> pause cleared (${cleared.join(", ") || "none"})`);
 
   // Re-open the sequence. An open task already exists → just un-paused.
   const openTask = db.query(
@@ -87,7 +162,7 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
   ).get(invoiceId) as { id: number } | null;
   if (openTask) {
     return new Response(JSON.stringify({
-      ok: true, invoice_id: invoiceId, paused: false, task_created: false,
+      ok: true, invoice_id: invoiceId, paused: false, task_created: false, cleared,
       message: "Sequence resumed — an open reminder task was already in place.",
     }), { status: 200, headers });
   }
@@ -95,7 +170,7 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
   // Only overdue invoices get a re-opened sequence (paid/void/open are done).
   if (invoice.status !== "overdue") {
     return new Response(JSON.stringify({
-      ok: true, invoice_id: invoiceId, paused: false, task_created: false,
+      ok: true, invoice_id: invoiceId, paused: false, task_created: false, cleared,
       message: `Sequence resumed — invoice is ${invoice.status}, no reminder re-opened.`,
     }), { status: 200, headers });
   }
@@ -105,7 +180,7 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
   if (!hasActiveSubscription(db, merchantId) && freeDraftsRemaining(db, merchantId) <= 0) {
     console.log(`[tasks] merchant ${merchantId} resume invoice ${invoiceId}: free draft allowance exhausted — no task created`);
     return new Response(JSON.stringify({
-      ok: true, invoice_id: invoiceId, paused: false, task_created: false,
+      ok: true, invoice_id: invoiceId, paused: false, task_created: false, cleared,
       message: "Sequence resumed, but no reminder re-opened: your free draft allowance is exhausted. Subscribe to keep sending reminders.",
     }), { status: 200, headers });
   }
@@ -113,6 +188,10 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
   const timing = db.query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?").get(merchantId) as { stage1_days: number; stage2_days: number } | null;
   const daysOverdue = Math.max(0, Math.floor((Date.now() - new Date(invoice.due_date).getTime()) / (1000 * 60 * 60 * 24)));
   const stage = getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+  // Cancel any tasks the manual pause parked in 'paused' (the reply-pause path
+  // cancels its tasks outright, manual pause parks them) so the re-opened
+  // sequence starts clean with exactly one fresh task.
+  db.run("UPDATE reminder_tasks SET status='cancelled' WHERE invoice_id=? AND status='paused'", [invoiceId]);
   const taskId = createReminderTask(db, invoiceId, stage);
 
   // Auto-draft + review like the watcher; on failure leave the task 'pending'
@@ -132,13 +211,18 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
   }
 
   return new Response(JSON.stringify({
-    ok: true, invoice_id: invoiceId, paused: false, task_created: true, task_id: taskId, stage,
+    ok: true, invoice_id: invoiceId, paused: false, task_created: true, task_id: taskId, stage, cleared,
     message: `Sequence resumed — reminder re-opened at stage ${stage} and drafted. Approve it to send.`,
   }), { status: 200, headers });
 }
 
 export async function handleTasks(db: Database, req: Request, pathSuffix: string, merchantId: number): Promise<Response> {
-  // POST /tasks/resume — reply-pause resume (see handleResume).
+  // POST /tasks/pause — manual pause (drawer Pause button; see handlePause).
+  if (req.method === "POST" && pathSuffix === "/pause") {
+    return handlePause(db, req, merchantId);
+  }
+
+  // POST /tasks/resume — pause resume (see handleResume).
   if (req.method === "POST" && pathSuffix === "/resume") {
     return handleResume(db, req, merchantId);
   }
@@ -405,13 +489,14 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       );
     }
 
-    // Reply-pause guard: a reply-paused invoice's sequence is stopped (the
-    // reply handler cancels open tasks, and the watcher's stale guard skips
-    // re-fired events) — defense-in-depth so no pipeline path can send for a
-    // paused sequence even in a race. Resume via POST /tasks/resume first.
-    if (invoice.reply_paused_at) {
+    // Pause guard: a paused invoice's sequence is stopped (the reply handler
+    // and the drawer's Pause button cancel/park open tasks, and the watcher's
+    // stale guard skips re-fired events) — defense-in-depth so no pipeline
+    // path can send for a paused sequence even in a race. Resume via
+    // POST /tasks/resume first.
+    if (invoice.reply_paused_at || invoice.manually_paused_at) {
       return new Response(
-        JSON.stringify({ error: "Cannot process: the sequence is paused (customer reply). Resume it first." }),
+        JSON.stringify({ error: "Cannot process: the sequence is paused (customer reply or manual pause). Resume it first." }),
         { status: 400, headers }
       );
     }
