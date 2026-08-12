@@ -48,6 +48,20 @@ function runMigrations(db: Database) {
     db.exec("ALTER TABLE invoices ADD COLUMN manually_paused_at TEXT DEFAULT NULL");
   }
 
+  // Dev-only Pro flag (merchants.dev_pro): when 1, the backend treats this
+  // merchant as an ACTIVE PRO subscriber with NO real Stripe subscription —
+  // no row in the subscriptions table. Used to preview paid behavior (the
+  // Stripe App drawer's paid OverviewView, paid dashboard state, Pro-only
+  // gates) before the merchant has a live subscription. Deliberately NOT a
+  // fake subscriptions row (that caused the owner's portal 502: the portal
+  // looked up a non-existent Stripe customer), so /billing/portal and other
+  // Stripe-backed paths still see "no subscription". Flip is an ops action on
+  // the merchants table — no env var, no hardcoded merchant id in code.
+  const merchantCols = db.query("PRAGMA table_info(merchants)").all() as { name: string }[];
+  if (!merchantCols.some(c => c.name === "dev_pro")) {
+    db.exec("ALTER TABLE merchants ADD COLUMN dev_pro INTEGER NOT NULL DEFAULT 0");
+  }
+
   if (!hasType || (reminderCol && reminderCol.notnull === 1)) {
     // Need to migrate: recreate send_logs with type column + nullable reminder_task_id
     db.exec("PRAGMA foreign_keys=OFF");
@@ -193,6 +207,21 @@ export function isUnsubscribed(db: Database, merchantId: number, customerEmail: 
 
 // ── Subscription helpers ──
 
+/**
+ * Whether the merchant is flagged as a dev-only Pro account
+ * (merchants.dev_pro = 1). Such accounts are treated as active Pro
+ * subscribers EVERYWHERE tier/paid state is derived, WITHOUT any real Stripe
+ * subscription — used to preview paid behavior (Stripe App drawer, paid
+ * dashboard, Pro-only gates) before the merchant has a live plan. This is a
+ * merchants-table flag only: /billing/portal and other Stripe-backed paths
+ * still see "no subscription" (the flag never fabricates a subscriptions row
+ * or a Stripe customer).
+ */
+export function isDevPro(db: Database, merchantId: number): boolean {
+  const merchant = db.query("SELECT dev_pro FROM merchants WHERE id=?").get(merchantId) as { dev_pro: number } | null;
+  return merchant?.dev_pro === 1;
+}
+
 export function createSubscription(
   db: Database,
   params: { merchant_id: number; stripe_subscription_id: string; tier: string; stripe_customer_id?: string | null }
@@ -231,17 +260,20 @@ export function getSubscriptionByMerchantId(db: Database, merchantId: number) {
 
 /** Whether the merchant's most recent subscription is currently active. */
 export function hasActiveSubscription(db: Database, merchantId: number): boolean {
+  if (isDevPro(db, merchantId)) return true;
   const sub = getSubscriptionByMerchantId(db, merchantId);
   return sub?.status === "active";
 }
 
 /**
- * Whether the merchant's most recent subscription is an ACTIVE Pro one.
- * Full Auto (trust_mode "full") is Pro-only — the settings PUT gates switching
- * to it, enforceTierTrustMode demotes on downgrade, and the watcher's
- * auto-send branch re-checks this before trusting a stored "full".
+ * Whether the merchant's most recent subscription is an ACTIVE Pro one —
+ * or the merchant is dev-flagged Pro (isDevPro). Full Auto (trust_mode
+ * "full") is Pro-only — the settings PUT gates switching to it,
+ * enforceTierTrustMode demotes on downgrade, and the watcher's auto-send
+ * branch re-checks this before trusting a stored "full".
  */
 export function isActiveProSubscriber(db: Database, merchantId: number): boolean {
+  if (isDevPro(db, merchantId)) return true;
   const sub = getSubscriptionByMerchantId(db, merchantId);
   return !!sub && sub.status === "active" && sub.tier === "pro";
 }
@@ -328,14 +360,18 @@ export function invoiceLimitFor(db: Database, merchantId: number): number | null
 }
 
 /**
- * Whether the merchant has an ACTIVE paid subscription — Standard or Pro.
- * Homepage parity (owner directive): features advertised on a paid plan (e.g.
- * weekly recovery reports) are gated on any active paid tier, not Pro alone.
- * Merchants with no subscription, or a subscription that is cancelled /
- * past_due, fail this check. Use this for every paid-plan send path so the
- * route and any future scheduled sender share one rule.
+ * Whether the merchant has an ACTIVE paid subscription — Standard or Pro —
+ * or is dev-flagged Pro (isDevPro, which counts as paid for entitlement
+ * purposes: the paid drawer, paid dashboard state and paid send paths are
+ * exactly what the dev flag exists to preview). Homepage parity (owner
+ * directive): features advertised on a paid plan (e.g. weekly recovery
+ * reports) are gated on any active paid tier, not Pro alone. Merchants with
+ * no subscription, or a subscription that is cancelled / past_due, fail this
+ * check. Use this for every paid-plan send path so the route and any future
+ * scheduled sender share one rule.
  */
 export function isActivePaidSubscriber(db: Database, merchantId: number): boolean {
+  if (isDevPro(db, merchantId)) return true;
   const sub = getSubscriptionByMerchantId(db, merchantId);
   return !!sub && sub.status === "active" && (sub.tier === "standard" || sub.tier === "pro");
 }
@@ -522,6 +558,8 @@ export interface Merchant {
   drafts_used: number;
   paused: number;
   disconnected: number;
+  /** Dev-only Pro flag: 1 = treat as active Pro subscriber with no real subscription (see isDevPro). */
+  dev_pro: number;
   created_at: string;
 }
 
