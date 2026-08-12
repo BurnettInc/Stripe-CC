@@ -239,7 +239,12 @@ async function run() {
     setSubscription("standard");
     setMerchant({ sender_name: "Auto Brand", reply_to: "auto@acme.com" });
     await af("/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trust_mode: "semi", paused: false }) });
-    const wh = await fireOverdueWebhook(`${INV_PREFIX}_a2`, 2); // stage 1 → semi auto-sends
+    // The WATCHER auto-sends semi stage 1 at webhook creation (PR #35) — no
+    // /process click is needed. /process on the already-sent task returns 400
+    // (double-process guard), which is itself proof the send happened at
+    // webhook time; the branding assertion reads the send log, where the
+    // watcher's auto-send writes the same From/Reply-To as a manual send.
+    const wh = await fireOverdueWebhook(`${INV_PREFIX}_a2`, 2); // stage 1 → semi auto-sends at webhook
     const proc = await processTask(wh.taskId);
     const d = db();
     const log = d.query(
@@ -248,10 +253,10 @@ async function run() {
     d.close();
     const msg = log?.provider_message || "";
     const pass =
-      proc.status === 200 && proc.body.task.status === "sent" &&
+      proc.status === 400 && String(proc.body?.error).includes("already processed") && proc.body?.currentStatus === "sent" &&
       msg.includes('From: "Auto Brand" <') && msg.includes("Reply-To: auto@acme.com");
     record("A6. Semi-Auto stage-1 auto-send carries branding", pass,
-      pass ? "" : JSON.stringify({ procStatus: proc.status, taskStatus: proc.body.task?.status, msg }));
+      pass ? "" : JSON.stringify({ procStatus: proc.status, procBody: proc.body, msg }));
   } catch (e: any) {
     record("A6. Auto-send branding", false, `Exception: ${e.message}`);
   }
