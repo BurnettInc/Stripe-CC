@@ -43,7 +43,7 @@ function settingsPayload(merchant: MerchantRow) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** A usable email address is required for Reply-To. Empty string clears it. */
+/** A usable email address is required for the reply FORWARD target. Empty string clears it. */
 function validReplyTo(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const v = value.trim();
@@ -105,10 +105,15 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
 
     // ── Custom sender branding (Standard+) ──
     // sender_name: optional display name for the From header (trimmed, ≤80
-    // chars; empty string clears). reply_to: optional email for the Reply-To
-    // header (valid email, or empty to clear). The from-ADDRESS itself stays
-    // the global verified FROM_EMAIL — merchants never get per-merchant
-    // from-addresses (one verified Resend domain).
+    // chars; empty string clears). reply_to: optional email where CUSTOMER
+    // REPLIES get FORWARDED when a customer replies to a reminder (valid email,
+    // or empty to clear). Note: reply_to is no longer used as a Reply-To
+    // header — every reminder's Reply-To is the system-tracked
+    // reply+{invoice}@replies.getcollectionscopilot.com address (reply-pause
+    // feature, D1a); the merchant's value is the forward target for the
+    // captured reply. The from-ADDRESS itself stays the global verified
+    // FROM_EMAIL — merchants never get per-merchant from-addresses (one
+    // verified Resend domain).
     let senderName: string | null = null;
     let replyTo: string | null = null;
     if (hasBranding) {

@@ -206,7 +206,7 @@ async function run() {
     record("A4. Branding validation", false, `Exception: ${e.message}`);
   }
 
-  // ── A5. Reminder send path carries branding (log-only stub) ──
+  // ── A5. Reminder send path carries branding + tracked Reply-To (log-only stub) ──
   try {
     setSubscription("standard");
     setMerchant({ sender_name: "Acme Billing", reply_to: "billing@acme.com", drafts_used: 0 });
@@ -223,18 +223,23 @@ async function run() {
     d.close();
 
     const msg = log?.provider_message || "";
+    // Reply-To is ALWAYS the system-tracked reply+{invoice}@ address now
+    // (reply-pause feature, D1a) — the merchant's reply_to is the reply
+    // FORWARD target, never a Reply-To header.
+    const tracked = `reply+${wh.invoiceId}@replies.getcollectionscopilot.com`;
     const pass =
       approve.status === 200 && a.task.status === "sent" &&
       msg.includes('[STUB SEND]') &&
       msg.includes('From: "Acme Billing" <') &&
-      msg.includes("Reply-To: billing@acme.com");
-    record("A5. Approve send (log-only) carries From display name + Reply-To", pass,
+      msg.includes(`Reply-To: ${tracked}`) &&
+      !msg.includes("Reply-To: billing@acme.com");
+    record("A5. Approve send (log-only) carries From display name + TRACKED Reply-To (merchant reply_to never a header)", pass,
       pass ? "" : JSON.stringify({ approveStatus: approve.status, taskStatus: a.task?.status, msg }));
   } catch (e: any) {
-    record("A5. Approve send branding", false, `Exception: ${e.message}`);
+    record("A5. Approve send branding + tracked Reply-To", false, `Exception: ${e.message}`);
   }
 
-  // ── A6. Auto-send path (semi stage 1) carries branding too ──
+  // ── A6. Auto-send path (semi stage 1) carries branding + tracked Reply-To too ──
   try {
     setSubscription("standard");
     setMerchant({ sender_name: "Auto Brand", reply_to: "auto@acme.com" });
@@ -252,13 +257,15 @@ async function run() {
     ).get(wh.taskId) as { provider_message: string } | null;
     d.close();
     const msg = log?.provider_message || "";
+    const tracked = `reply+${wh.invoiceId}@replies.getcollectionscopilot.com`;
     const pass =
       proc.status === 400 && String(proc.body?.error).includes("already processed") && proc.body?.currentStatus === "sent" &&
-      msg.includes('From: "Auto Brand" <') && msg.includes("Reply-To: auto@acme.com");
-    record("A6. Semi-Auto stage-1 auto-send carries branding", pass,
+      msg.includes('From: "Auto Brand" <') && msg.includes(`Reply-To: ${tracked}`) &&
+      !msg.includes("Reply-To: auto@acme.com");
+    record("A6. Semi-Auto stage-1 auto-send carries branding + tracked Reply-To", pass,
       pass ? "" : JSON.stringify({ procStatus: proc.status, procBody: proc.body, msg }));
   } catch (e: any) {
-    record("A6. Auto-send branding", false, `Exception: ${e.message}`);
+    record("A6. Auto-send branding + tracked Reply-To", false, `Exception: ${e.message}`);
   }
 
   // ── B1. Unit: getEscalationStage defaults unchanged; custom thresholds shift boundaries ──

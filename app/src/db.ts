@@ -533,7 +533,29 @@ export interface Invoice {
   refund_id: string | null;
   /** 1 once the payment-received notification has been emailed for this invoice. */
   paid_notified: number;
+  /** ISO timestamp set when a customer reply paused this invoice's sequence (reply-pause, D1a). */
+  reply_paused_at: string | null;
+  /** ISO timestamp set by the D1b opt_out classification — stops THIS invoice's reminders only. */
+  reply_opt_out_at: string | null;
   created_at: string;
+}
+
+/**
+ * Whether an invoice's sequence is stopped (paid, disputed, refunded, or
+ * reply-paused). This is the "stopped" model shared by the watcher's
+ * stale-event guard, the inbound reply handler (never re-pause a stopped
+ * sequence), and any future auto-send path: a stopped invoice must never be
+ * resurrected by a replayed/overdue event or a late-arriving send.
+ * A null invoice counts as stopped (callers treat unknown as "don't act").
+ */
+export function isInvoiceSequenceStopped(invoice: Invoice | null): boolean {
+  if (!invoice) return true;
+  return (
+    invoice.status === "paid" ||
+    !!invoice.dispute_id ||
+    !!invoice.refund_id ||
+    !!invoice.reply_paused_at
+  );
 }
 
 export interface ReminderTask {

@@ -2,6 +2,7 @@ import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscrib
 import { handleWebhook } from "./routes/webhook";
 import { handlePastDuePage, handleRemindersPage } from "./routes/pages";
 import { handleTasks } from "./routes/tasks";
+import { handleInboundReply } from "./routes/inbound";
 import { handleSettings } from "./routes/settings";
 import { handleBilling } from "./routes/billing";
 import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus } from "./routes/oauth";
@@ -195,6 +196,21 @@ if (process.env.SUPPORT_API_TOKEN) {
   console.log(`   Support lookup API disabled (SUPPORT_API_TOKEN unset)`);
 }
 
+// Inbound reply webhook status (reply-pause D1a). The /inbound/reply endpoint
+// returns 403 when INBOUND_WEBHOOK_TOKEN is unset — the endpoint is disabled
+// until the Cloudflare worker wiring (D3) provides the shared secret.
+if (process.env.INBOUND_WEBHOOK_TOKEN) {
+  console.log(`   Inbound reply webhook: enabled (INBOUND_WEBHOOK_TOKEN set)`);
+} else {
+  console.log(`   Inbound reply webhook disabled (INBOUND_WEBHOOK_TOKEN unset — /inbound/reply returns 403)`);
+}
+
+// Reply-To tracking status (reply-pause D1a): customer reminders carry the
+// tracked reply+{invoice}@ reply address so replies route back to the inbound
+// pipeline. REPLY_DOMAIN is env-driven so production works before the
+// DNS/MX wiring exists.
+console.log(`   Reply-To tracking domain: ${process.env.REPLY_DOMAIN || "replies.getcollectionscopilot.com (default)"}`);
+
 async function handleRequest(req: Request): Promise<Response> {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeadersFor(req) });
     const url = new URL(req.url);
@@ -338,6 +354,17 @@ async function handleRequest(req: Request): Promise<Response> {
       // POST /webhook — Stripe webhook events
       if (path === "/webhook") {
         return handleWebhook(db, req);
+      }
+
+      // POST /inbound/reply — inbound customer-reply webhook (reply-pause
+      // D1a). Token-verified (Authorization: Bearer INBOUND_WEBHOOK_TOKEN);
+      // the Cloudflare Email Routing Worker posts captured replies here using
+      // the contract documented in routes/inbound.ts. Always responds 200 fast
+      // and is idempotent on idempotency_key (worker retries safe). When
+      // INBOUND_WEBHOOK_TOKEN is unset every request returns 403 — the
+      // endpoint is effectively disabled (same pattern as /support/*).
+      if (path === "/inbound/reply") {
+        return handleInboundReply(db, req);
       }
 
       // GET/POST /tasks... — task management
