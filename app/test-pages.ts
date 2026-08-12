@@ -45,7 +45,9 @@ function seed(): void {
     [MERCHANT]
   );
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))", [SESSION, MERCHANT]);
-  d.run("DELETE FROM send_logs; DELETE FROM reminder_tasks; DELETE FROM invoices WHERE merchant_id=?;", [MERCHANT]);
+  d.run("DELETE FROM send_logs");
+  d.run("DELETE FROM reminder_tasks");
+  d.run("DELETE FROM invoices WHERE merchant_id=?", [MERCHANT]);
   const due = (daysAgo: number) => new Date(Date.now() - daysAgo * 86400e3).toISOString();
   const inv = (sid: string, name: string, amt: number, dueDate: string, status: string, dispute?: string, refund?: string) => {
     d.run(
@@ -93,8 +95,9 @@ async function main(): Promise<void> {
   const disputed = await get("/past-due?status=disputed");
   const bogus = await get("/past-due?status=bogus");
 
-  // Default view = overdue (unchanged behavior): exactly the 3 overdue rows.
-  check("past-due default shows only overdue rows", rows(base).join(",") === "Ovd Alpha,Ovd Beta,Disputed Epsilon", rows(base).join(","));
+  // Default view = overdue (unchanged behavior): exactly the 3 overdue rows,
+  // in the server's deterministic order (due_date ASC — most overdue first).
+  check("past-due default shows only overdue rows", rows(base).join(",") === "Disputed Epsilon,Ovd Alpha,Ovd Beta", rows(base).join(","));
   check("past-due default selects Overdue chip", selectedChip(base) === "Overdue · 3", selectedChip(base) ?? "none");
   const labels = chipLabels(base).join(" | ");
   check("past-due renders all five filter tabs", chipLabels(base).length === 5, labels);
@@ -102,7 +105,7 @@ async function main(): Promise<void> {
   check("past-due default has sortable headers + data-sort cells", (base.match(/data-sort-key=/g) || []).length === 5 && (base.match(/data-sort="/g) || []).length >= 5, `keys=${(base.match(/data-sort-key=/g) || []).length}`);
 
   check("?status=all shows every invoice", rows(all).length === 5 && selectedChip(all) === "All invoices · 5", rows(all).join(","));
-  check("?status=paid shows only paid", rows(paid).join(",") === "Paid Gamma,Refunded Delta" && selectedChip(paid) === "Paid · 2", rows(paid).join(","));
+  check("?status=paid shows only paid", rows(paid).join(",") === "Refunded Delta,Paid Gamma" && selectedChip(paid) === "Paid · 2", rows(paid).join(","));
   check("?status=refunded shows only the refunded invoice", rows(refunded).join(",") === "Refunded Delta" && selectedChip(refunded) === "Refunded · 1", rows(refunded).join(","));
   check("?status=disputed shows only the disputed invoice", rows(disputed).join(",") === "Disputed Epsilon" && selectedChip(disputed) === "Disputed · 1", rows(disputed).join(","));
   check("?status=bogus falls back to overdue default", rows(bogus).join(",") === rows(base).join(",") && selectedChip(bogus) === "Overdue · 3", rows(bogus).join(","));
