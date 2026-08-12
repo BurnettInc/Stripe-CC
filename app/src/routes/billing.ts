@@ -9,7 +9,9 @@ import {
   enforceTierTrustMode,
 } from "../db";
 
-const STRIPE_API = "https://api.stripe.com/v1";
+// Stripe API base. STRIPE_API_BASE lets endpoint tests point the backend at a
+// local stub instead of the real API; production keeps the default.
+const STRIPE_API = (process.env.STRIPE_API_BASE || "https://api.stripe.com/v1").replace(/\/+$/, "");
 const PRICE_IDS: Record<string, string> = {
   standard: "price_1TyiJ9AD4cJGS9CrgoI4TzX4",
   pro: "price_1TyiJAAD4cJGS9CrBUJ8XjwN",
@@ -72,7 +74,7 @@ export async function handleBilling(
   if (action === "checkout") {
     response = await handleCheckout(db, req, sessionMerchantId);
   } else if (action === "portal") {
-    response = await handlePortal(db, sessionMerchantId);
+    response = await handlePortal(db, req, sessionMerchantId);
   } else {
     return handleBillingWebhook(db, req);
   }
@@ -86,7 +88,11 @@ export async function handleBilling(
   // subscription / not active (400), unresolvable customer, Stripe session
   // failure (502), or a 200 without a usable url — redirects back to the
   // dashboard with ?billing=error, which the dashboard surfaces as a notice.
+  // The one exception: graceful fallback responses (the portal's "no active
+  // subscription" HTML page) are marked with X-Billing-Fallback and pass
+  // straight through — they are complete user-facing pages, not errors.
   if (req.method === "GET") {
+    if (response.headers.get("X-Billing-Fallback")) return response;
     if (response.status === 200) {
       try {
         const data = (await response.clone().json()) as { url?: unknown };
@@ -216,7 +222,136 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
 
 // ── Customer Portal session ──
 
-async function handlePortal(db: Database, merchantId?: number): Promise<Response> {
+/**
+ * True when a Stripe error response means a stored customer/subscription id no
+ * longer RESOLVES in Stripe: the canonical `resource_missing` code ("No such
+ * customer: 'cus_...'"), or a test-mode/live-mode key mismatch ("a similar
+ * object exists in test mode, but a live mode key was used" — the production
+ * incident that motivated this hardening: the DB held test-mode ids while the
+ * app used a live key). Message checks are belt-and-braces for responses that
+ * omit the code. These ids are worth falling back from; everything else is a
+ * transient Stripe failure and should still never leak into the UI.
+ */
+function isUnresolvableStripeError(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const err = (data as { error?: Record<string, unknown> }).error;
+  if (!err || typeof err !== "object") return false;
+  const code = typeof err.code === "string" ? err.code : "";
+  const msg = typeof err.message === "string" ? err.message : "";
+  if (code === "resource_missing") return true;
+  return (
+    /no such customer|no such subscription/i.test(msg) ||
+    /similar object exists in (test|live) mode/i.test(msg) ||
+    /(test|live) mode key was used/i.test(msg)
+  );
+}
+
+interface StripeResult {
+  ok: boolean;
+  status: number;
+  data: Record<string, unknown>;
+}
+
+/** Authenticated Stripe API call (form-encoded body for POST, none for GET). */
+async function stripeFetch(path: string, stripeKey: string, init?: { method?: string; body?: string }): Promise<StripeResult> {
+  const res = await fetch(`${STRIPE_API}${path}`, {
+    method: init?.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${stripeKey}`,
+      ...(init?.body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+    },
+    body: init?.body,
+  });
+  const data = await res.json() as Record<string, unknown>;
+  return { ok: res.ok, status: res.status, data };
+}
+
+interface PortalCandidate {
+  customerId: string | null;
+  subId: string | null;
+}
+
+/**
+ * Ordered list of (customer id, subscription id) pairs to try when creating a
+ * portal session, most-recent-first:
+ *   1. the latest subscription row's stored pair as-is;
+ *   2. the latest subscription id ALONE — derive the customer from Stripe's
+ *      copy of the subscription (survives a stale stored customer id);
+ *   3. every older subscription row for the merchant (same two shapes) — a
+ *      superseded row may still carry the customer id that resolves.
+ * Deduplicated by customer id so the same portal session call is never made
+ * twice.
+ */
+function portalCandidates(db: Database, merchantId: number): PortalCandidate[] {
+  const rows = db.query(
+    "SELECT stripe_subscription_id, stripe_customer_id FROM subscriptions WHERE merchant_id=? ORDER BY created_at DESC, id DESC"
+  ).all(merchantId) as Array<{ stripe_subscription_id: string; stripe_customer_id: string | null }>;
+  const candidates: PortalCandidate[] = [];
+  const seenCustomers = new Set<string>();
+  const push = (customerId: string | null, subId: string | null) => {
+    if (!customerId && !subId) return;
+    if (customerId) {
+      if (seenCustomers.has(customerId)) return;
+      seenCustomers.add(customerId);
+    }
+    candidates.push({ customerId, subId });
+  };
+  for (const row of rows) {
+    push(row.stripe_customer_id ?? null, row.stripe_subscription_id);
+    push(null, row.stripe_subscription_id);
+  }
+  return candidates;
+}
+
+/**
+ * Clean user-facing "no active subscription" response — the terminal fallback
+ * of the portal handler when no stored Stripe id resolves. GET callers get a
+ * small HTML page linking to checkout (marked X-Billing-Fallback so the GET
+ * wrapper in handleBilling lets it through instead of bouncing to
+ * /dashboard?billing=error); API callers get JSON with a checkout_url. Stripe
+ * internals are NEVER included.
+ */
+function noActiveSubscriptionResponse(req: Request): Response {
+  if (req.method !== "GET") {
+    return new Response(
+      JSON.stringify({
+        error: "No active subscription found. Subscribe to a plan to manage billing.",
+        checkout_url: "/billing/checkout?tier=pro",
+      }),
+      { status: 404, headers: { "Content-Type": "application/json" } }
+    );
+  }
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>No active subscription — CollectionsCopilot</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f8fa; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.12); padding: 40px 48px; max-width: 460px; margin: 24px; text-align: center; }
+    h1 { font-size: 20px; margin: 0 0 12px; color: #1a1a2e; }
+    p { font-size: 15px; line-height: 1.6; color: #4a4a68; margin: 0 0 20px; }
+    a.button { display: inline-block; background: #635bff; color: #fff; text-decoration: none; font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 0 4px 8px; }
+    a.secondary { display: inline-block; color: #635bff; text-decoration: none; font-weight: 500; padding: 10px 18px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>No active subscription</h1>
+    <p>We couldn't find an active subscription for your account. Subscribe to a plan to manage billing and keep your reminders running.</p>
+    <a class="button" href="/billing/checkout?tier=pro">Subscribe to CollectionsCopilot</a><br>
+    <a class="secondary" href="/dashboard">Back to dashboard</a>
+  </div>
+</body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8", "X-Billing-Fallback": "no-subscription" },
+  });
+}
+
+async function handlePortal(db: Database, req: Request, merchantId?: number): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
 
   if (!merchantId || typeof merchantId !== "number") {
@@ -238,98 +373,76 @@ async function handlePortal(db: Database, merchantId?: number): Promise<Response
   }
 
   const sub = getSubscriptionByMerchantId(db, merchantId);
-  if (!sub) {
-    return new Response(
-      JSON.stringify({ error: "No subscription found. Subscribe to a plan before managing billing." }),
-      { status: 400, headers }
-    );
-  }
-  // Same gate the dashboard's Free Drafts card uses for its "Manage plan →"
-  // link (isActivePaidSubscriber: active + standard/pro). If the card shows
-  // "Upgrade for unlimited →" (no active paid sub), the portal must not
-  // pretend there is a plan to manage — GET callers get redirected to
-  // /dashboard?billing=error, POST callers get this 400.
-  if (sub.status !== "active" || (sub.tier !== "standard" && sub.tier !== "pro")) {
-    return new Response(
-      JSON.stringify({ error: `No active paid subscription (status: ${sub.status}). Resubscribe to manage billing.` }),
-      { status: 400, headers }
-    );
+  // No stored subscription — or one that is not an active paid plan — means
+  // there is nothing to manage in the portal. Degrade to a clean "no active
+  // subscription" page/JSON (with a checkout link) instead of a confusing
+  // Stripe error. (The dashboard's "Manage plan" card only links here for
+  // active paid subscribers, so this is mostly stale pages + API callers.)
+  if (!sub || sub.status !== "active" || (sub.tier !== "standard" && sub.tier !== "pro")) {
+    return noActiveSubscriptionResponse(req);
   }
 
-  // Resolve the Stripe customer ID. Newer subscriptions store it (captured from
-  // checkout.session.completed); older ones fall back to fetching the Stripe
-  // subscription, which always carries its owning customer.
-  let customerId = sub.stripe_customer_id;
-  if (!customerId) {
-    try {
-      const res = await fetch(`${STRIPE_API}/subscriptions/${encodeURIComponent(sub.stripe_subscription_id)}`, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${stripeKey}` },
-      });
-      const data = await res.json() as Record<string, unknown>;
-      if (!res.ok) {
-        console.error("[billing] Stripe subscription lookup error:", data);
-        return new Response(
-          JSON.stringify({ error: "Could not look up subscription in Stripe", detail: data }),
-          { status: 502, headers }
-        );
-      }
-      customerId = typeof data.customer === "string" ? data.customer : null;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("[billing] Subscription lookup request failed:", message);
-      return new Response(
-        JSON.stringify({ error: "Failed to contact Stripe", detail: message }),
-        { status: 502, headers }
-      );
-    }
-  }
-
-  if (!customerId) {
-    return new Response(
-      JSON.stringify({ error: "Could not determine the Stripe customer for this subscription." }),
-      { status: 502, headers }
-    );
-  }
-
+  // Portal sessions are created for a Stripe CUSTOMER. Stored ids can go stale
+  // (leftover fake E2E rows, test-mode ids under a live key, deleted
+  // customers/subscriptions): never propagate Stripe's raw error to the user —
+  // walk the fallback chain instead and only degrade to the clean page when
+  // nothing resolves.
   const baseUrl = process.env.BASE_URL || `http://localhost:3001`;
-  const params = new URLSearchParams({
-    customer: customerId,
-    return_url: `${baseUrl}/dashboard?portal=return`,
-  });
-
-  try {
-    const res = await fetch(`${STRIPE_API}/billing_portal/sessions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${stripeKey}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: params.toString(),
-    });
-
-    const data = await res.json() as Record<string, unknown>;
-
-    if (!res.ok) {
-      console.error("[billing] Stripe billing portal error:", data);
-      return new Response(
-        JSON.stringify({ error: "Stripe billing portal session creation failed", detail: data }),
-        { status: 502, headers }
-      );
+  for (const candidate of portalCandidates(db, merchantId)) {
+    let customerId = candidate.customerId;
+    if (!customerId) {
+      if (!candidate.subId) continue;
+      // (a) No usable stored customer — derive it from the stored subscription
+      // id via Stripe's copy of the subscription.
+      let fetched: StripeResult;
+      try {
+        fetched = await stripeFetch(`/subscriptions/${encodeURIComponent(candidate.subId)}`, stripeKey);
+      } catch (err) {
+        console.error(`[billing] Subscription lookup request failed (${candidate.subId}):`, err instanceof Error ? err.message : String(err));
+        continue;
+      }
+      if (!fetched.ok) {
+        console.error(`[billing] Stripe subscription lookup failed (${candidate.subId}):`, JSON.stringify(fetched.data));
+        continue; // stale or unavailable — try the next candidate
+      }
+      customerId = typeof fetched.data.customer === "string" ? fetched.data.customer : null;
+      if (!customerId) continue;
     }
 
-    return new Response(
-      JSON.stringify({ url: data.url }),
-      { status: 200, headers }
-    );
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[billing] Billing portal request failed:", message);
-    return new Response(
-      JSON.stringify({ error: "Failed to contact Stripe", detail: message }),
-      { status: 502, headers }
-    );
+    const params = new URLSearchParams({
+      customer: customerId,
+      return_url: `${baseUrl}/dashboard?portal=return`,
+    });
+    let res: Response;
+    try {
+      res = await fetch(`${STRIPE_API}/billing_portal/sessions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: params.toString(),
+      });
+    } catch (err) {
+      console.error("[billing] Billing portal request failed:", err instanceof Error ? err.message : String(err));
+      continue;
+    }
+    const data = await res.json() as Record<string, unknown>;
+    if (res.ok && typeof data.url === "string") {
+      // Happy path — identical to the pre-hardening behavior.
+      return new Response(JSON.stringify({ url: data.url }), { status: 200, headers });
+    }
+    console.error(`[billing] Stripe billing portal error (customer ${customerId}):`, JSON.stringify(data));
+    if (isUnresolvableStripeError(data)) continue; // stale id — try the next candidate
+    // Any other Stripe failure also moves on: the remaining candidates are
+    // free to try, and if none resolve the graceful page below still shows
+    // without leaking internals.
   }
+
+  // (c) Nothing resolved. Never surface the raw Stripe error: return a clean
+  // user-facing page (GET) or JSON (POST) pointing at checkout.
+  console.error(`[billing] No resolvable Stripe customer/subscription for merchant ${merchantId} — returning graceful no-subscription response`);
+  return noActiveSubscriptionResponse(req);
 }
 
 // ── Webhook handler with signature verification ──
