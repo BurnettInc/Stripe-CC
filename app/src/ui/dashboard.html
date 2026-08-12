@@ -48,6 +48,12 @@
       --badge-pro-bg: #EDE9FE;  --badge-pro-text: #5B21B6;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html {
+      /* Keep programmatic scrolls (scrollIntoView / anchor jumps) clear of any
+         fixed or sticky chrome overlaying the top of the viewport, so a nav
+         pill/notch can never sit on top of a section header. */
+      scroll-padding-top: 96px;
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
@@ -59,6 +65,11 @@
       max-width: 1024px;          /* max-w-5xl */
       margin: 0 auto;
       padding: 32px 24px 56px;
+      /* Page content paints in its own stacking context: it always renders
+         above static/sibling content and can't interleave with (or be
+         partially covered by) fixed/sticky chrome from the embedding shell. */
+      position: relative;
+      z-index: 1;
     }
 
     /* ── Header / brand nav ── */
@@ -325,6 +336,22 @@
     #save-btn { padding: 10px 18px; font-size: 0.85rem; }
     #save-status { font-size: 0.85rem; margin-left: 12px; color: var(--muted); }
 
+    /* Primary save actions — solid near-black with white text so they read as
+       THE main action at a glance: clearly distinct from the light-purple Pro
+       badge (--badge-pro-bg) and from the indigo primary buttons elsewhere. */
+    #save-btn, #save-settings-btn {
+      background: #111827;              /* gray-900 */
+      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.28);
+    }
+    #save-btn:hover, #save-settings-btn:hover { background: #000; }
+    #save-btn:active, #save-settings-btn:active {
+      background: #030712;
+      transform: translateY(0.5px);
+    }
+    /* Wrapper holding the merchant-settings Save button; tightened on mobile so
+       the button sits closer to the last settings input (see media query). */
+    .save-settings-row { margin-top: 20px; }
+
     /* Stripe connect button (injected by JS with inline styles — override them) */
     #stripe-connect-action a[href="/stripe/connect"] {
       background: var(--primary) !important;
@@ -547,6 +574,26 @@
       color: var(--text); background: #fff;
     }
     .settings-input-sm { max-width: 150px; }
+    /* Inline "days" unit inside the day-number inputs (non-interactive suffix). */
+    .input-with-suffix {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+      max-width: 150px;
+    }
+    .input-with-suffix .settings-input {
+      padding-right: 62px;              /* clear the suffix (and number spinner) */
+    }
+    .input-with-suffix .input-suffix {
+      position: absolute;
+      right: 26px;                      /* clear of the number-input spinner */
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.78rem;
+      color: var(--muted);
+      pointer-events: none;
+      user-select: none;
+    }
     .settings-input:focus {
       outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.12);
     }
@@ -608,6 +655,8 @@
       .trust-pill { min-width: 0; }
       .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
       header { flex-direction: column; align-items: flex-start; }
+      /* Tighten the gap between the last settings input and Save Settings */
+      .save-settings-row { margin-top: 12px; }
     }
 
   </style>
@@ -781,11 +830,17 @@
         <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
           <div>
             <label class="settings-label" for="stage1-days">Stage 1 (days)</label>
-            <input type="number" id="stage1-days" class="settings-input settings-input-sm" min="1" max="89" step="1">
+            <div class="input-with-suffix">
+              <input type="number" id="stage1-days" class="settings-input settings-input-sm" min="1" max="89" step="1">
+              <span class="input-suffix" aria-hidden="true">days</span>
+            </div>
           </div>
           <div>
             <label class="settings-label" for="stage2-days">Stage 2 (days)</label>
-            <input type="number" id="stage2-days" class="settings-input settings-input-sm" min="2" max="90" step="1">
+            <div class="input-with-suffix">
+              <input type="number" id="stage2-days" class="settings-input settings-input-sm" min="2" max="90" step="1">
+              <span class="input-suffix" aria-hidden="true">days</span>
+            </div>
           </div>
         </div>
         <div class="settings-locked" id="timing-locked" style="display:none;">
@@ -823,7 +878,7 @@
         </div>
       </div>
 
-      <div style="margin-top:20px;">
+      <div class="save-settings-row">
         <button id="save-settings-btn" onclick="saveMerchantSettings()">Save Settings</button>
         <span id="save-settings-status"></span>
       </div>
@@ -831,7 +886,10 @@
 
     <!-- Task Inbox — emails awaiting merchant approval -->
     <div class="card" id="inbox-section">
-      <h2>📥 Awaiting your approval</h2>
+      <h2 style="display:flex;align-items:center;gap:8px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+        Awaiting your approval
+      </h2>
       <p class="subtitle">
         Emails drafted and ready for you. Approve to send, edit the draft, or reject.
       </p>
@@ -1054,6 +1112,8 @@
           if (stage2El) stage2El.value = s2;
           if (lfTypeEl) lfTypeEl.value = data.late_fee_type || 'none';
           if (lfValueEl) lfValueEl.value = data.late_fee_value != null ? data.late_fee_value : 0;
+          savedS1 = s1;
+          savedS2 = s2;
           updateTimingDesc(s1, s2);
           applyMerchantSettingsGating();
           loadInbox();
@@ -1069,6 +1129,28 @@
       if (!el) return;
       el.textContent = 'Stage 1: Day 1\u2013' + s1 + ' \u00b7 Stage 2: Day ' + (s1 + 1) + '\u2013' + s2 + ' \u00b7 Stage 3: Day ' + (s2 + 1) + '+';
     }
+
+    // Last saved/loaded escalation boundaries (defaults match the server).
+    var savedS1 = 6, savedS2 = 20;
+    // Live preview: recompute the summary line as the user types in the day
+    // fields. While the inputs are empty/partial/out-of-range (or contradictory,
+    // s1 >= s2), fall back to the last saved values so the line never shows
+    // nonsense like "Day 1–" or an inverted range.
+    function refreshTimingDescLive() {
+      var s1 = parseInt(document.getElementById('stage1-days').value, 10);
+      var s2 = parseInt(document.getElementById('stage2-days').value, 10);
+      var v1 = (!isNaN(s1) && s1 >= 1 && s1 <= 89) ? s1 : null;
+      var v2 = (!isNaN(s2) && s2 >= 2 && s2 <= 90) ? s2 : null;
+      if (v1 === null || v2 === null || v1 >= v2) {
+        updateTimingDesc(savedS1, savedS2);
+        return;
+      }
+      updateTimingDesc(v1, v2);
+    }
+    var stage1El = document.getElementById('stage1-days');
+    var stage2El = document.getElementById('stage2-days');
+    if (stage1El) stage1El.addEventListener('input', refreshTimingDescLive);
+    if (stage2El) stage2El.addEventListener('input', refreshTimingDescLive);
 
     // Show/hide + enable/disable the merchant-settings fields by entitlement:
     // branding = any active paid plan (Standard+), timing + late fee = Pro.
@@ -1135,7 +1217,9 @@
           var data = await res.json();
           statusEl.textContent = '\u2713 Saved!';
           statusEl.style.color = 'var(--success)';
-          updateTimingDesc(data.stage1_days, data.stage2_days);
+          if (data.stage1_days != null) savedS1 = data.stage1_days;
+          if (data.stage2_days != null) savedS2 = data.stage2_days;
+          updateTimingDesc(savedS1, savedS2);
           loadSettings(); // re-sync fields (server-normalized values)
         } else {
           var err = await res.json();
