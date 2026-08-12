@@ -476,9 +476,10 @@ function Home() {
               What happens if a customer replies?
             </h3>
             <p className="mt-3 text-sm text-gray-700 leading-relaxed">
-              Right now, reply detection isn't automatic — if a customer replies to a reminder,
-              their message goes to your inbox, not ours. We recommend checking your inbox during
-              active sequences. Automatic reply detection and pausing is on our near-term roadmap.
+              If a customer replies to any reminder, their sequence pauses automatically
+              and you're notified immediately — no more reminders go out until you resume
+              it. Their message is also forwarded straight to your inbox, so you never
+              miss it.
             </p>
           </div>
         </div>
@@ -616,7 +617,7 @@ function Home() {
             },
             {
               q: "What if a customer disputes an invoice, or wants to stop getting reminders?",
-              a: "If a customer disputes an invoice, the sequence pauses immediately — you'll be notified and can decide how to proceed. If someone wants to opt out, they can use the unsubscribe link in any email we send, and we'll stop all automated follow-ups to them. You can also manually pause or cancel any sequence from the dashboard.",
+              a: "If a customer disputes an invoice, the sequence pauses immediately — you'll be notified and can decide how to proceed. If someone wants to opt out, they can use the link in any reminder to stop follow-ups on that invoice. You can also manually pause or cancel any sequence from the dashboard.",
             },
           ].map((item) => (
             <div
