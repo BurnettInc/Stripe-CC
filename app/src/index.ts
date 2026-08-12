@@ -7,7 +7,7 @@ import { handleInboundReply } from "./routes/inbound";
 import { handleReplies } from "./routes/replies";
 import { handleSettings } from "./routes/settings";
 import { handleBilling } from "./routes/billing";
-import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus, handleOAuthSession, handleOAuthSuccess } from "./routes/oauth";
+import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus, handleOAuthSession, handleOAuthHandoff, handleOAuthSuccess } from "./routes/oauth";
 import { handleInvoices } from "./routes/invoices";
 import { handleSupport } from "./routes/support";
 import { readFileSync } from "node:fs";
@@ -197,9 +197,16 @@ async function handleRequest(req: Request): Promise<Response> {
       // GET /dashboard — the app dashboard. Moved from "/" (which now serves
       // the marketing site's landing page). dashboard.html talks to the backend
       // with root-absolute paths (/tasks, /settings, /stripe/connect, ...), so
-      // the move doesn't affect its API calls.
+      // the move doesn't affect its API calls. The static HTML carries a
+      // __CC_HANDOFF_URL__ placeholder that is replaced here at serve time with
+      // <BASE_URL>/oauth/handoff — the dashboard's JS bounces through that URL
+      // on the first 401 so a Railway-host-only session cookie (merchants who
+      // connected before the /oauth/session handoff shipped) gets handed to the
+      // www host, self-healing the dashboard without any manual reconnect.
       if (path === "/dashboard" && req.method === "GET") {
-        return new Response(dashboardHtml, {
+        const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+        const served = dashboardHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
+        return new Response(served, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
@@ -480,6 +487,17 @@ async function handleRequest(req: Request): Promise<Response> {
       // redirect target needs no host-specific routing.
       if (path === "/oauth/session" && req.method === "GET") {
         return handleOAuthSession(db, req);
+      }
+
+      // GET /oauth/handoff — self-healing cross-host session handoff: the
+      // dashboard's JS bounces here (a top-level navigation to the Railway
+      // host, where the session cookie lives) on its first 401. A valid
+      // session 302s through /oauth/session on the www host (sets the www
+      // cookie) and back to the dashboard; no session 302s straight to the
+      // www dashboard, where the dashboard's one-shot cc_handoff guard stops
+      // any redirect loop.
+      if (path === "/oauth/handoff" && req.method === "GET") {
+        return handleOAuthHandoff(db, req);
       }
 
       // GET /oauth/success — final "Stripe account connected" page of the

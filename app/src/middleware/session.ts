@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 
-function readCookie(req: Request, name: string): string | null {
+export function readCookie(req: Request, name: string): string | null {
   const header = req.headers.get("cookie") || "";
   for (const part of header.split(";")) {
     const [key, ...value] = part.trim().split("=");
