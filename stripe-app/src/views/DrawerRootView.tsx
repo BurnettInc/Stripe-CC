@@ -5,7 +5,7 @@ import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import SettingsView from './SettingsView';
 import OnboardingView from './OnboardingView';
-import { BASE_URL } from '../api';
+import { BASE_URL, DASHBOARD_URL } from '../api';
 
 type Tier = 'standard' | 'pro';
 interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none' }
@@ -58,13 +58,25 @@ export default function DrawerRootView(props?: { oauthContext?: ExtensionContext
 
   if (unauthenticated) {
     // SettingsView renders the "Connect your Stripe account" UI for the
-    // no-OAuth state, so it is the right fallback before onboarding.
-    return <SettingsView {...props} />;
+    // no-OAuth state, so it is the right fallback before onboarding. The
+    // dashboard link stays available as an escape hatch for merchants who
+    // aren't logged into the web app.
+    return (
+      <Box css={{ stack: 'y', gap: 'small' }}>
+        <SettingsView {...props} />
+        <Button href={DASHBOARD_URL} target="_blank" type="secondary">
+          Open full dashboard
+        </Button>
+      </Box>
+    );
   }
 
   if (error) {
     return (
-      <ContextView title="Collections Copilot">
+      <ContextView
+        title="Collections Copilot"
+        externalLink={{ label: 'Open full dashboard', href: DASHBOARD_URL }}
+      >
         <Box css={{ stack: 'y', gap: 'medium' }}>
           <Banner
             type="critical"
@@ -78,7 +90,14 @@ export default function DrawerRootView(props?: { oauthContext?: ExtensionContext
   }
 
   if (subscription?.status === 'active') {
-    return <SettingsView {...props} />;
+    return (
+      <Box css={{ stack: 'y', gap: 'small' }}>
+        <SettingsView {...props} />
+        <Button href={DASHBOARD_URL} target="_blank" type="secondary">
+          Open full dashboard
+        </Button>
+      </Box>
+    );
   }
 
   return <OnboardingView />;

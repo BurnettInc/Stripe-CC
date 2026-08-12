@@ -24,3 +24,12 @@ export const BASE_URL: string =
  */
 export const LANDING_URL: string =
   (import.meta as any).env?.VITE_LANDING_URL ?? 'https://www.getcollectionscopilot.com';
+
+/**
+ * Full web dashboard URL.
+ *
+ * The public site (LANDING_URL) serves the merchant dashboard at /dashboard,
+ * so the drawer's "Open full dashboard" escape hatch points there — the same
+ * origin serves both the landing page and the app console.
+ */
+export const DASHBOARD_URL: string = `${LANDING_URL}/dashboard`;
