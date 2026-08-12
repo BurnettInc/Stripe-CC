@@ -15,18 +15,28 @@ import { getStripeConnection } from "./middleware/auth";
 // Railway injects PORT dynamically — honor it, fall back to 3002 for local dev.
 const PORT = Number(process.env.PORT) || 3002;
 const START_TIME = Date.now();
+// Origins the Stripe App panel can legitimately run from. The panel (UI
+// Extensions SDK) fetches our API from inside Stripe's dashboard and its
+// marketplace/app-modal contexts, so both stripe.com origins must be allowed.
+// The www + Railway origins are the same-origin hosts that serve the dashboard
+// (harmless to include). The old platform host (collectionscopilot.ctonew.app)
+// was removed -- it serves only a stale CloudFront landing page with no API or
+// dashboard, and nothing calls our backend from it anymore.
 const allowedOrigins = new Set([
-  "https://collectionscopilot.ctonew.app",
   "https://dashboard.stripe.com",
+  "https://appmarket.stripe.com",
+  "https://www.getcollectionscopilot.com",
+  "https://stripe-cc-production.up.railway.app",
 ]);
-
 function corsHeadersFor(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin");
-  const allowedOrigin = origin && allowedOrigins.has(origin)
-    ? origin
-    : "https://collectionscopilot.ctonew.app";
+  // Only reflect a request's Origin when it is one we serve. For no-Origin
+  // (same-origin / non-CORS) requests and unknown origins, return NO CORS
+  // headers at all -- never a mismatched origin, which makes browsers block
+  // the response ("has been blocked by CORS policy") and is a security leak.
+  if (!origin || !allowedOrigins.has(origin)) return {};
   return {
-    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
