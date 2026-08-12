@@ -72,15 +72,23 @@
     }
     .back-link:hover { color: var(--primary-hover); text-decoration: underline; }
 
-    /* ── Summary chips ── */
-    .summary-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+    /* ── Summary chips (also filter tabs — <a> elements) ── */
+    .summary-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; }
     .summary-chip {
+      display: inline-flex; align-items: center;
       padding: 8px 16px; border-radius: 9999px;
-      background: var(--primary-light); border: 1px solid var(--primary-lighter);
-      font-size: 0.8rem; font-weight: 600; color: var(--primary-hover);
-      white-space: nowrap;
+      background: #fff; border: 1px solid var(--border-strong);
+      font-size: 0.8rem; font-weight: 600; color: var(--body);
+      text-decoration: none; white-space: nowrap;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
     }
-    .summary-chip.neutral { background: #fff; border-color: var(--border); color: var(--body); }
+    .summary-chip:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary-hover); }
+    .summary-chip.selected {
+      background: var(--primary); border-color: var(--primary); color: #fff;
+    }
+    .summary-chip.selected:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
+    .summary-note { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
 
     /* ── Table card ── */
     .card {
@@ -98,6 +106,10 @@
       padding: 14px 16px; border-bottom: 1px solid var(--border);
       background: var(--bg); white-space: nowrap;
     }
+    /* Sortable headers: hover + ▲▼ indicator (client-side sort, vanilla JS) */
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { color: var(--text); background: var(--primary-light); }
+    .sort-indicator { display: inline-block; min-width: 0.9em; margin-left: 2px; font-size: 0.65rem; color: var(--primary); }
     tbody td { padding: 13px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
     tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover { background: var(--primary-light); }
@@ -154,5 +166,80 @@
 
     <div class="footer-note">CollectionsCopilot</div>
   </div>
+  <script>
+    // Client-side table sorting for the list pages. Sortable headers are
+    // marked with data-sort-key; each row cell carries its raw sort value in
+    // data-sort (server-rendered, so display text can stay humanized — e.g.
+    // amounts keep currency formatting while the sort uses the cent value).
+    // Clicking a header toggles asc/desc with a ▲▼ indicator. Lists are
+    // capped at 200 rows server-side, so sorting in the DOM is fine — no
+    // refetch. No-JS: headers are inert <th> elements, the server's default
+    // order simply stands.
+    (function () {
+      "use strict";
+      var state = { key: null, dir: "asc" };
+
+      function cellValue(cell) {
+        if (!cell) return null;
+        var raw = cell.getAttribute("data-sort");
+        return raw === null || raw === "" ? null : raw;
+      }
+
+      // Numeric values (amounts, day counts, stage, reminder counts) compare
+      // as numbers; everything else (dates, subjects) as strings. ISO date
+      // strings sort correctly lexicographically.
+      function compareValues(a, b) {
+        var an = parseFloat(a), bn = parseFloat(b);
+        if (!isNaN(an) && !isNaN(bn)) return an - bn;
+        return a < b ? -1 : a > b ? 1 : 0;
+      }
+
+      function sortTable(table, key, dir) {
+        var headerRow = table.tHead ? table.tHead.rows[0] : null;
+        var idx = -1;
+        if (headerRow) {
+          for (var i = 0; i < headerRow.cells.length; i++) {
+            if (headerRow.cells[i].getAttribute("data-sort-key") === key) { idx = i; break; }
+          }
+        }
+        var tbody = table.tBodies[0];
+        if (idx < 0 || !tbody) return;
+        var rows = Array.prototype.slice.call(tbody.rows);
+        rows.sort(function (ra, rb) {
+          var va = cellValue(ra.cells[idx]);
+          var vb = cellValue(rb.cells[idx]);
+          if (va === null && vb === null) return 0;
+          if (va === null) return 1; // empty cells always sort last
+          if (vb === null) return -1;
+          var r = compareValues(va, vb);
+          return dir === "asc" ? r : -r;
+        });
+        for (var j = 0; j < rows.length; j++) tbody.appendChild(rows[j]);
+        // Update indicators + aria-sort on the header row.
+        if (headerRow) {
+          for (var k = 0; k < headerRow.cells.length; k++) {
+            var th = headerRow.cells[k];
+            var ind = th.querySelector(".sort-indicator");
+            var isActive = th.getAttribute("data-sort-key") === key;
+            if (ind) ind.textContent = isActive ? (dir === "asc" ? "\u25B2" : "\u25BC") : "";
+            if (isActive) th.setAttribute("aria-sort", dir === "asc" ? "ascending" : "descending");
+            else th.removeAttribute("aria-sort");
+          }
+        }
+      }
+
+      document.addEventListener("click", function (e) {
+        var target = e.target;
+        var th = target && target.closest ? target.closest("th[data-sort-key]") : null;
+        if (!th) return;
+        var table = th.closest("table");
+        if (!table) return;
+        var key = th.getAttribute("data-sort-key");
+        if (state.key === key) state.dir = state.dir === "asc" ? "desc" : "asc";
+        else { state.key = key; state.dir = "asc"; }
+        sortTable(table, key, state.dir);
+      });
+    })();
+  </script>
 </body>
 </html>
