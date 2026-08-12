@@ -256,12 +256,6 @@ async function handleRequest(req: Request): Promise<Response> {
         ).get(merchantId) as { count: number };
         const summaryEmailsSent = summaryEmailsRow.count;
 
-        // Active sequences (tasks in pending/drafted/reviewed)
-        const activeSeqRow = db.query(
-          "SELECT COUNT(*) as count FROM reminder_tasks rt JOIN invoices i ON rt.invoice_id=i.id WHERE rt.status IN ('pending', 'drafted', 'reviewed') AND i.merchant_id=?"
-        ).get(merchantId) as { count: number };
-        const activeSequences = activeSeqRow.count;
-
         // Paid invoices count
         const paidRow = db.query(
           "SELECT COUNT(*) as count FROM invoices WHERE status='paid' AND merchant_id=?"
@@ -282,7 +276,6 @@ async function handleRequest(req: Request): Promise<Response> {
           remindersSent,
           emailsSent,
           summaryEmailsSent,
-          activeSequences,
           paidInvoices,
           overdueInvoices,
           invoiceLimit,
