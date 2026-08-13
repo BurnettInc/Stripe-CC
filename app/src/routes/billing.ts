@@ -8,6 +8,7 @@ import {
   getSubscriptionByMerchantId,
   enforceTierTrustMode,
   recordSubscriptionEvent,
+  isDevPro,
 } from "../db";
 import { notifyOwnerPaidSubscription, notifyOwnerCancelledSubscription } from "../pipeline/owner-notify";
 
@@ -311,13 +312,18 @@ function portalCandidates(db: Database, merchantId: number): PortalCandidate[] {
  * small HTML page linking to checkout (marked X-Billing-Fallback so the GET
  * wrapper in handleBilling lets it through instead of bouncing to
  * /dashboard?billing=error); API callers get JSON with a checkout_url. Stripe
- * internals are NEVER included.
+ * internals are NEVER included. An optional `copy` override produces the
+ * dev-preview flavor (dev_pro=1 merchants) — same shape/status/header, clearer
+ * wording (see devPreviewResponse).
  */
-function noActiveSubscriptionResponse(req: Request): Response {
+function noActiveSubscriptionResponse(
+  req: Request,
+  copy?: { jsonError: string; title: string; message: string }
+): Response {
   if (req.method !== "GET") {
     return new Response(
       JSON.stringify({
-        error: "No active subscription found. Subscribe to a plan to manage billing.",
+        error: copy?.jsonError ?? "No active subscription found. Subscribe to a plan to manage billing.",
         checkout_url: "/billing/checkout?tier=pro",
       }),
       { status: 404, headers: { "Content-Type": "application/json" } }
@@ -340,8 +346,8 @@ function noActiveSubscriptionResponse(req: Request): Response {
 </head>
 <body>
   <div class="card">
-    <h1>No active subscription</h1>
-    <p>We couldn't find an active subscription for your account. Subscribe to a plan to manage billing and keep your reminders running.</p>
+    <h1>${copy?.title ?? "No active subscription"}</h1>
+    <p>${copy?.message ?? "We couldn't find an active subscription for your account. Subscribe to a plan to manage billing and keep your reminders running."}</p>
     <a class="button" href="/billing/checkout?tier=pro">Subscribe to CollectionsCopilot</a><br>
     <a class="secondary" href="/dashboard">Back to dashboard</a>
   </div>
@@ -353,6 +359,19 @@ function noActiveSubscriptionResponse(req: Request): Response {
   });
 }
 
+/**
+ * Dev-preview flavor of the no-subscription fallback for dev_pro=1 merchants:
+ * same shape/status/X-Billing-Fallback header as noActiveSubscriptionResponse,
+ * but the copy says they're on the Pro developer preview (no real subscription
+ * exists to manage), so a direct /billing/portal hit stays honest.
+ */
+function devPreviewResponse(req: Request): Response {
+  return noActiveSubscriptionResponse(req, {
+    jsonError: "You're on the Pro developer preview — subscribe to a plan to manage billing.",
+    title: "Pro developer preview",
+    message: "You're on the Pro developer preview. Subscribe to a plan to manage billing and keep your reminders running.",
+  });
+}
 async function handlePortal(db: Database, req: Request, merchantId?: number): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
 
@@ -375,13 +394,18 @@ async function handlePortal(db: Database, req: Request, merchantId?: number): Pr
   }
 
   const sub = getSubscriptionByMerchantId(db, merchantId);
+  // Dev-only Pro preview (dev_pro=1) merchants have no real subscription row:
+  // the portal has nothing to manage, so any fallback below uses the
+  // dev-preview flavor of the no-subscription response (honest copy on a
+  // direct /billing/portal hit). Real merchants keep noActiveSubscriptionResponse.
+  const devPro = isDevPro(db, merchantId);
   // No stored subscription — or one that is not an active paid plan — means
   // there is nothing to manage in the portal. Degrade to a clean "no active
   // subscription" page/JSON (with a checkout link) instead of a confusing
   // Stripe error. (The dashboard's "Manage plan" card only links here for
   // active paid subscribers, so this is mostly stale pages + API callers.)
   if (!sub || sub.status !== "active" || (sub.tier !== "standard" && sub.tier !== "pro")) {
-    return noActiveSubscriptionResponse(req);
+    return devPro ? devPreviewResponse(req) : noActiveSubscriptionResponse(req);
   }
 
   // Portal sessions are created for a Stripe CUSTOMER. Stored ids can go stale
@@ -444,7 +468,7 @@ async function handlePortal(db: Database, req: Request, merchantId?: number): Pr
   // (c) Nothing resolved. Never surface the raw Stripe error: return a clean
   // user-facing page (GET) or JSON (POST) pointing at checkout.
   console.error(`[billing] No resolvable Stripe customer/subscription for merchant ${merchantId} — returning graceful no-subscription response`);
-  return noActiveSubscriptionResponse(req);
+  return devPro ? devPreviewResponse(req) : noActiveSubscriptionResponse(req);
 }
 
 // ── Webhook handler with signature verification ──
