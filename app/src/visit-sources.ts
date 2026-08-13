@@ -64,7 +64,16 @@ export function bucketVisit(v: { utm_source?: string; referrer?: string }): stri
   const host = referrerHost(v.referrer ?? "");
   if (!host) return "direct";
 
-  if (host === "twitter.com" || host.endsWith(".twitter.com") || host === "x.com" || host.endsWith(".x.com")) {
+  // X/Twitter proper hosts PLUS X's link shorteners: t.co wraps every link
+  // shared on X (the referrer a visitor lands with is https://t.co/...), and
+  // x.co is X's companion short domain. Without these a shared-link visitor
+  // lands in a useless "referral:t.co" bucket instead of "x".
+  if (
+    host === "twitter.com" || host.endsWith(".twitter.com") ||
+    host === "x.com" || host.endsWith(".x.com") ||
+    host === "t.co" || host.endsWith(".t.co") ||
+    host === "x.co" || host.endsWith(".x.co")
+  ) {
     return "x";
   }
   if (host === "reddit.com" || host.endsWith(".reddit.com")) {
