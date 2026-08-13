@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { countWaitlistSignups, listWaitlistEntries } from "../db";
-import { aggregateVisitsBySource, type VisitForAttribution } from "../visit-sources";
+import { aggregateUtmCampaigns, aggregateVisitsBySource, type VisitForAttribution } from "../visit-sources";
 
 /**
  * Admin-only internal customer tracking dashboard (owner request 2026-08-12).
@@ -218,14 +218,36 @@ function merchantsList(db: Database) {
  * (wins), else referrer host, else "direct" — plus per-bucket counts
  * (all-time + last 7d) and a first-touch line (each distinct visitor is
  * attributed to the source of their FIRST visit row; unique visitors per
- * bucket). See src/visit-sources.ts for the deterministic bucketing rules.
+ * bucket). Each bucket also carries a friendly `display` name and the raw
+ * `hosts` (referrer hostnames) behind it. See src/visit-sources.ts for the
+ * deterministic bucketing rules.
  */
 function visitsBySource(db: Database) {
-  const rows = db.query(
-    "SELECT id, visitor_id, referrer, utm_source, ts FROM page_visits"
-  ).all() as VisitForAttribution[];
+  const rows = visitRows(db);
   const cutoff7d = new Date(Date.now() - 7 * 86400000).toISOString();
   return aggregateVisitsBySource(rows, cutoff7d);
+}
+
+/**
+ * utm_campaign rollup — the same page_visits rows grouped by non-empty
+ * utm_campaign with the same counting/first-touch semantics (see
+ * src/visit-sources.ts aggregateUtmCampaigns). Lets the owner see which
+ * tracked-link campaign (e.g. a Reddit post or Product Hunt launch) each
+ * visit belongs to.
+ */
+function utmCampaigns(db: Database) {
+  const rows = visitRows(db);
+  const cutoff7d = new Date(Date.now() - 7 * 86400000).toISOString();
+  return aggregateUtmCampaigns(rows, cutoff7d);
+}
+
+/** All page_visits rows with every attribution-relevant column (newest first
+ *  not required here — aggregation order is insertion order, which is also
+ *  id order for first-appearance semantics). */
+function visitRows(db: Database): VisitForAttribution[] {
+  return db.query(
+    "SELECT id, visitor_id, referrer, utm_source, utm_medium, utm_campaign, ts FROM page_visits"
+  ).all() as VisitForAttribution[];
 }
 
 /**
@@ -248,6 +270,7 @@ export function handleAdminData(db: Database, req: Request): Response {
     merchants: merchantsList(db),
     visits,
     visits_by_source: visitsBySource(db),
+    utm_campaigns: utmCampaigns(db),
     subscription_events: subscriptionEvents,
     waitlist: {
       total: countWaitlistSignups(db),

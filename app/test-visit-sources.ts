@@ -17,12 +17,21 @@
  *       visitor wins, ts then id tiebreak) + unique visitors per bucket
  *   (g) aggregateVisitsBySource: deterministic sort (visits_total desc,
  *       bucket asc)
+ *   (h) displayBucketName: friendly names (known channels, referral:host,
+ *       title-cased utm values)
+ *   (i) aggregateVisitsBySource: per-bucket `hosts` (raw referrer hosts, incl.
+ *       utm+referrer combos; dedupe + first-appearance order; direct → []) and
+ *       server-provided `display` on buckets
+ *   (j) aggregateUtmCampaigns: utm_campaign rollup (counts, medium of first
+ *       row, first-touch semantics, sort, exclusions)
  *
  * Run:  bun run test-visit-sources.ts
  */
 import {
+  aggregateUtmCampaigns,
   aggregateVisitsBySource,
   bucketVisit,
+  displayBucketName,
   referrerHost,
   type VisitForAttribution,
 } from "./src/visit-sources";
@@ -87,7 +96,7 @@ check("whitespace → empty host", referrerHost("   ") === "", referrerHost("   
 // ── (e)+(f)+(g) aggregation ──
 const now = Date.now();
 const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
-const row = (id: number, visitor_id: string, ts: string, extra: Partial<Pick<VisitForAttribution, "referrer" | "utm_source">> = {}): VisitForAttribution =>
+const row = (id: number, visitor_id: string, ts: string, extra: Partial<Pick<VisitForAttribution, "referrer" | "utm_source" | "utm_medium" | "utm_campaign">> = {}): VisitForAttribution =>
   ({ id, visitor_id, page: "/", referrer: "", utm_source: "", ts, ...extra } as VisitForAttribution);
 
 const cutoff7d = iso(-6 * 86400000); // 6 days ago — recent window
@@ -155,6 +164,73 @@ check("first-touch tie-break: same ts, lower row id wins",
 
 // Empty input → empty array.
 check("empty input → empty array", Array.isArray(aggregateVisitsBySource([], cutoff7d)) && aggregateVisitsBySource([], cutoff7d).length === 0);
+
+// ── (h) displayBucketName (friendly names, pure + deterministic) ──
+const displayCases: Array<[string, string]> = [
+  ["x", "X / Twitter"], ["reddit", "Reddit"], ["hackernews", "Hacker News"],
+  ["indiehackers", "Indie Hackers"], ["producthunt", "Product Hunt"], ["betalist", "BetaList"],
+  ["viberank", "VibeRank"], ["stripe", "Stripe"], ["google", "Google"], ["bing", "Bing"],
+  ["duckduckgo", "DuckDuckGo"], ["linkedin", "LinkedIn"], ["facebook", "Facebook"], ["direct", "Direct"],
+  ["referral:example.com", "example.com"], ["referral:sub.example.org", "sub.example.org"],
+];
+for (const [bucket, want] of displayCases) {
+  check(`displayBucketName("${bucket}") → "${want}"`, displayBucketName(bucket) === want, displayBucketName(bucket));
+}
+check("displayBucketName unknown utm value title-cased", displayBucketName("my-campaign_2") === "My Campaign 2", displayBucketName("my-campaign_2"));
+check("displayBucketName unknown single word title-cased", displayBucketName("newsletter") === "Newsletter", displayBucketName("newsletter"));
+check("displayBucketName empty → empty", displayBucketName("") === "", displayBucketName(""));
+
+// ── (i) hosts per bucket (incl. utm+referrer combo) + display on buckets ──
+const comboRows: VisitForAttribution[] = [
+  row(30, "host-a", iso(0), { utm_source: "google", referrer: "https://t.co/abc" }),          // utm bucket, referrer host t.co
+  row(31, "host-a", iso(-1000), { utm_source: "google", referrer: "https://www.google.com/search" }), // second host, first-appearance order
+  row(32, "host-b", iso(-2000), { utm_source: "google", referrer: "https://t.co/def" }),      // t.co again → dedup
+  row(33, "host-c", iso(-3000), { referrer: "https://www.reddit.com/r/x/" }),                 // referrer-driven bucket
+  row(34, "host-d", iso(-4000), {}),                                                          // direct → no hosts
+];
+const comboBuckets = aggregateVisitsBySource(comboRows, cutoff7d);
+const cg = comboBuckets.find((b) => b.bucket === "google");
+const cr = comboBuckets.find((b) => b.bucket === "reddit");
+const cd = comboBuckets.find((b) => b.bucket === "direct");
+check("utm bucket hosts include the referrer host (utm+referrer combo)", !!cg && cg.hosts.includes("t.co"), JSON.stringify(cg));
+check("utm bucket hosts dedupe and keep first-appearance order", !!cg && cg.hosts.join(",") === "t.co,www.google.com", JSON.stringify(cg));
+check("referrer-driven bucket hosts", !!cr && cr.hosts.join(",") === "www.reddit.com", JSON.stringify(cr));
+check("direct bucket hosts is an empty array", !!cd && Array.isArray(cd.hosts) && cd.hosts.length === 0, JSON.stringify(cd));
+check("buckets carry server-provided display names",
+  !!cg && cg.display === "Google" && cr?.display === "Reddit" && cd?.display === "Direct",
+  JSON.stringify(comboBuckets.map((b) => b.display)));
+// The earlier fixture's buckets also carry hosts (twitter referrer → x).
+check("existing x bucket hosts twitter.com", byBucket("x")?.hosts.join(",") === "twitter.com", JSON.stringify(byBucket("x")?.hosts));
+
+// ── (j) aggregateUtmCampaigns (utm_campaign rollup) ──
+const campRows: VisitForAttribution[] = [
+  row(40, "cv-a", iso(0), { utm_source: "x", utm_medium: "social", utm_campaign: "launch" }),
+  row(41, "cv-a", iso(-1000), { utm_source: "x", utm_medium: "social", utm_campaign: "launch" }),
+  row(42, "cv-b", iso(-2000), { utm_source: "google", utm_medium: "cpc", utm_campaign: "summer" }),
+  row(43, "cv-c", iso(-9 * 86400000), { referrer: "https://reddit.com/r/x/" }),                // no campaign → excluded
+  row(44, "cv-d", iso(0), { utm_source: "x", utm_medium: "", utm_campaign: "launch" }),        // medium of FIRST row wins
+  row(45, "cv-e", iso(-5 * 86400000), {}),                                                     // earliest visit: no campaign
+  row(46, "cv-e", iso(0), { utm_source: "x", utm_campaign: "late" }),                          // later visit: has campaign
+];
+const camps = aggregateUtmCampaigns(campRows, cutoff7d);
+const camp = (c: string) => camps.find((x) => x.campaign === c);
+check("utm_campaigns sorts visits_total desc then campaign asc",
+  camps.length === 3 && camps[0].campaign === "launch" && camps[1].campaign === "late" && camps[2].campaign === "summer",
+  JSON.stringify(camps));
+check("launch campaign: 3 visits, 7d 3, medium from first row seen (social), 2 first-touch (cv-a + cv-d)",
+  camp("launch")?.visits_total === 3 && camp("launch")?.visits_7d === 3 &&
+  camp("launch")?.medium === "social" && camp("launch")?.first_touch_visitors === 2,
+  JSON.stringify(camp("launch")));
+check("summer campaign: 1 visit, medium cpc, 1 first-touch (cv-b)",
+  camp("summer")?.visits_total === 1 && camp("summer")?.visits_7d === 1 &&
+  camp("summer")?.medium === "cpc" && camp("summer")?.first_touch_visitors === 1,
+  JSON.stringify(camp("summer")));
+check("rows without utm_campaign are excluded from the rollup", camps.length === 3, JSON.stringify(camps));
+check("visitor whose FIRST visit lacks a campaign gets NO campaign first-touch",
+  camp("late")?.visits_total === 1 && camp("late")?.visits_7d === 1 && camp("late")?.first_touch_visitors === 0,
+  JSON.stringify(camp("late")));
+check("empty utm_campaign treated as absent (no rollup rows)", aggregateUtmCampaigns([row(50, "cv-z", iso(0), { utm_medium: "x" })], cutoff7d).length === 0);
+check("empty input → empty array", aggregateUtmCampaigns([], cutoff7d).length === 0);
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll visit-source checks passed");
 process.exit(failures ? 1 : 0);

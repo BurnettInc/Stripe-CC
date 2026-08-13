@@ -147,12 +147,14 @@ check("lookalike /supporters still beacons", supportLookalike.beacons.length ===
 // ── (e) utm params + referrer truncation ──
 const utm = await runSnippet({
   pathname: "/",
-  search: "?utm_source=producthunt&utm_medium=social&utm_campaign=launch",
+  search: "?utm_source=producthunt&utm_medium=social&utm_campaign=launch&utm_content=launch-post-1",
   referrer: "x".repeat(700),
 });
 check("utm_source flows through", utm.beacons[0]?.body.utm_source === "producthunt", String(utm.beacons[0]?.body.utm_source));
 check("utm_medium flows through", utm.beacons[0]?.body.utm_medium === "social", String(utm.beacons[0]?.body.utm_medium));
 check("utm_campaign flows through", utm.beacons[0]?.body.utm_campaign === "launch", String(utm.beacons[0]?.body.utm_campaign));
+check("utm_content flows through (post-level tag)", utm.beacons[0]?.body.utm_content === "launch-post-1", String(utm.beacons[0]?.body.utm_content));
+check("missing utm_content on plain page is an empty string", normal.beacons[0]?.body.utm_content === "", String(normal.beacons[0]?.body.utm_content));
 check("referrer truncated to 500 chars", utm.beacons[0]?.body.referrer.length === 500, String(utm.beacons[0]?.body.referrer?.length));
 
 // ── (f) XHR fallback when sendBeacon is unavailable ──
