@@ -458,6 +458,36 @@
     }
     .billing-error-banner a { color: var(--primary); font-weight: 600; text-decoration: underline; }
 
+    /* ── Connect empty-state banner (fresh visitors — no session yet) ── */
+    .connect-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+      padding: 18px 22px;
+      border-radius: var(--radius);
+      background: linear-gradient(135deg, #EEF2FF 0%, #FFFFFF 100%);
+      border: 1px solid #C7D2FE;
+      line-height: 1.5;
+    }
+    .connect-banner strong { font-size: 1rem; color: var(--text); }
+    .connect-banner p { margin: 4px 0 0; color: var(--body); font-size: 0.85rem; }
+    .connect-banner-btn {
+      display: inline-block;
+      background: var(--primary);
+      color: #fff !important;
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 10px 18px;
+      border-radius: 8px;
+      text-decoration: none;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+    }
+    .connect-banner-btn:hover { background: var(--primary-hover); }
+
     /* ── Pause toggle switch ── */
     .switch { position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
@@ -707,6 +737,19 @@
       <a href="mailto:support@getcollectionscopilot.com">Contact support</a> if this keeps happening.
     </div>
 
+    <!-- Connect empty-state (visible BEFORE any session exists, so a brand-new
+         visitor landing on /dashboard always has an entry point to start
+         onboarding). loadStats() hides it once /stats succeeds — authed
+         merchants get the real dashboard, and the Stripe card itself renders
+         connected status or a connect link from there on. -->
+    <div class="connect-banner" id="connect-banner">
+      <div>
+        <strong>Connect your Stripe account to get started</strong>
+        <p>CollectionsCopilot watches for overdue invoices and sends polite, escalating reminders automatically. Free to start — no card required.</p>
+      </div>
+      <a class="connect-banner-btn" href="/stripe/connect">Connect Stripe &rarr;</a>
+    </div>
+
     <!-- Stats Cards -->
     <div class="stats-grid">
       <div class="stat-card linkable">
@@ -733,13 +776,19 @@
           <span class="stat-sub-hint" id="stat-free-drafts-hint">Upgrade for unlimited &rarr;</span>
         </a>
       </div>
-      <!-- Stripe connection: loadStats() renders a genuine status (green dot,
-           no pointer/hover, no hint) when connected, or a real link to
-           /stripe/connect when not connected / deauthorized. -->
-      <div class="stat-card" id="stat-stripe-card">
-        <div class="stat-value">—</div>
-        <div class="stat-label">Stripe</div>
-        <div class="stat-sub">—</div>
+      <!-- Stripe connection: the static card below is a REAL link to
+           /stripe/connect so a brand-new (unauthenticated) visitor always has
+           an entry point to start onboarding — before any session exists.
+           loadStats() then replaces the card contents with a genuine status
+           (green dot, no pointer/hover, no hint) when connected, or keeps a
+           link to /stripe/connect when not connected / deauthorized. -->
+      <div class="stat-card linkable" id="stat-stripe-card">
+        <a class="stat-link" href="/stripe/connect" title="Connect your Stripe account">
+          <div class="stat-value">—</div>
+          <div class="stat-label">Stripe</div>
+          <div class="stat-sub">Not connected</div>
+          <span class="stat-sub-hint">Connect Stripe &rarr;</span>
+        </a>
       </div>
     </div>
 
@@ -1113,6 +1162,11 @@
                 '</a>';
             }
           }
+          // Fresh-visitor empty-state banner: once /stats succeeds the visitor
+          // is authed — hide it. The Stripe card above already renders the
+          // right state (connected status, or a connect link when disconnected).
+          var connectBanner = document.getElementById('connect-banner');
+          if (connectBanner) connectBanner.style.display = 'none';
           // Standard 50-invoice cap banner — shown only while over the limit
           // (active Standard with >= 50 overdue invoices; the watcher blocks
           // new tracking until the count drops back under 50).

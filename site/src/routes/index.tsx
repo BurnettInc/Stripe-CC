@@ -160,7 +160,7 @@ function Home() {
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
           <a
-            href="/dashboard"
+            href="/stripe/connect"
             className="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm"
           >
             Start recovering invoices →
@@ -567,7 +567,7 @@ function Home() {
               </ul>
               {plan.free ? (
                 <a
-                  href="/dashboard"
+                  href="/stripe/connect"
                   className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   {plan.cta}
@@ -645,7 +645,7 @@ function Home() {
             finger.
           </p>
           <a
-            href="/dashboard"
+            href="/stripe/connect"
             className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
           >
             Get Started
