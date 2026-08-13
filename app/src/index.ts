@@ -172,6 +172,16 @@ if (process.env.SUPPORT_API_TOKEN) {
   console.log(`   Support lookup API disabled (SUPPORT_API_TOKEN unset)`);
 }
 
+// Owner notification status (owner request 2026-08-12): "email me whenever
+// someone connects Stripe or subscribes to a paid plan". Reads OWNER_NOTIFY_EMAIL
+// at call time in owner-notify.ts, so no boot guard is needed — when unset the
+// notifications are disabled (no crash, no send). Logged here for visibility.
+if (process.env.OWNER_NOTIFY_EMAIL) {
+  console.log(`   Owner notifications: enabled → ${process.env.OWNER_NOTIFY_EMAIL}`);
+} else {
+  console.log(`   Owner notifications: disabled (OWNER_NOTIFY_EMAIL unset)`);
+}
+
 // Inbound reply webhook status (reply-pause D1a). The /inbound/reply endpoint
 // returns 403 when INBOUND_WEBHOOK_TOKEN is unset — the endpoint is disabled
 // until the Cloudflare worker wiring (D3) provides the shared secret.

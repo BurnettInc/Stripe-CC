@@ -9,6 +9,7 @@ import {
   enforceTierTrustMode,
   recordSubscriptionEvent,
 } from "../db";
+import { notifyOwnerPaidSubscription, notifyOwnerCancelledSubscription } from "../pipeline/owner-notify";
 
 // Stripe API base. STRIPE_API_BASE lets endpoint tests point the backend at a
 // local stub instead of the real API; production keeps the default.
@@ -541,6 +542,15 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           createSubscription(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, stripe_customer_id: stripeCustomerId, tier });
           recordSubscriptionEvent(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, event: "created", tier, status: "active" });
           console.log(`[billing] Subscription created: merchant=${merchantId} tier=${tier} sub=${stripeSubscriptionId} customer=${stripeCustomerId || "n/a"}`);
+          // Owner notification: "💳 Paid subscription — ..." for real
+          // (non-dev/test) merchants. Inside the else so idempotent replays
+          // of an already-created subscription do not re-notify. Never
+          // throws into the webhook — failures are caught by the module.
+          try {
+            await notifyOwnerPaidSubscription(db, merchantId, tier, stripeCustomerId ?? null);
+          } catch (err: unknown) {
+            console.error(`[billing] owner paid-subscription notification error: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
 
         return new Response(JSON.stringify({ received: true, action: "subscription_created" }), { status: 200, headers });
@@ -557,6 +567,13 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           updateSubscriptionStatus(db, sub.id, "cancelled");
           recordSubscriptionEvent(db, { merchant_id: existing.merchant_id, stripe_subscription_id: sub.id, event: "cancelled", tier: existing.tier, status: "cancelled" });
           console.log(`[billing] Subscription ${sub.id} marked cancelled`);
+          // Owner notification: "❌ <email> canceled <Plan>" for real
+          // (non-dev/test) merchants. Never throws into the webhook.
+          try {
+            await notifyOwnerCancelledSubscription(db, existing.merchant_id, existing.tier);
+          } catch (err: unknown) {
+            console.error(`[billing] owner cancellation notification error: ${err instanceof Error ? err.message : String(err)}`);
+          }
           // Full Auto is Pro-only: demote trust_mode if this merchant lost Pro.
           enforceTierTrustMode(db, existing.merchant_id);
         }
