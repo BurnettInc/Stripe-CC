@@ -83,22 +83,29 @@ async function main(): Promise<void> {
   r = await fetch(`${BASE}/admin/data?token=${TOKEN}`);
   check("admin/data right token → 200", r.status === 200, `got ${r.status}`);
   const data = (await r.json()) as {
-    generated_at: string; funnel: Record<string, unknown>; merchants: unknown[]; visits: unknown[]; subscription_events: unknown[];
+    generated_at: string; funnel: Record<string, unknown>; merchants: unknown[]; visits: unknown[];
+    visits_by_source: Array<{ bucket: string; visits_total: number; visits_7d: number; first_touch_visitors: number }>;
+    subscription_events: unknown[];
   };
   check("admin/data has funnel + merchants + visits + subscription_events",
     !!data.funnel && Array.isArray(data.merchants) && Array.isArray(data.visits) && Array.isArray(data.subscription_events));
+  check("admin/data has visits_by_source (channel attribution)",
+    Array.isArray(data.visits_by_source) && data.visits_by_source.every((b) =>
+      typeof b.bucket === "string" && typeof b.visits_total === "number" &&
+      typeof b.visits_7d === "number" && typeof b.first_touch_visitors === "number"));
   check("admin/data funnel has visits/connects/drafts counters",
     "visits_total" in data.funnel && "connects_total" in data.funnel && "drafts_created_total" in data.funnel &&
     "paid_active" in data.funnel && "subs_cancelled" in data.funnel);
 
   // ── (c) /api/track ──
   const ts = new Date().toISOString();
-  const payload = { visitor_id: "11111111-2222-4333-8444-555555555555", page: "/", referrer: "https://google.com", utm_source: "google", utm_medium: "cpc", utm_campaign: "launch", ts };
+  const payload = { visitor_id: "11111111-2222-4333-8444-555555555555", page: "/", referrer: "https://google.com", utm_source: "google", utm_medium: "cpc", utm_campaign: "launch", utm_content: "test-content", ts };
   r = await postJson("/api/track", payload);
   check("track valid POST → 200", r.status === 200, `got ${r.status}`);
   const row1 = q1("SELECT * FROM page_visits WHERE visitor_id = ?", payload.visitor_id);
   check("track wrote a page_visits row", !!row1, "no row");
   check("track row stores utm + page", row1?.page === "/" && row1?.utm_source === "google" && row1?.utm_campaign === "launch", JSON.stringify(row1));
+  check("track row stores utm_content (post-level attribution)", row1?.utm_content === "test-content", JSON.stringify(row1));
 
   // Idempotent-ish: same visitor/page/ts replayed → no duplicate row.
   r = await postJson("/api/track", payload);
@@ -191,6 +198,54 @@ async function main(): Promise<void> {
   // ── (f) /admin never leaks unauthenticated; landing fallback unaffected ──
   r = await fetch(`${BASE}/admin/data`, { method: "POST" });
   check("POST /admin/data → 403 (gate first, method not allowed second)", r.status === 403, `got ${r.status}`);
+
+  // ── (g) visits_by_source channel attribution ──
+  // Two rows already exist for visitor 1111... (both utm_source=google — see
+  // section c/d). Add one beacon per attribution path: bare → direct,
+  // twitter referrer → x, HN referrer → hackernews, and a visitor whose FIRST
+  // visit is a reddit referrer and whose second carries utm google (first-touch
+  // must attribute to reddit, not google).
+  const t0 = Date.now() + 5000;
+  await postJson("/api/track", { visitor_id: "src-bare", page: "/", ts: new Date(t0 + 1000).toISOString() });
+  await postJson("/api/track", { visitor_id: "src-x", page: "/", referrer: "https://twitter.com/owner/status/123", ts: new Date(t0 + 2000).toISOString() });
+  await postJson("/api/track", { visitor_id: "src-hn", page: "/", referrer: "https://news.ycombinator.com/item?id=1", ts: new Date(t0 + 3000).toISOString() });
+  await postJson("/api/track", { visitor_id: "src-first", page: "/", referrer: "https://www.reddit.com/r/saas/comments/1/", ts: new Date(t0 + 4000).toISOString() });
+  await postJson("/api/track", { visitor_id: "src-first", page: "/pricing", utm_source: "google", utm_content: "reddit-sideproject", ts: new Date(t0 + 5000).toISOString() });
+
+  const data5 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
+    visits_by_source: Array<{ bucket: string; visits_total: number; visits_7d: number; first_touch_visitors: number }>;
+  };
+  const src = (b: string) => data5.visits_by_source.find((x) => x.bucket === b);
+  check("visits_by_source buckets google (2 existing + 1 utm second visit)",
+    src("google")?.visits_total === 3, JSON.stringify(data5.visits_by_source));
+  check("visits_by_source buckets bare visit → direct",
+    src("direct")?.visits_total === 1 && src("direct")?.first_touch_visitors === 1, JSON.stringify(src("direct")));
+  check("visits_by_source maps twitter referrer → x",
+    src("x")?.visits_total === 1 && src("x")?.first_touch_visitors === 1, JSON.stringify(src("x")));
+  check("visits_by_source maps news.ycombinator.com → hackernews",
+    src("hackernews")?.visits_total === 1 && src("hackernews")?.first_touch_visitors === 1, JSON.stringify(src("hackernews")));
+  check("visits_by_source first-touch: earliest visit (reddit referrer) wins over later utm",
+    src("reddit")?.visits_total === 1 && src("reddit")?.first_touch_visitors === 1, JSON.stringify(src("reddit")));
+  check("visits_by_source 7d counts include the fresh beacons",
+    src("google")?.visits_7d === 3 && src("direct")?.visits_7d === 1 && src("x")?.visits_7d === 1, JSON.stringify(data5.visits_by_source));
+  const ftSum = data5.visits_by_source.reduce((s, b) => s + b.first_touch_visitors, 0);
+  check("visits_by_source first-touch visitors sum to distinct visitors (5)",
+    ftSum === 5, `sum=${ftSum}`);
+
+  // utm_content is surfaced in the raw visits list (post-level attribution).
+  const data6 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
+    visits: Array<{ visitor_id: string; utm_content: string }>;
+  };
+  check("admin/data visits list surfaces utm_content",
+    data6.visits.some((v) => v.visitor_id === "src-first" && v.utm_content === "reddit-sideproject"),
+    JSON.stringify(data6.visits.find((v) => v.visitor_id === "src-first")));
+
+  // The admin HTML renders the source table (markup present in the served page).
+  r = await fetch(`${BASE}/admin?token=${TOKEN}`);
+  const html2 = await r.text();
+  check("admin page renders the visits-by-source table",
+    html2.includes("Visits by source") && html2.includes("sourceBuckets") && html2.includes("First-touch"),
+    "source table markup missing");
 
   console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll admin/track checks passed");
   process.exit(failures ? 1 : 0);
