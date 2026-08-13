@@ -436,9 +436,39 @@ export function recordPageVisit(
  * Record a waitlist signup (landing-page email capture). Returns true when a
  * NEW row was inserted, false when the email was already on the list
  * (idempotent — duplicates are a no-op, never an error).
+ *
+ * `attribution` carries the channel fields the landing page's WaitlistForm
+ * forwards (same fields as the visit-tracking beacon — referrer, utm_* and
+ * visitor_id, see migrations/016_waitlist_attribution.sql). The route clamps
+ * lengths to the track.ts conventions (referrer 500, utm_* 200, visitor_id
+ * 128); absent fields default to '' here so pre-existing callers stay
+ * unchanged.
  */
-export function recordWaitlistSignup(db: Database, email: string): boolean {
-  const result = db.run("INSERT OR IGNORE INTO waitlist (email) VALUES (?)", [email]);
+export function recordWaitlistSignup(
+  db: Database,
+  email: string,
+  attribution: {
+    referrer?: string;
+    utm_source?: string;
+    utm_medium?: string;
+    utm_campaign?: string;
+    utm_content?: string;
+    visitor_id?: string;
+  } = {}
+): boolean {
+  const result = db.run(
+    `INSERT OR IGNORE INTO waitlist (email, referrer, utm_source, utm_medium, utm_campaign, utm_content, visitor_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      email,
+      attribution.referrer ?? "",
+      attribution.utm_source ?? "",
+      attribution.utm_medium ?? "",
+      attribution.utm_campaign ?? "",
+      attribution.utm_content ?? "",
+      attribution.visitor_id ?? "",
+    ]
+  );
   return result.changes > 0;
 }
 /** Total number of waitlist signups (used in the owner notification body). */
@@ -446,15 +476,25 @@ export function countWaitlistSignups(db: Database): number {
   const row = db.query("SELECT COUNT(*) AS n FROM waitlist").get() as { n: number } | undefined;
   return row?.n ?? 0;
 }
+export interface WaitlistEntry {
+  id: number;
+  email: string;
+  created_at: string;
+  referrer: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  utm_content: string;
+  visitor_id: string;
+}
 /** Latest waitlist signups, newest first (id DESC — matches the visits / subscription-events admin lists), capped at 500. */
-export function listWaitlistEntries(
-  db: Database,
-  limit = 500
-): Array<{ id: number; email: string; created_at: string }> {
+export function listWaitlistEntries(db: Database, limit = 500): WaitlistEntry[] {
   const cap = Math.min(Math.max(Math.trunc(limit), 1), 500);
   return db
-    .query("SELECT id, email, created_at FROM waitlist ORDER BY id DESC LIMIT ?")
-    .all(cap) as Array<{ id: number; email: string; created_at: string }>;
+    .query(
+      "SELECT id, email, created_at, referrer, utm_source, utm_medium, utm_campaign, utm_content, visitor_id FROM waitlist ORDER BY id DESC LIMIT ?"
+    )
+    .all(cap) as WaitlistEntry[];
 }
 /**
  * Record a subscription lifecycle event (append-only log behind the admin

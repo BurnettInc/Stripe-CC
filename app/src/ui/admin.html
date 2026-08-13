@@ -134,7 +134,7 @@
     <div class="panel">
       <h2>Waitlist signups <span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0;">(latest 500)</span></h2>
       <div class="scroll"><table>
-        <thead><tr><th>ID</th><th>Email</th><th>Joined (local)</th></tr></thead>
+        <thead><tr><th>ID</th><th>Email</th><th>Source</th><th>Joined (local)</th></tr></thead>
         <tbody id="waitlist"></tbody>
       </table></div>
     </div>
@@ -297,13 +297,22 @@
         });
         var wT = document.getElementById("waitlist");
         if (!d.waitlist.entries.length) {
-          wT.innerHTML = '<tr><td colspan="3" class="empty">No waitlist signups yet</td></tr>';
+          wT.innerHTML = '<tr><td colspan="4" class="empty">No waitlist signups yet</td></tr>';
         }
         d.waitlist.entries.forEach(function (e) {
+          // Source cell mirrors the visits-by-source Referrer(s) column: friendly
+          // display name on top (the bucket itself for unmapped referral:<host>
+          // buckets — it's already the host), raw referrer host(s) underneath in
+          // muted small text; direct entries show no host line.
+          var srcName = e.source_bucket.indexOf("referral:") === 0 ? e.source_bucket : (e.display || e.source_bucket);
+          var hostsHtml = e.hosts && e.hosts.length
+            ? '<div class="hosts">' + esc(e.hosts.join(", ")) + "</div>"
+            : "";
           var row = document.createElement("tr");
           row.innerHTML =
             "<td><code>" + esc(e.id) + "</code></td>" +
             "<td>" + esc(e.email) + "</td>" +
+            "<td>" + esc(srcName) + hostsHtml + "</td>" +
             "<td>" + localT(e.created_at) + "</td>";
           wT.appendChild(row);
         });
