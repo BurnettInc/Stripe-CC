@@ -28,7 +28,7 @@ let encryptionWarningLogged = false;
  * Returns null when the env var is unset (plaintext, backward compatible) —
  * a warning is logged once.
  */
-function getEncryptionKey(): Buffer | null {
+export function getEncryptionKey(): Buffer | null {
   const key = process.env.TOKEN_ENCRYPTION_KEY;
   if (!key) {
     if (!encryptionWarningLogged) {
@@ -41,7 +41,7 @@ function getEncryptionKey(): Buffer | null {
   return createHash("sha256").update(key).digest();
 }
 
-function encryptValue(value: string | null, key: Buffer | null): string | null {
+export function encryptValue(value: string | null, key: Buffer | null): string | null {
   if (value === null || value === "") return value;
   if (!key) return value; // no key configured — store plaintext (backward compat)
   const iv = randomBytes(12);
@@ -51,7 +51,7 @@ function encryptValue(value: string | null, key: Buffer | null): string | null {
   return `${ENC_PREFIX}${iv.toString("base64")}:${authTag.toString("base64")}:${ciphertext.toString("base64")}`;
 }
 
-function decryptValue(value: string | null, key: Buffer | null): string | null {
+export function decryptValue(value: string | null, key: Buffer | null): string | null {
   if (value === null || value === "") return value;
   if (!value.startsWith(ENC_PREFIX)) return value; // legacy plaintext value
   if (!key) {

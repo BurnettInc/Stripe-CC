@@ -8,6 +8,7 @@ import { handleReplies } from "./routes/replies";
 import { handleSettings } from "./routes/settings";
 import { handleBilling } from "./routes/billing";
 import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus, handleOAuthSession, handleOAuthHandoff, handleOAuthSuccess } from "./routes/oauth";
+import { handleAppInstallPage, handleAppInstallStart, handleAppInstallCallback } from "./routes/oauth-app-install";
 import { handleInvoices } from "./routes/invoices";
 import { handleSupport } from "./routes/support";
 import { handleAdminPage, handleAdminData, requireAdminToken } from "./routes/admin";
@@ -489,6 +490,21 @@ async function handleRequest(req: Request): Promise<Response> {
         return handleBilling(db, req, "webhook");
       }
 
+      // GET /oauth/install — Stripe Apps marketplace install page (the URL
+      // given to Stripe as the marketplace install URL; the reviewer required
+      // a page with clear instructions + OAuth install links, not a bare
+      // redirect). ?auto=1 302s straight into the authorize flow.
+      if (path === "/oauth/install" && req.method === "GET") {
+        return handleAppInstallPage(db, req);
+      }
+
+      // GET /oauth/install/start — mint a CSRF-safe state (link type encoded
+      // inside per the docs) and 302 → marketplace.stripe.com/oauth/v2/
+      // authorize?client_id=…&redirect_uri=…&state=…
+      if (path === "/oauth/install/start" && req.method === "GET") {
+        return handleAppInstallStart(db, req);
+      }
+
       // GET /stripe/connect — Stripe Connect OAuth redirect
       if ((path === "/stripe/connect" || path === "/api/stripe/connect") && req.method === "GET") {
         return handleStripeConnect(db, req);
@@ -496,7 +512,14 @@ async function handleRequest(req: Request): Promise<Response> {
 
       // GET /stripe/oauth/callback — Stripe Connect OAuth callback
       // GET /oauth/callback — alias (matches manifest's allowed_redirect_uris as well)
+      // The marketplace OAuth v2 flow redirects back here with a one-time
+      // `code` + `state`; the Express Account-Links flow redirects with
+      // `account` (and a denial carries `error` but never `account`). Branch
+      // on that so both flows share the manifest's allowed_redirect_uris path
+      // while the web-connect flow keeps its exact current behavior.
       if ((path === "/stripe/oauth/callback" || path === "/oauth/callback" || path === "/api/oauth/callback") && req.method === "GET") {
+        const isCodeFlow = url.searchParams.has("code") || (url.searchParams.has("error") && !url.searchParams.has("account"));
+        if (isCodeFlow) return handleAppInstallCallback(db, req);
         return handleStripeOAuthCallback(db, req);
       }
 
