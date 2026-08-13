@@ -66,7 +66,9 @@ production.
 |---|---|---|
 | `BASE_URL` | ✅ | The Railway public URL, **no trailing slash**: `https://your-app.up.railway.app`. Drives Stripe Connect OAuth redirect/return URLs, the Stripe Apps marketplace install URL, billing checkout return URLs, and email unsubscribe links (all built as `${BASE_URL}/...`). |
 | `STRIPE_SECRET_KEY` | ✅ | Owner's Stripe secret key — test-mode key (`sk_test_…`) while testing, live key (`sk_live_…`) when ready. Webhooks & billing fail without it. |
-| `STRIPE_CLIENT_ID` | ✅ (for Stripe App install) | The Stripe Apps application client id (`ca_…`) from the Stripe dashboard (Apps → your app → API authentication). Required to build the marketplace authorize URL (`/oauth/install/start` → `marketplace.stripe.com/oauth/v2/authorize`). Without it the install page shows a clear "not configured" notice and never crashes. |
+| `STRIPE_CLIENT_ID` | ✅ (for Stripe App install) — **legacy default** | The Stripe Apps application client id (`ca_…`) from the Stripe dashboard (Apps → your app → API authentication). Used as the **fallback** client id for BOTH test and live marketplace authorize URLs when the mode-specific `STRIPE_APP_TEST_CLIENT_ID` / `STRIPE_APP_LIVE_CLIENT_ID` are unset (backward compatible — this is the live/default client id, so existing single-env setups keep working). Without any client id the install page shows a clear "not configured" notice and never crashes. |
+| `STRIPE_APP_TEST_CLIENT_ID` | ✅ (for test installs) | The app client id (`ca_…`) for **test-mode** marketplace install links (test and live OAuth install links carry DIFFERENT client ids — see the External test tab in the Stripe dashboard). Overrides `STRIPE_CLIENT_ID` when building the test-mode authorize URL (`/oauth/install/start?link=test`). Falls back to `STRIPE_CLIENT_ID` when unset. |
+| `STRIPE_APP_LIVE_CLIENT_ID` | ✅ (for live installs) | The app client id (`ca_…`) for **live-mode** marketplace install links. Overrides `STRIPE_CLIENT_ID` when building the live-mode authorize URL (`/oauth/install/start?link=live`). Falls back to `STRIPE_CLIENT_ID` when unset. |
 | `STRIPE_APP_TEST_KEY` | ✅ (for Stripe App install) | The app **developer API key** for **test-mode links** (Apps → your app → API authentication → developer keys). Used as the Basic-auth credential when exchanging the one-time authorization code and when refreshing access tokens for test-mode installs. |
 | `STRIPE_APP_LIVE_KEY` | ✅ (for live installs) | The app **developer API key** for **live-mode links**. Same role as `STRIPE_APP_TEST_KEY` but for live installs; without it live-mode links fail with a clear error page (test-mode installs are unaffected). |
 | `STRIPE_WEBHOOK_SECRET` | ✅ | Signing secret (`whsec_…`) of the **/webhook** endpoint from Stripe (step 4). **Mandatory** — the app exits at boot without it when `NODE_ENV=production` (webhook signature verification is a hard requirement, not optional). |
@@ -142,12 +144,14 @@ already declares `"stripe_api_access_type": "oauth"` with
    every exchange (`refreshAppAccessToken()` in
    `src/routes/oauth-app-install.ts`).
 
-Required env for the install flow (see the table above): `STRIPE_CLIENT_ID`
-(app client id `ca_…`), `STRIPE_APP_TEST_KEY` and `STRIPE_APP_LIVE_KEY` (app
-developer keys). Developer keys live in the Stripe dashboard under **Apps →
-your app → API authentication**. When a key is missing the matching mode's
-link fails with a clear error page — test-mode installs don't need the live
-key and vice versa.
+Required env for the install flow (see the table above): `STRIPE_APP_TEST_CLIENT_ID`
+and `STRIPE_APP_LIVE_CLIENT_ID` (per-mode app client ids `ca_…`; `STRIPE_CLIENT_ID`
+is the legacy default fallback), and `STRIPE_APP_TEST_KEY` / `STRIPE_APP_LIVE_KEY`
+(app developer keys). Developer keys and the per-mode OAuth install links live
+in the Stripe dashboard under **Apps → your app → API authentication** (test and
+live links carry different client ids). When a client id or key is missing the
+matching mode's link/button is hidden or fails with a clear error page —
+test-mode installs don't need the live vars and vice versa.
 
 ## 6. First boot — database initialization (no manual step)
 

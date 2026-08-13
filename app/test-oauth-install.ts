@@ -14,7 +14,8 @@
  *       ?auto=1 302s into the authorize flow
  *   (b) /oauth/install/start?link=test → 302 to
  *       https://marketplace.stripe.com/oauth/v2/authorize with
- *       client_id=STRIPE_CLIENT_ID, redirect_uri=the manifest URI, and a
+ *       client_id=STRIPE_CLIENT_ID (legacy fallback — the suite server has no
+ *       mode-specific client ids), redirect_uri=the manifest URI, and a
  *       CSRF-safe state ("<48 hex>:<link-type>") stored in oauth_install_states
  *   (c) callback happy path: /oauth/callback?code=…&state=… exchanges the code
  *       with the stub (Basic auth = the TEST developer key), stores
@@ -31,9 +32,15 @@
  * Unit level (direct module imports in this process, own DB handle, env
  * mutated locally and restored):
  *   (g) create/consume install state (roundtrip, one-time, unknown → null)
- *   (h) appDevKeyFor picks test/live key, null when unset (graceful no-op)
- *   (i) buildAuthorizeUrl: client_id + redirect_uri + state, or a clear error
- *       when STRIPE_CLIENT_ID is unset
+ *   (h) appDevKeyFor picks test/live key, null when unset (graceful no-op);
+ *       appClientIdFor picks per-mode STRIPE_APP_{TEST|LIVE}_CLIENT_ID with a
+ *       STRIPE_CLIENT_ID fallback, null when nothing resolves
+ *   (i) buildAuthorizeUrl: per-mode client_id (mode env wins, STRIPE_CLIENT_ID
+ *       falls back) + redirect_uri + state, or a clear error naming the
+ *       missing env vars
+ *   (m) installPageHtml: a mode's button appears only when BOTH its client id
+ *       and its developer key resolve; the "not configured" notice lists the
+ *       missing env vars per mode
  *   (j) exchangeCodeForTokens: happy path through the stub; missing-key error
  *       without any network call
  *   (k) save/getAppOAuthTokens: encrypted at rest, decrypted on read, upsert
@@ -247,13 +254,46 @@ async function main(): Promise<void> {
   check("h3: missing live key → null (no crash)", mod.appDevKeyFor("live") === null, "");
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
 
-  // ── (i) unit: authorize URL builder ──
-  process.env.STRIPE_CLIENT_ID = "ca_unit_client";
-  const built = mod.buildAuthorizeUrl("abc:test");
-  check("i1: builds authorize URL", "url" in built && (built as { url: string }).url.includes("client_id=ca_unit_client") && (built as { url: string }).url.includes("redirect_uri=") && (built as { url: string }).url.includes("state=abc%3Atest"), JSON.stringify(built));
+  // ── (h2) unit: per-mode client id selection (mode env wins, fallback) ──
+  process.env.STRIPE_CLIENT_ID = "ca_fallback";
+  process.env.STRIPE_APP_TEST_CLIENT_ID = "ca_test_mode";
+  process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_mode";
+  check("h4: test client id from STRIPE_APP_TEST_CLIENT_ID", mod.appClientIdFor("test") === "ca_test_mode", "");
+  check("h5: live client id from STRIPE_APP_LIVE_CLIENT_ID", mod.appClientIdFor("live") === "ca_live_mode", "");
+  delete process.env.STRIPE_APP_TEST_CLIENT_ID;
+  delete process.env.STRIPE_APP_LIVE_CLIENT_ID;
+  check("h6: falls back to STRIPE_CLIENT_ID when mode vars unset", mod.appClientIdFor("test") === "ca_fallback" && mod.appClientIdFor("live") === "ca_fallback", "");
   delete process.env.STRIPE_CLIENT_ID;
-  const builtMissing = mod.buildAuthorizeUrl("abc:test");
-  check("i2: missing client id → clear error", "error" in builtMissing && (builtMissing as { error: string }).error.includes("STRIPE_CLIENT_ID"), JSON.stringify(builtMissing));
+  check("h7: null when nothing set", mod.appClientIdFor("test") === null && mod.appClientIdFor("live") === null, "");
+  check("h7b: missingEnvFor names the client id var when unset", mod.missingEnvFor("test").includes("STRIPE_APP_TEST_CLIENT_ID"), JSON.stringify(mod.missingEnvFor("test")));
+  process.env.STRIPE_CLIENT_ID = "ca_fallback";
+  process.env.STRIPE_APP_TEST_CLIENT_ID = "ca_test_mode";
+  process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_mode";
+  check("h8: missingEnvFor empty when everything resolves", mod.missingEnvFor("test").length === 0 && mod.missingEnvFor("live").length === 0, JSON.stringify([mod.missingEnvFor("test"), mod.missingEnvFor("live")]));
+  delete process.env.STRIPE_APP_LIVE_KEY;
+  check("h9: missingEnvFor reports the missing key only", mod.missingEnvFor("live").length === 1 && mod.missingEnvFor("live")[0] === "STRIPE_APP_LIVE_KEY", JSON.stringify(mod.missingEnvFor("live")));
+  process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
+
+  // ── (i) unit: authorize URL builder (per-mode client id) ──
+  process.env.STRIPE_CLIENT_ID = "ca_unit_client";
+  delete process.env.STRIPE_APP_TEST_CLIENT_ID;
+  const built = mod.buildAuthorizeUrl("abc:test", "test");
+  check("i1: test mode falls back to STRIPE_CLIENT_ID", "url" in built && (built as { url: string }).url.includes("client_id=ca_unit_client") && (built as { url: string }).url.includes("redirect_uri=") && (built as { url: string }).url.includes("state=abc%3Atest"), JSON.stringify(built));
+  process.env.STRIPE_APP_TEST_CLIENT_ID = "ca_test_unit";
+  const builtTest = mod.buildAuthorizeUrl("abc:test", "test");
+  check("i1b: test mode prefers STRIPE_APP_TEST_CLIENT_ID", "url" in builtTest && (builtTest as { url: string }).url.includes("client_id=ca_test_unit"), JSON.stringify(builtTest));
+  process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_unit";
+  const builtLive = mod.buildAuthorizeUrl("abc:live", "live");
+  check("i1c: live mode prefers STRIPE_APP_LIVE_CLIENT_ID", "url" in builtLive && (builtLive as { url: string }).url.includes("client_id=ca_live_unit"), JSON.stringify(builtLive));
+  delete process.env.STRIPE_APP_LIVE_CLIENT_ID;
+  const builtLiveFallback = mod.buildAuthorizeUrl("abc:live", "live");
+  check("i1d: live mode falls back to STRIPE_CLIENT_ID", "url" in builtLiveFallback && (builtLiveFallback as { url: string }).url.includes("client_id=ca_unit_client"), JSON.stringify(builtLiveFallback));
+  delete process.env.STRIPE_CLIENT_ID;
+  delete process.env.STRIPE_APP_TEST_CLIENT_ID;
+  const builtMissing = mod.buildAuthorizeUrl("abc:test", "test");
+  check("i2: missing client id → clear error naming both env vars", "error" in builtMissing && (builtMissing as { error: string }).error.includes("STRIPE_APP_TEST_CLIENT_ID") && (builtMissing as { error: string }).error.includes("STRIPE_CLIENT_ID"), JSON.stringify(builtMissing));
+  const builtMissingLive = mod.buildAuthorizeUrl("abc:live", "live");
+  check("i2b: missing live client id → error names STRIPE_APP_LIVE_CLIENT_ID", "error" in builtMissingLive && (builtMissingLive as { error: string }).error.includes("STRIPE_APP_LIVE_CLIENT_ID"), JSON.stringify(builtMissingLive));
   process.env.STRIPE_CLIENT_ID = "ca_unit_client";
 
   // ── (j) unit: code exchange (through the stub) ──
@@ -329,6 +369,47 @@ async function main(): Promise<void> {
   check("l10: missing live key → clean error", !rf6.ok && rf6.error.includes("STRIPE_APP_LIVE_KEY"), JSON.stringify(rf6));
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
   u.close();
+
+  // ── (m) unit: install page per-mode configuration ──
+  // A mode's button appears only when BOTH its client id and its developer key
+  // resolve; the "not configured" notice lists the missing env vars per mode.
+  const pageBase = "https://stripe-cc-production.up.railway.app";
+  const modesWith = (): ("test" | "live")[] => (["test", "live"] as const).filter((lt) => mod.appClientIdFor(lt) && mod.appDevKeyFor(lt));
+  const missingMap = (): { test: string[]; live: string[] } => ({ test: mod.missingEnvFor("test"), live: mod.missingEnvFor("live") });
+
+  process.env.STRIPE_CLIENT_ID = "ca_page_fallback";
+  process.env.STRIPE_APP_TEST_CLIENT_ID = "ca_test_page";
+  process.env.STRIPE_APP_TEST_KEY = "sk_test_page";
+  process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_page";
+  process.env.STRIPE_APP_LIVE_KEY = "sk_live_page";
+  const pageAll = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  check("m1: test button shown when test client id + test key both set", pageAll.includes(`${pageBase}/oauth/install/start?link=test`), "");
+  check("m2: live button shown when live client id + live key both set", pageAll.includes(`${pageBase}/oauth/install/start?link=live`), "");
+
+  // Test client id missing (fallback removed too) → test button gone, live
+  // button stays, per-mode notice names the missing client id var.
+  delete process.env.STRIPE_APP_TEST_CLIENT_ID;
+  delete process.env.STRIPE_CLIENT_ID;
+  const pageNoTest = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  check("m3: test button hidden when test client id missing", !pageNoTest.includes(`${pageBase}/oauth/install/start?link=test`), "");
+  check("m4: live button still shown", pageNoTest.includes(`${pageBase}/oauth/install/start?link=live`), "");
+  check("m5: notice names STRIPE_APP_TEST_CLIENT_ID", pageNoTest.includes("STRIPE_APP_TEST_CLIENT_ID"), "");
+
+  // Nothing resolves → full per-mode notice.
+  delete process.env.STRIPE_APP_LIVE_CLIENT_ID;
+  delete process.env.STRIPE_APP_TEST_KEY;
+  delete process.env.STRIPE_APP_LIVE_KEY;
+  const pageNone = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  check("m6: nothing configured → notice present", pageNone.includes("Installation is not configured yet."), "");
+  check("m7: notice lists test-mode missing vars", pageNone.includes("Test mode: set") && pageNone.includes("STRIPE_APP_TEST_CLIENT_ID") && pageNone.includes("STRIPE_APP_TEST_KEY"), "");
+  check("m8: notice lists live-mode missing vars", pageNone.includes("Live mode: set") && pageNone.includes("STRIPE_APP_LIVE_CLIENT_ID") && pageNone.includes("STRIPE_APP_LIVE_KEY"), "");
+
+  // Restore env for any later sections.
+  process.env.STRIPE_CLIENT_ID = "ca_unit_client";
+  process.env.STRIPE_APP_TEST_CLIENT_ID = "ca_test_unit";
+  process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_unit";
+  process.env.STRIPE_APP_TEST_KEY = "sk_test_unit";
+  process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
 
   console.log(failures === 0 ? "ALL PASS" : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);

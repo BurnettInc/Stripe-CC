@@ -36,9 +36,10 @@
  *                                      expire ~1h, refresh tokens expire ~1yr
  *                                      and ROLL on every exchange.
  *
- * Env: STRIPE_CLIENT_ID (app client id, ca_…), STRIPE_APP_TEST_KEY /
- * STRIPE_APP_LIVE_KEY (app developer API keys). Everything degrades to a
- * clear error page — never a crash — when unset.
+ * Env: STRIPE_APP_TEST_CLIENT_ID / STRIPE_APP_LIVE_CLIENT_ID (per-mode app
+ * client ids, ca_…; STRIPE_CLIENT_ID is the legacy default fallback),
+ * STRIPE_APP_TEST_KEY / STRIPE_APP_LIVE_KEY (app developer API keys).
+ * Everything degrades to a clear error page — never a crash — when unset.
  */
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
@@ -69,6 +70,30 @@ export function appDevKeyFor(linkType: LinkType): string | null {
     : (process.env.STRIPE_APP_TEST_KEY ?? null);
 }
 
+/** App client id (ca_…) matching the link type. Test and live marketplace
+ * install links carry DIFFERENT client ids, so the mode-specific env wins;
+ * STRIPE_CLIENT_ID is the legacy live/default fallback when unset. */
+export function appClientIdFor(linkType: LinkType): string | null {
+  const modeClientId =
+    linkType === "live" ? process.env.STRIPE_APP_LIVE_CLIENT_ID : process.env.STRIPE_APP_TEST_CLIENT_ID;
+  return modeClientId ?? process.env.STRIPE_CLIENT_ID ?? null;
+}
+
+/** Env vars still missing for a link type to be installable (client id slot
+ * first, then developer key). The install page's per-mode notices render this;
+ * when appClientIdFor resolves through the STRIPE_CLIENT_ID fallback the mode
+ * var is not reported. */
+export function missingEnvFor(linkType: LinkType): string[] {
+  const missing: string[] = [];
+  if (!appClientIdFor(linkType)) {
+    missing.push(linkType === "live" ? "STRIPE_APP_LIVE_CLIENT_ID" : "STRIPE_APP_TEST_CLIENT_ID");
+  }
+  if (!appDevKeyFor(linkType)) {
+    missing.push(linkType === "live" ? "STRIPE_APP_LIVE_KEY" : "STRIPE_APP_TEST_KEY");
+  }
+  return missing;
+}
+
 // ── CSRF-safe state ──
 // State = "<random-hex>:<link-type>". The DB row is authoritative for the link
 // type (never trust a parsed suffix); rows are one-time (deleted on consume)
@@ -94,12 +119,13 @@ export function consumeInstallState(db: Database, state: string): LinkType | nul
 }
 
 // ── Authorize URL ──
-export function buildAuthorizeUrl(state: string): { url: string } | { error: string } {
-  const clientId = process.env.STRIPE_CLIENT_ID;
+export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: string } | { error: string } {
+  const clientId = appClientIdFor(linkType);
   const baseUrl = process.env.BASE_URL || "http://localhost:3002";
   const redirectUri = process.env.STRIPE_APP_REDIRECT_URI || `${baseUrl}/oauth/callback`;
   if (!clientId) {
-    return { error: "STRIPE_CLIENT_ID is not set — the app install link cannot be built. Set it to the app's client id (ca_…) in the Stripe dashboard." };
+    const modeEnv = linkType === "live" ? "STRIPE_APP_LIVE_CLIENT_ID" : "STRIPE_APP_TEST_CLIENT_ID";
+    return { error: `Neither ${modeEnv} nor the default STRIPE_CLIENT_ID is set — the ${linkType}-mode app install link cannot be built. Set the app's ${linkType}-mode client id (ca_…) in the Stripe dashboard.` };
   }
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state });
   return { url: `${MARKETPLACE_AUTHORIZE_URL}?${params.toString()}` };
@@ -109,17 +135,36 @@ export function buildAuthorizeUrl(state: string): { url: string } | { error: str
 // The reviewer required the marketplace install URL to be a page that
 // initiates onboarding with clear instructions using OAuth install links — not
 // a bare redirect. The page renders a "Connect with Stripe" button per
-// configured mode; each button starts /oauth/install/start, which builds a
-// fresh state and redirects into the marketplace authorize flow.
-export function installPageHtml(baseUrl: string, clientIdSet: boolean, configuredModes: LinkType[]): string {
+// configured mode (a mode is installable only when BOTH its client id and its
+// developer key resolve); each button starts /oauth/install/start, which
+// builds a fresh state and redirects into the marketplace authorize flow.
+export function installPageHtml(
+  baseUrl: string,
+  configuredModes: LinkType[],
+  missingEnv: Record<LinkType, string[]>
+): string {
   const buttonFor = (linkType: LinkType, label: string) =>
     `<a href="${baseUrl}/oauth/install/start?link=${linkType}" style="display:block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;margin:10px 0;text-align:center;">${label}</a>`;
 
+  // Human text for a mode's missing env vars, e.g. "<code>STRIPE_APP_TEST_CLIENT_ID</code>
+  // (or the default <code>STRIPE_CLIENT_ID</code>) and <code>STRIPE_APP_TEST_KEY</code>".
+  const missingTextFor = (linkType: LinkType): string =>
+    missingEnv[linkType]
+      .map((env) =>
+        env.endsWith("_CLIENT_ID")
+          ? `<code>${env}</code> (or the default <code>STRIPE_CLIENT_ID</code>)`
+          : `<code>${env}</code>`
+      )
+      .join(" and ");
+
   let body: string;
-  if (!clientIdSet) {
-    body = `<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong><br>The app developer hasn't set <code>STRIPE_CLIENT_ID</code>. Once set, this page will show a "Connect with Stripe" button.</p>`;
-  } else if (configuredModes.length === 0) {
-    body = `<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>No developer keys configured yet.</strong><br>Set <code>STRIPE_APP_TEST_KEY</code> (and <code>STRIPE_APP_LIVE_KEY</code> for live) to enable installation. No action is needed on your side.</p>`;
+  if (configuredModes.length === 0) {
+    const perMode = LINK_TYPES.map((lt) => {
+      const envs = missingEnv[lt];
+      if (envs.length === 0) return "";
+      return `<br>${lt === "test" ? "Test" : "Live"} mode: set ${missingTextFor(lt)}`;
+    }).join("");
+    body = `<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong>${perMode} Once set, this page will show a "Connect with Stripe" button. No action is needed on your side.</p>`;
   } else {
     body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Connect your Stripe account to let CollectionsCopilot watch for overdue invoices and send your customers friendly, automatic payment reminders.</p>
       <ol style="color:#4B5563;font-size:14px;line-height:1.8;margin:0 0 22px;padding-left:20px;text-align:left;">
@@ -129,6 +174,11 @@ export function installPageHtml(baseUrl: string, clientIdSet: boolean, configure
       </ol>
       ${configuredModes.includes("test") ? buttonFor("test", "Connect with Stripe — test mode") : ""}
       ${configuredModes.includes("live") ? buttonFor("live", "Connect with Stripe — live mode") : ""}
+      ${
+        LINK_TYPES.filter((lt) => !configuredModes.includes(lt) && missingEnv[lt].length > 0)
+          .map((lt) => `<p style="color:#9CA3AF;font-size:12px;margin:12px 0 0;">${lt === "test" ? "Test" : "Live"} mode is not available yet — set ${missingTextFor(lt)}.</p>`)
+          .join("")
+      }
       <p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>`;
   }
 
@@ -162,15 +212,17 @@ export function installPageHtml(baseUrl: string, clientIdSet: boolean, configure
 export function handleAppInstallPage(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
   const baseUrl = process.env.BASE_URL || "http://localhost:3002";
-  const clientIdSet = !!process.env.STRIPE_CLIENT_ID;
-  const configuredModes: LinkType[] = LINK_TYPES.filter((lt) => appDevKeyFor(lt));
+  // A mode is installable only when BOTH its client id and its developer key
+  // resolve (client id can come from the STRIPE_CLIENT_ID fallback).
+  const configuredModes: LinkType[] = LINK_TYPES.filter((lt) => appClientIdFor(lt) && appDevKeyFor(lt));
+  const missingEnv: Record<LinkType, string[]> = { test: missingEnvFor("test"), live: missingEnvFor("live") };
 
   const url = new URL(req.url);
   if (url.searchParams.get("auto") === "1") {
     const link = isLinkType(url.searchParams.get("link") ?? "") ? url.searchParams.get("link")! : "test";
     return new Response(null, { status: 302, headers: { Location: `${baseUrl}/oauth/install/start?link=${link}` } });
   }
-  return new Response(installPageHtml(baseUrl, clientIdSet, configuredModes), {
+  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
@@ -186,7 +238,7 @@ export function handleAppInstallStart(db: Database, req: Request): Response {
   const linkType: LinkType = isLinkType(linkParam) ? linkParam : "test";
 
   const state = createInstallState(db, linkType);
-  const built = buildAuthorizeUrl(state);
+  const built = buildAuthorizeUrl(state, linkType);
   if ("error" in built) {
     return new Response(appOAuthErrorPage(built.error), {
       status: 200,
