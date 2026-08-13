@@ -19,10 +19,17 @@
  *       merchant plan/sub_status derivation (dev_pro → pro/active)
  *   (f) /admin is absent from every public surface the test can reach:
  *       the landing page fallback never serves it unauthenticated
- *   (g) visits_by_source channel attribution + utm_content surfacing
+ *   (g) visits_by_source channel attribution + utm_content surfacing + per-
+ *       bucket detail (display names, raw referrer hosts incl. utm+referrer
+ *       combos, direct → empty hosts) + the admin page markup for the
+ *       Referrer(s) column, Recent visits panel and UTM campaigns panel
  *   (h) /admin/data waitlist block: total + newest-first entries with
  *       id/email/created_at for seeded rows, the 500-entry cap, and the
  *       waitlist panel markup on the admin page
+ *   (i) /admin/data utm_campaigns rollup: shape {campaign, medium, visits_total,
+ *       visits_7d, first_touch_visitors}, medium from the first row seen per
+ *       campaign, sort (visits_total desc then campaign asc), and the
+ *       newsletter utm_source bucket (title-cased display + referrer hosts)
  *
  * Runs against a booted server sharing its SQLite DB:
  *
@@ -221,7 +228,7 @@ async function main(): Promise<void> {
   await postJson("/api/track", { visitor_id: "src-first", page: "/pricing", utm_source: "google", utm_content: "reddit-sideproject", ts: new Date(t0 + 5000).toISOString() });
 
   const data5 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
-    visits_by_source: Array<{ bucket: string; visits_total: number; visits_7d: number; first_touch_visitors: number }>;
+    visits_by_source: Array<{ bucket: string; display: string; hosts: string[]; visits_total: number; visits_7d: number; first_touch_visitors: number }>;
   };
   const src = (b: string) => data5.visits_by_source.find((x) => x.bucket === b);
   check("visits_by_source buckets google (2 existing + 1 utm second visit)",
@@ -240,6 +247,22 @@ async function main(): Promise<void> {
   check("visits_by_source first-touch visitors sum to distinct visitors (5)",
     ftSum === 5, `sum=${ftSum}`);
 
+  // Per-bucket detail: friendly display names + raw referrer hosts behind each
+  // bucket (utm+referrer combos included — the google bucket's visits carry
+  // referrer https://google.com, so its hosts must include google.com).
+  check("visits_by_source buckets carry display names",
+    src("x")?.display === "X / Twitter" && src("hackernews")?.display === "Hacker News" &&
+    src("direct")?.display === "Direct" && src("google")?.display === "Google",
+    JSON.stringify(data5.visits_by_source.map((b) => b.display)));
+  check("visits_by_source buckets carry raw referrer hosts (utm+referrer combo)",
+    Array.isArray(src("google")?.hosts) && src("google")?.hosts.includes("google.com") &&
+    Array.isArray(src("x")?.hosts) && src("x")?.hosts.includes("twitter.com") &&
+    Array.isArray(src("hackernews")?.hosts) && src("hackernews")?.hosts.includes("news.ycombinator.com"),
+    JSON.stringify(data5.visits_by_source.map((b) => ({ bucket: b.bucket, hosts: b.hosts }))));
+  check("direct bucket has an empty hosts array",
+    Array.isArray(src("direct")?.hosts) && src("direct")?.hosts.length === 0,
+    JSON.stringify(src("direct")));
+
   // utm_content is surfaced in the raw visits list (post-level attribution).
   const data6 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
     visits: Array<{ visitor_id: string; utm_content: string }>;
@@ -254,6 +277,50 @@ async function main(): Promise<void> {
   check("admin page renders the visits-by-source table",
     html2.includes("Visits by source") && html2.includes("sourceBuckets") && html2.includes("First-touch"),
     "source table markup missing");
+  check("admin page renders the Referrer(s) detail column",
+    html2.includes("Referrer(s)") && html2.includes("hosts"),
+    "referrer(s) column markup missing");
+  check("admin page renders the Recent visits panel (local time + truncation helper)",
+    html2.includes("Recent visits") && html2.includes("localT") && html2.includes("trunc("),
+    "recent visits markup missing");
+  check("admin page renders the UTM campaigns panel markup",
+    html2.includes("UTM campaigns") && html2.includes("utmCampaigns") && html2.includes("utmCampaignsPanel"),
+    "utm campaigns markup missing");
+
+  // ── (i) utm_campaigns rollup in /admin/data ──
+  // Seed campaign-tagged visits: "banner" (3 visits from one visitor, medium
+  // display, one row also carrying an HN referrer to prove utm-bucket hosts
+  // still capture it) and "zzz" (1 visit, medium email) — plus the earlier
+  // "launch" rows (2 visits, medium cpc). utm_source=newsletter keeps these
+  // rows out of the existing channel buckets' assertions.
+  const t1 = Date.now() + 20000;
+  await postJson("/api/track", { visitor_id: "camp-b", page: "/", utm_source: "newsletter", utm_medium: "display", utm_campaign: "banner", ts: new Date(t1 + 1000).toISOString() });
+  await postJson("/api/track", { visitor_id: "camp-b", page: "/pricing", utm_source: "newsletter", utm_medium: "display", utm_campaign: "banner", ts: new Date(t1 + 2000).toISOString() });
+  await postJson("/api/track", { visitor_id: "camp-b", page: "/", utm_source: "newsletter", utm_medium: "display", utm_campaign: "banner", referrer: "https://news.ycombinator.com/item?id=7", ts: new Date(t1 + 3000).toISOString() });
+  await postJson("/api/track", { visitor_id: "camp-z", page: "/", utm_source: "newsletter", utm_medium: "email", utm_campaign: "zzz", ts: new Date(t1 + 4000).toISOString() });
+
+  const data9 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
+    utm_campaigns: Array<{ campaign: string; medium: string; visits_total: number; visits_7d: number; first_touch_visitors: number }>;
+    visits_by_source: Array<{ bucket: string; display: string; hosts: string[]; visits_total: number }>;
+  };
+  const camp = (c: string) => data9.utm_campaigns.find((x) => x.campaign === c);
+  check("utm_campaigns sorted by visits_total desc then campaign asc",
+    data9.utm_campaigns.length === 3 &&
+    data9.utm_campaigns[0].campaign === "banner" && data9.utm_campaigns[0].visits_total === 3 &&
+    data9.utm_campaigns[1].campaign === "launch" && data9.utm_campaigns[1].visits_total === 2 &&
+    data9.utm_campaigns[2].campaign === "zzz" && data9.utm_campaigns[2].visits_total === 1,
+    JSON.stringify(data9.utm_campaigns));
+  check("utm_campaigns rollup shape + medium (first row seen) + 7d + first-touch",
+    camp("banner")?.medium === "display" && camp("banner")?.visits_7d === 3 && camp("banner")?.first_touch_visitors === 1 &&
+    camp("launch")?.medium === "cpc" && camp("launch")?.visits_7d === 2 && camp("launch")?.first_touch_visitors === 1 &&
+    camp("zzz")?.medium === "email" && camp("zzz")?.visits_7d === 1 && camp("zzz")?.first_touch_visitors === 1,
+    JSON.stringify(data9.utm_campaigns));
+  // The newsletter rows landed in their own utm_source bucket, carrying the
+  // HN referrer host (utm+referrer combo) and a title-cased display name.
+  const nl = data9.visits_by_source.find((b) => b.bucket === "newsletter");
+  check("newsletter bucket: 4 visits, display title-cased, hosts include the HN referrer",
+    nl?.visits_total === 4 && nl?.display === "Newsletter" && nl?.hosts.includes("news.ycombinator.com"),
+    JSON.stringify(nl));
 
   // ── (h) waitlist block in /admin/data ──
   // Seed two signups directly in the DB (the admin suite has no public

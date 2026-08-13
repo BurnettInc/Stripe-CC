@@ -4,8 +4,10 @@
  * from.").
  *
  * Pure, deterministic, fully unit-testable (no DB, no IO). Consumed by
- * routes/admin.ts to build the /admin/data `visits_by_source` breakdown and by
- * test-visit-sources.ts for the unit tests.
+ * routes/admin.ts to build the /admin/data `visits_by_source` breakdown (each
+ * bucket carries a friendly `display` name and the raw `hosts` that landed in
+ * it) plus the `utm_campaigns` rollup, and by test-visit-sources.ts for the
+ * unit tests.
  *
  * Bucketing rule (deterministic):
  *   1. If utm_source is present (non-empty after trim) → the bucket is that
@@ -34,14 +36,62 @@ export interface VisitForAttribution {
   visitor_id: string;
   referrer: string;
   utm_source: string;
+  utm_medium?: string;
+  utm_campaign?: string;
   ts: string;
 }
 
 export interface SourceBucket {
   bucket: string;
+  /** Friendly channel name for the admin UI (see displayBucketName). */
+  display: string;
+  /** Unique lowercase referrer hosts (order of first appearance) that landed
+   *  in this bucket; empty for direct (and for buckets whose rows had no
+   *  parseable referrer). Includes the referrer host even for utm_source-driven
+   *  buckets when a referrer exists. */
+  hosts: string[];
   visits_total: number;
   visits_7d: number;
   first_touch_visitors: number;
+}
+
+export interface CampaignBucket {
+  campaign: string;
+  /** utm_medium of the first row seen for that campaign (else ""). */
+  medium: string;
+  visits_total: number;
+  visits_7d: number;
+  first_touch_visitors: number;
+}
+
+/** Friendly display name for a source bucket (pure, deterministic).
+ *  Known channels map to human names; "referral:<host>" renders the host
+ *  itself; anything else (a raw utm_source value) is title-cased. */
+export function displayBucketName(bucket: string): string {
+  const b = bucket.trim();
+  const known: Record<string, string> = {
+    x: "X / Twitter",
+    reddit: "Reddit",
+    hackernews: "Hacker News",
+    indiehackers: "Indie Hackers",
+    producthunt: "Product Hunt",
+    betalist: "BetaList",
+    viberank: "VibeRank",
+    stripe: "Stripe",
+    google: "Google",
+    bing: "Bing",
+    duckduckgo: "DuckDuckGo",
+    linkedin: "LinkedIn",
+    facebook: "Facebook",
+    direct: "Direct",
+  };
+  if (known[b]) return known[b];
+  if (b.startsWith("referral:")) return b.slice("referral:".length);
+  return b
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
 }
 
 /** Extract the lowercase hostname from a referrer; "" when unparseable. */
@@ -136,6 +186,10 @@ function epochMs(ts: string): number {
  *   visits_7d             — visits with ts >= cutoff7dIso (ISO compare)
  *   first_touch_visitors  — distinct visitors whose FIRST visit row (earliest
  *                           ts, id tiebreak) attributes to this bucket
+ *   hosts                 — unique lowercase referrer hosts (order of first
+ *                           appearance) among rows in this bucket; empty for
+ *                           direct / referrer-less rows
+ *   display               — friendly name (displayBucketName)
  *
  * Buckets are sorted visits_total desc, then bucket name asc (deterministic).
  * Rows with an unparseable ts count toward visits_total but never toward
@@ -145,12 +199,23 @@ export function aggregateVisitsBySource(rows: VisitForAttribution[], cutoff7dIso
   const cutoffMs = epochMs(cutoff7dIso);
   const totals = new Map<string, number>();
   const recent = new Map<string, number>();
+  const hostsByBucket = new Map<string, string[]>();
   // visitor_id → info about its earliest visit (ts epoch, row id, bucket)
   const first = new Map<string, { ts: number; id: number; bucket: string }>();
 
   for (const row of rows) {
     const bucket = bucketVisit(row);
     totals.set(bucket, (totals.get(bucket) ?? 0) + 1);
+
+    const host = referrerHost(row.referrer ?? "");
+    if (host) {
+      let list = hostsByBucket.get(bucket);
+      if (!list) {
+        list = [];
+        hostsByBucket.set(bucket, list);
+      }
+      if (!list.includes(host)) list.push(host);
+    }
 
     const ts = epochMs(row.ts);
     if (!Number.isNaN(ts) && !Number.isNaN(cutoffMs) && ts >= cutoffMs) {
@@ -170,7 +235,14 @@ export function aggregateVisitsBySource(rows: VisitForAttribution[], cutoff7dIso
   for (const row of rows) {
     const b = bucketVisit(row);
     if (!buckets.has(b)) {
-      buckets.set(b, { bucket: b, visits_total: totals.get(b) ?? 0, visits_7d: recent.get(b) ?? 0, first_touch_visitors: 0 });
+      buckets.set(b, {
+        bucket: b,
+        display: displayBucketName(b),
+        hosts: hostsByBucket.get(b) ?? [],
+        visits_total: totals.get(b) ?? 0,
+        visits_7d: recent.get(b) ?? 0,
+        first_touch_visitors: 0,
+      });
     }
   }
   for (const info of first.values()) {
@@ -181,4 +253,57 @@ export function aggregateVisitsBySource(rows: VisitForAttribution[], cutoff7dIso
   return [...buckets.values()].sort(
     (a, b) => b.visits_total - a.visits_total || a.bucket.localeCompare(b.bucket)
   );
+}
+
+/**
+ * Aggregate visit rows into per-campaign buckets (utm_campaign rollup).
+ *
+ * Only rows with a non-empty utm_campaign are considered; the campaign key is
+ * the trimmed utm_campaign value (case-sensitive — as tagged). Counts mirror
+ * aggregateVisitsBySource: visits_total / visits_7d / first_touch_visitors
+ * (each visitor attributed to the campaign of their FIRST visit row). `medium`
+ * is the utm_medium of the first row seen for that campaign (else "").
+ *
+ * Sorted visits_total desc, then campaign asc (deterministic).
+ */
+export function aggregateUtmCampaigns(rows: VisitForAttribution[], cutoff7dIso: string): CampaignBucket[] {
+  const cutoffMs = epochMs(cutoff7dIso);
+  const totals = new Map<string, number>();
+  const recent = new Map<string, number>();
+  const medium = new Map<string, string>();
+  // visitor_id → info about its EARLIEST visit row (ts epoch, id, campaign —
+  // "" when that earliest visit carried no utm_campaign). A visitor is
+  // attributed to the campaign of their very first visit row; if that row had
+  // no campaign they are not counted under any campaign's first-touch.
+  const first = new Map<string, { ts: number; id: number; campaign: string }>();
+
+  for (const row of rows) {
+    const campaign = (row.utm_campaign ?? "").trim();
+
+    const ts = epochMs(row.ts);
+    if (!Number.isNaN(ts)) {
+      const id = Number(row.id);
+      const prev = first.get(row.visitor_id);
+      if (!prev || ts < prev.ts || (ts === prev.ts && id < prev.id)) {
+        first.set(row.visitor_id, { ts, id, campaign });
+      }
+    }
+
+    if (!campaign) continue;
+    totals.set(campaign, (totals.get(campaign) ?? 0) + 1);
+    if (!medium.has(campaign)) medium.set(campaign, (row.utm_medium ?? "").trim());
+    if (!Number.isNaN(ts) && !Number.isNaN(cutoffMs) && ts >= cutoffMs) {
+      recent.set(campaign, (recent.get(campaign) ?? 0) + 1);
+    }
+  }
+
+  return [...totals.keys()]
+    .map((campaign) => ({
+      campaign,
+      medium: medium.get(campaign) ?? "",
+      visits_total: totals.get(campaign) ?? 0,
+      visits_7d: recent.get(campaign) ?? 0,
+      first_touch_visitors: [...first.values()].filter((f) => f.campaign === campaign).length,
+    }))
+    .sort((a, b) => b.visits_total - a.visits_total || a.campaign.localeCompare(b.campaign));
 }

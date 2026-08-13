@@ -61,6 +61,7 @@
     .barwrap { background: var(--card-2); border-radius: 999px; height: 8px; min-width: 60px; }
     .bar { display: block; height: 8px; border-radius: 999px; background: var(--primary); min-width: 2px; }
     td.bucket { color: var(--text); font-weight: 600; white-space: nowrap; }
+    td .hosts { color: var(--muted); font-size: 11px; margin-top: 2px; white-space: normal; word-break: break-all; }
     .srcnote { padding: 14px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); line-height: 1.5; }
   </style>
 </head>
@@ -87,14 +88,31 @@
     <div class="panel">
       <h2>Visits by source</h2>
       <div class="scroll"><table>
-        <thead><tr><th>Source</th><th>Visits (all-time)</th><th>Visits (7d)</th><th>First-touch visitors</th><th style="min-width:120px;">Share</th></tr></thead>
+        <thead><tr><th>Source</th><th>Referrer(s)</th><th>Visits (all-time)</th><th>Visits (7d)</th><th>First-touch visitors</th><th style="min-width:120px;">Share</th></tr></thead>
         <tbody id="sourceBuckets"></tbody>
       </table></div>
       <div class="srcnote">
         Bucketing: utm_source wins when present; otherwise the referrer host maps to a channel
         (x, reddit, hackernews, indiehackers, google, bing, duckduckgo, linkedin, referral:&lt;host&gt;); no utm + no referrer = direct.
+        The Referrer(s) column shows the channel's friendly name with the raw referrer host(s) that landed there underneath
+        (muted, e.g. "t.co" for X / Twitter) — the Recent visits table below carries the full referrer URL and every UTM value
+        (source / medium / campaign / content) behind each visit, and the UTM campaigns table rolls visits up per utm_campaign.
         First-touch = each visitor is counted once, under the source of their very first visit.
       </div>
+    </div>
+    <div class="panel">
+      <h2>Recent visits (last 50)</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Time (local)</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM source</th><th>UTM medium</th><th>UTM campaign</th><th>UTM content</th></tr></thead>
+        <tbody id="visits"></tbody>
+      </table></div>
+    </div>
+    <div class="panel" id="utmCampaignsPanel" style="display:none;">
+      <h2>UTM campaigns</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Campaign</th><th>Medium</th><th>Visits</th><th>Visits (7d)</th><th>First-touch visitors</th></tr></thead>
+        <tbody id="utmCampaigns"></tbody>
+      </table></div>
     </div>
     <div class="panel">
       <h2>Merchants</h2>
@@ -104,13 +122,6 @@
           <th>Created</th><th>First draft</th><th>Drafts</th><th>Invoices</th><th>Last activity</th><th>Flags</th>
         </tr></thead>
         <tbody id="merchants"></tbody>
-      </table></div>
-    </div>
-    <div class="panel">
-      <h2>Recent page visits (last 50)</h2>
-      <div class="scroll"><table>
-        <thead><tr><th>Time (UTC)</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM source</th><th>UTM medium</th><th>UTM campaign</th><th>UTM content</th></tr></thead>
-        <tbody id="visits"></tbody>
       </table></div>
     </div>
     <div class="panel">
@@ -158,6 +169,10 @@
     }
     function pill(text, cls) { return '<span class="pill ' + (cls || "none") + '">' + esc(text) + "</span>"; }
     function shortId(v) { return v ? String(v).slice(0, 14) + "…" : "—"; }
+    function trunc(s, n) {
+      s = String(s == null ? "" : s);
+      return s.length > n ? s.slice(0, n) + "…" : s;
+    }
     function t(iso) {
       if (!iso) return '<span class="muted">—</span>';
       return esc(String(iso).replace("T", " ").replace(/\.\d{3}Z$/, "Z"));
@@ -194,14 +209,22 @@
           card("Waitlist signups", d.waitlist.total);
         var sT = document.getElementById("sourceBuckets");
         if (!d.visits_by_source || !d.visits_by_source.length) {
-          sT.innerHTML = '<tr><td colspan="5" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>';
+          sT.innerHTML = '<tr><td colspan="6" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>';
         } else {
           var maxTotal = d.visits_by_source.reduce(function (m, b) { return Math.max(m, b.visits_total); }, 1);
           d.visits_by_source.forEach(function (b) {
             var pct = Math.max(2, Math.round(100 * b.visits_total / maxTotal));
+            // Referrer(s) cell: friendly display name on top (the bucket itself
+            // for unmapped referral:<host> buckets — it's already the host),
+            // raw referrer host(s) underneath in muted small text.
+            var srcName = b.bucket.indexOf("referral:") === 0 ? b.bucket : (b.display || b.bucket);
+            var hostsHtml = b.hosts && b.hosts.length
+              ? '<div class="hosts">' + esc(b.hosts.join(", ")) + "</div>"
+              : '<div class="hosts">—</div>';
             var row = document.createElement("tr");
             row.innerHTML =
               "<td class=\"bucket\">" + esc(b.bucket) + "</td>" +
+              "<td>" + esc(srcName) + hostsHtml + "</td>" +
               "<td>" + esc(b.visits_total) + "</td>" +
               "<td>" + esc(b.visits_7d) + "</td>" +
               "<td>" + esc(b.first_touch_visitors) + "</td>" +
@@ -235,16 +258,30 @@
         d.visits.forEach(function (v) {
           var row = document.createElement("tr");
           row.innerHTML =
-            "<td>" + t(v.ts) + "</td>" +
+            "<td>" + localT(v.ts) + "</td>" +
             "<td><code>" + esc(shortId(v.visitor_id)) + "</code></td>" +
             "<td><code>" + esc(v.page) + "</code></td>" +
-            "<td>" + esc(v.referrer || "") + "</td>" +
-            "<td>" + esc(v.utm_source || "") + "</td>" +
-            "<td>" + esc(v.utm_medium || "") + "</td>" +
-            "<td>" + esc(v.utm_campaign || "") + "</td>" +
-            "<td>" + esc(v.utm_content || "") + "</td>";
+            "<td>" + (v.referrer ? esc(trunc(v.referrer, 60)) : '<span class="muted">—</span>') + "</td>" +
+            "<td>" + (v.utm_source ? esc(v.utm_source) : '<span class="muted">—</span>') + "</td>" +
+            "<td>" + (v.utm_medium ? esc(v.utm_medium) : '<span class="muted">—</span>') + "</td>" +
+            "<td>" + (v.utm_campaign ? esc(v.utm_campaign) : '<span class="muted">—</span>') + "</td>" +
+            "<td>" + (v.utm_content ? esc(v.utm_content) : '<span class="muted">—</span>') + "</td>";
           vT.appendChild(row);
         });
+        var uT = document.getElementById("utmCampaigns");
+        if (d.utm_campaigns && d.utm_campaigns.length) {
+          document.getElementById("utmCampaignsPanel").style.display = "";
+          d.utm_campaigns.forEach(function (c) {
+            var row = document.createElement("tr");
+            row.innerHTML =
+              "<td class=\"bucket\">" + esc(c.campaign) + "</td>" +
+              "<td>" + (c.medium ? esc(c.medium) : '<span class="muted">—</span>') + "</td>" +
+              "<td>" + esc(c.visits_total) + "</td>" +
+              "<td>" + esc(c.visits_7d) + "</td>" +
+              "<td>" + esc(c.first_touch_visitors) + "</td>";
+            uT.appendChild(row);
+          });
+        }
         var eT = document.getElementById("subEvents");
         if (!d.subscription_events.length) eT.innerHTML = '<tr><td colspan="6" class="empty">No subscription events yet</td></tr>';
         d.subscription_events.forEach(function (e) {
