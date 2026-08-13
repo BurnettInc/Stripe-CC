@@ -137,10 +137,23 @@ function WaitlistForm() {
     setLoading(true);
     setError("");
     try {
+      // Forward the channel the browser already has (same fields/conventions as
+      // the visit-tracking beacon in __root.tsx — no new collection): referrer
+      // + URL utm_* params + the localStorage visitor id. Absent → "".
+      const q = new URLSearchParams(location.search);
+      const utm = (k: string) => q.get(k) || "";
       const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: value }),
+        body: JSON.stringify({
+          email: value,
+          referrer: document.referrer.slice(0, 500),
+          utm_source: utm("utm_source"),
+          utm_medium: utm("utm_medium"),
+          utm_campaign: utm("utm_campaign"),
+          utm_content: utm("utm_content"),
+          visitor_id: localStorage.getItem("cc_vid") || "",
+        }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (res.ok && data.ok) {

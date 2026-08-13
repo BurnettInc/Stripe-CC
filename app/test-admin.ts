@@ -24,8 +24,10 @@
  *       combos, direct → empty hosts) + the admin page markup for the
  *       Referrer(s) column, Recent visits panel and UTM campaigns panel
  *   (h) /admin/data waitlist block: total + newest-first entries with
- *       id/email/created_at for seeded rows, the 500-entry cap, and the
- *       waitlist panel markup on the admin page
+ *       id/email/created_at for seeded rows, per-entry channel attribution
+ *       (source_bucket/display/hosts via the shared visit-sources helpers),
+ *       the 500-entry cap, and the waitlist panel markup on the admin page
+ *       (Source column + 4-cell empty state)
  *   (i) /admin/data utm_campaigns rollup: shape {campaign, medium, visits_total,
  *       visits_7d, first_touch_visitors}, medium from the first row seen per
  *       campaign, sort (visits_total desc then campaign asc), and the
@@ -324,17 +326,30 @@ async function main(): Promise<void> {
 
   // ── (h) waitlist block in /admin/data ──
   // Seed two signups directly in the DB (the admin suite has no public
-  // waitlist endpoint dependency — the waitlist suite owns that path).
+  // waitlist endpoint dependency — the waitlist suite owns that path). Each
+  // carries attribution: wl-two is a utm_source=x signup that arrived via a
+  // t.co link (bucket "x", host "t.co"); wl-one came from a reddit.com
+  // referrer with no utm (bucket "reddit", host "reddit.com").
   {
     const d = new Database(DB_PATH);
-    d.run("INSERT OR IGNORE INTO waitlist (email) VALUES (?)", ["wl-one@example.com"]);
-    d.run("INSERT OR IGNORE INTO waitlist (email) VALUES (?)", ["wl-two@example.com"]);
+    d.run(
+      "INSERT OR IGNORE INTO waitlist (email, referrer, utm_source, utm_medium, utm_campaign, utm_content, visitor_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ["wl-one@example.com", "https://reddit.com/r/saas/comments/1/", "", "", "", "", "vid-wl-one"],
+    );
+    d.run(
+      "INSERT OR IGNORE INTO waitlist (email, referrer, utm_source, utm_medium, utm_campaign, utm_content, visitor_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ["wl-two@example.com", "https://t.co/xyz", "x", "social", "launch", "hero", "vid-wl-two"],
+    );
     // Deterministic ordering: wl-two is newer by id AND created_at.
     d.run("UPDATE waitlist SET created_at = datetime('now', '+1 minute') WHERE email = 'wl-two@example.com'");
     d.close();
   }
   const data7 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
-    waitlist: { total: number; entries: Array<{ id: number; email: string; created_at: string }> };
+    waitlist: { total: number; entries: Array<{
+      id: number; email: string; created_at: string;
+      referrer: string; utm_source: string; utm_medium: string; utm_campaign: string; utm_content: string; visitor_id: string;
+      source_bucket: string; display: string; hosts: string[];
+    }> };
   };
   check("admin/data waitlist total matches seeded rows",
     data7.waitlist.total === 2, JSON.stringify(data7.waitlist));
@@ -346,6 +361,21 @@ async function main(): Promise<void> {
     typeof data7.waitlist.entries[0].created_at === "string" &&
     /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(data7.waitlist.entries[0].created_at),
     JSON.stringify(data7.waitlist));
+  const wl0 = data7.waitlist.entries[0];
+  const wl1 = data7.waitlist.entries[1];
+  check("admin/data waitlist entry carries source attribution (utm x + t.co referrer → X / Twitter over t.co)",
+    wl0.source_bucket === "x" && wl0.display === "X / Twitter" &&
+    Array.isArray(wl0.hosts) && wl0.hosts.length === 1 && wl0.hosts[0] === "t.co" &&
+    wl0.utm_source === "x" && wl0.utm_medium === "social" && wl0.utm_campaign === "launch" &&
+    wl0.utm_content === "hero" && wl0.visitor_id === "vid-wl-two" &&
+    typeof wl0.id === "number" && wl0.email === "wl-two@example.com" &&
+    typeof wl0.created_at === "string",
+    JSON.stringify(wl0));
+  check("admin/data waitlist entry carries source attribution (reddit referrer → Reddit over reddit.com)",
+    wl1.source_bucket === "reddit" && wl1.display === "Reddit" &&
+    Array.isArray(wl1.hosts) && wl1.hosts.length === 1 && wl1.hosts[0] === "reddit.com" &&
+    wl1.referrer === "https://reddit.com/r/saas/comments/1/" && wl1.utm_source === "",
+    JSON.stringify(wl1));
 
   // Cap: entries limited to the latest 500 even when the table holds more.
   {
@@ -356,7 +386,9 @@ async function main(): Promise<void> {
     d.close();
   }
   const data8 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
-    waitlist: { total: number; entries: Array<{ id: number; email: string; created_at: string }> };
+    waitlist: { total: number; entries: Array<{
+      email: string; source_bucket: string; display: string; hosts: string[];
+    }> };
   };
   check("admin/data waitlist total counts ALL signups (503)",
     data8.waitlist.total === 503, JSON.stringify(data8.waitlist));
@@ -365,6 +397,13 @@ async function main(): Promise<void> {
     data8.waitlist.entries[0].email === "wl-cap-500@example.com" &&
     !data8.waitlist.entries.some((e) => e.email === "wl-one@example.com"),
     JSON.stringify(data8.waitlist.entries[0]));
+  // Referrer-less cap rows attribute to the direct bucket with an empty hosts
+  // array (matching the visits-by-source direct convention).
+  check("admin/data waitlist referrer-less entry → direct / empty hosts",
+    data8.waitlist.entries[0].source_bucket === "direct" &&
+    data8.waitlist.entries[0].display === "Direct" &&
+    Array.isArray(data8.waitlist.entries[0].hosts) && data8.waitlist.entries[0].hosts.length === 0,
+    JSON.stringify(data8.waitlist.entries[0]));
 
   // The admin HTML renders the waitlist panel + local-time helper markup.
   r = await fetch(`${BASE}/admin?token=${TOKEN}`);
@@ -372,6 +411,9 @@ async function main(): Promise<void> {
   check("admin page renders the waitlist section",
     html3.includes("Waitlist signups") && html3.includes("No waitlist signups yet") && html3.includes("localT"),
     "waitlist markup missing");
+  check("admin page waitlist table has the Source column (header + 4-cell empty state)",
+    html3.includes("<th>Source</th>") && html3.includes('colspan="4"') && html3.includes("source_bucket"),
+    "source column markup missing");
 
   console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll admin/track checks passed");
   process.exit(failures ? 1 : 0);

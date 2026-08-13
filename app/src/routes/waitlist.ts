@@ -19,6 +19,13 @@ import { notifyOwnerWaitlistSignup } from "../pipeline/owner-notify";
  * OWNER is notified via OWNER_NOTIFY_EMAIL (Resend, same sender the product
  * uses); failures are caught and logged, never thrown into the response.
  *
+ * Optional attribution fields (same names/conventions as POST /api/track —
+ * the landing page forwards what the browser already has, no new collection):
+ *   referrer (≤500), utm_source/utm_medium/utm_campaign/utm_content (≤200 each),
+ *   visitor_id (≤128). Non-string values and absent fields fall back to '';
+ * lengths are trimmed + clamped server-side exactly like track.ts. Stored on
+ * the waitlist row so the admin panel can show the channel behind each signup.
+ *
  * No email is sent to the signup itself — joining the list IS the opt-in;
  * the owner emails the list at launch.
  *
@@ -35,14 +42,20 @@ export async function handleWaitlist(db: Database, req: Request): Promise<Respon
     );
   }
 
-  // Parse {email} from JSON or form-encoded.
+  // Parse {email, ...attribution} from JSON or form-encoded. Attribution fields
+  // are optional strings; wrong types/absent fields → '' (clamped below).
   let email = "";
+  const attr: Record<string, string> = {};
   const contentType = (req.headers.get("content-type") || "").toLowerCase();
   if (contentType.includes("application/x-www-form-urlencoded")) {
     try {
       const form = await req.formData();
       const v = form.get("email");
       if (typeof v === "string") email = v;
+      for (const key of ATTR_FIELDS) {
+        const fv = form.get(key);
+        if (typeof fv === "string") attr[key] = fv;
+      }
     } catch {
       // Fall through to validation — missing email yields 400.
     }
@@ -50,6 +63,9 @@ export async function handleWaitlist(db: Database, req: Request): Promise<Respon
     try {
       const body = (await req.json()) as Record<string, unknown>;
       if (typeof body.email === "string") email = body.email;
+      for (const key of ATTR_FIELDS) {
+        if (typeof body[key] === "string") attr[key] = body[key] as string;
+      }
     } catch {
       return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers });
     }
@@ -63,7 +79,14 @@ export async function handleWaitlist(db: Database, req: Request): Promise<Respon
     return new Response(JSON.stringify({ error: "Enter a valid email address" }), { status: 400, headers });
   }
 
-  const inserted = recordWaitlistSignup(db, email);
+  const inserted = recordWaitlistSignup(db, email, {
+    referrer: str(attr.referrer, 500),
+    utm_source: str(attr.utm_source, 200),
+    utm_medium: str(attr.utm_medium, 200),
+    utm_campaign: str(attr.utm_campaign, 200),
+    utm_content: str(attr.utm_content, 200),
+    visitor_id: str(attr.visitor_id, 128),
+  });
   if (!inserted) {
     return new Response(JSON.stringify({ ok: true, duplicate: true }), { status: 200, headers });
   }
@@ -78,6 +101,21 @@ export async function handleWaitlist(db: Database, req: Request): Promise<Respon
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Attribution fields accepted from the signup payload (mirrors /api/track). */
+const ATTR_FIELDS = [
+  "referrer",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "visitor_id",
+] as const;
+
+/** Trim + clamp a string field to its convention (same as track.ts); non-strings → "". */
+function str(v: string | undefined, max: number): string {
+  return v ? v.trim().slice(0, max) : "";
+}
 
 // ── In-memory per-IP rate limit (process-local, pruned on access) ──
 const RATE_LIMIT_MAX = 5; // requests per IP per hour

@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { countWaitlistSignups, listWaitlistEntries } from "../db";
-import { aggregateUtmCampaigns, aggregateVisitsBySource, type VisitForAttribution } from "../visit-sources";
+import { aggregateUtmCampaigns, aggregateVisitsBySource, bucketVisit, displayBucketName, referrerHost, type VisitForAttribution } from "../visit-sources";
 
 /**
  * Admin-only internal customer tracking dashboard (owner request 2026-08-12).
@@ -274,7 +274,34 @@ export function handleAdminData(db: Database, req: Request): Response {
     subscription_events: subscriptionEvents,
     waitlist: {
       total: countWaitlistSignups(db),
-      entries: listWaitlistEntries(db),
+      entries: listWaitlistEntries(db).map(waitlistEntryWithSource),
     },
   }, 200);
+}
+
+/**
+ * Attach channel attribution to one waitlist entry using the shared pure
+ * visit-sources helpers: source_bucket + friendly display name via
+ * bucketVisit/displayBucketName (bucket keyed on utm_source first, then the
+ * referrer host), and `hosts` = the entry's unique referrer host(s) — a
+ * single signup row has at most one referrer, so this is `[host]` when a
+ * parseable referrer exists, else []. The original {id, email, created_at}
+ * fields (plus the stored referrer, utm_* and visitor_id) are left intact.
+ */
+function waitlistEntryWithSource(e: {
+  id: number; email: string; created_at: string;
+  referrer: string; utm_source: string;
+}): {
+  id: number; email: string; created_at: string; referrer: string; utm_source: string;
+  utm_medium: string; utm_campaign: string; utm_content: string; visitor_id: string;
+  source_bucket: string; display: string; hosts: string[];
+} {
+  const sourceBucket = bucketVisit({ referrer: e.referrer, utm_source: e.utm_source });
+  const host = referrerHost(e.referrer ?? "");
+  return {
+    ...e,
+    source_bucket: sourceBucket,
+    display: displayBucketName(sourceBucket),
+    hosts: host ? [host] : [],
+  };
 }

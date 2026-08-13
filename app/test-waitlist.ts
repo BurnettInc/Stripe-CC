@@ -21,6 +21,11 @@
  *   (g) owner notification (OWNER_NOTIFY_EMAIL set) — a send_logs row with
  *       type 'owner_notification' whose message contains the new signup's
  *       subject; duplicates produce no additional row.
+ *   (h) attribution fields (referrer, utm_*, visitor_id) stored end-to-end
+ *       through the POST;
+ *   (i) absent attribution fields → '' (backwards compatible);
+ *   (j) length clamping (referrer 500, utm_* 200, visitor_id 128) and
+ *       non-string attribution values → ''.
  *
  * Run:
  *   bash /tmp/run-suite.sh waitlist
@@ -40,6 +45,8 @@ const IP_MAIN = "198.51.100.1";   // groups a–c (valid/duplicate/normalize)
 const IP_INVALID = "198.51.100.2"; // group d (invalid emails)
 const IP_BADJSON = "198.51.100.3"; // d6 (invalid JSON)
 const IP_FORM = "198.51.100.4";    // group e (form-encoded)
+const IP_ATTR = "198.51.100.5";    // group h (attribution fields)
+const IP_CLAMP = "198.51.100.6";   // groups i–j (absent fields, clamping, wrong types)
 const IP_RATE = "203.0.113.9";     // group f (rate limit)
 let failures = 0;
 function check(label: string, cond: boolean, detail = ""): void {
@@ -154,6 +161,97 @@ async function post(body: unknown, xff: string, form = false): Promise<Response>
   check("e1 form-encoded → 200 {ok:true}", r.status === 200 && j.ok === true, `status ${r.status} ${JSON.stringify(j)}`);
   const row = one("SELECT email FROM waitlist WHERE email = 'form@example.com'");
   check("e2 form row inserted", !!row, JSON.stringify(row));
+  // The form path also carries the optional attribution fields.
+  const r2 = await post(
+    "email=formattr%40example.com&referrer=https%3A%2F%2Fwww.reddit.com%2Fr%2Fsaas%2F&utm_source=reddit&visitor_id=vid-form-0001",
+    IP_FORM,
+    true,
+  );
+  const j2 = await r2.json() as { ok?: boolean };
+  check("e3 form-encoded with attribution → 200 {ok:true}", r2.status === 200 && j2.ok === true, `status ${r2.status} ${JSON.stringify(j2)}`);
+  const row2 = one(
+    "SELECT referrer, utm_source, visitor_id FROM waitlist WHERE email = 'formattr@example.com'",
+  ) as Record<string, unknown>;
+  check("e4 form attribution fields stored", !!row2 && row2.referrer === "https://www.reddit.com/r/saas/" && row2.utm_source === "reddit" && row2.visitor_id === "vid-form-0001", JSON.stringify(row2));
+}
+
+// ── (h) attribution fields stored end-to-end (referrer, utm_*, visitor_id) ──
+{
+  const r = await post({
+    email: "attr@example.com",
+    referrer: "https://t.co/xyz123",
+    utm_source: "x",
+    utm_medium: "social",
+    utm_campaign: "launch",
+    utm_content: "hero",
+    visitor_id: "vid-attr-0001",
+  }, IP_ATTR);
+  const j = await r.json() as { ok?: boolean };
+  check("h1 attribution POST → 200 {ok:true}", r.status === 200 && j.ok === true, `status ${r.status} ${JSON.stringify(j)}`);
+  const row = one(
+    "SELECT referrer, utm_source, utm_medium, utm_campaign, utm_content, visitor_id FROM waitlist WHERE email = 'attr@example.com'",
+  ) as Record<string, unknown>;
+  check("h2 referrer stored", !!row && row.referrer === "https://t.co/xyz123", JSON.stringify(row));
+  check("h3 utm_source stored", !!row && row.utm_source === "x", JSON.stringify(row));
+  check("h4 utm_medium stored", !!row && row.utm_medium === "social", JSON.stringify(row));
+  check("h5 utm_campaign stored", !!row && row.utm_campaign === "launch", JSON.stringify(row));
+  check("h6 utm_content stored", !!row && row.utm_content === "hero", JSON.stringify(row));
+  check("h7 visitor_id stored", !!row && row.visitor_id === "vid-attr-0001", JSON.stringify(row));
+}
+
+// ── (i) absent attribution fields → '' (backwards compatible) ──
+{
+  const r = await post({ email: "bare@example.com" }, IP_CLAMP);
+  const j = await r.json() as { ok?: boolean };
+  check("i1 bare POST → 200 {ok:true}", r.status === 200 && j.ok === true, `status ${r.status} ${JSON.stringify(j)}`);
+  const row = one(
+    "SELECT referrer, utm_source, utm_medium, utm_campaign, utm_content, visitor_id FROM waitlist WHERE email = 'bare@example.com'",
+  ) as Record<string, unknown>;
+  check("i2 absent attribution fields stored as ''", !!row &&
+    row.referrer === "" && row.utm_source === "" && row.utm_medium === "" &&
+    row.utm_campaign === "" && row.utm_content === "" && row.visitor_id === "",
+    JSON.stringify(row));
+}
+
+// ── (j) length clamping + non-string attribution values ──
+{
+  const r = await post({
+    email: "long@example.com",
+    referrer: "x".repeat(600),
+    utm_source: "y".repeat(250),
+    utm_medium: "m".repeat(250),
+    utm_campaign: "c".repeat(250),
+    utm_content: "k".repeat(250),
+    visitor_id: "z".repeat(200),
+  }, IP_CLAMP);
+  const j = await r.json() as { ok?: boolean };
+  check("j1 long-field POST → 200 {ok:true}", r.status === 200 && j.ok === true, `status ${r.status} ${JSON.stringify(j)}`);
+  const row = one(
+    "SELECT referrer, utm_source, utm_medium, utm_campaign, utm_content, visitor_id FROM waitlist WHERE email = 'long@example.com'",
+  ) as Record<string, unknown>;
+  check("j2 referrer clamped to 500", !!row && (row.referrer as string).length === 500, `len ${(row?.referrer as string)?.length}`);
+  check("j3 utm_* clamped to 200 each", !!row &&
+    (row.utm_source as string).length === 200 && (row.utm_medium as string).length === 200 &&
+    (row.utm_campaign as string).length === 200 && (row.utm_content as string).length === 200,
+    JSON.stringify({ s: (row?.utm_source as string)?.length, m: (row?.utm_medium as string)?.length, c: (row?.utm_campaign as string)?.length, k: (row?.utm_content as string)?.length }));
+  check("j4 visitor_id clamped to 128", !!row && (row.visitor_id as string).length === 128, `len ${(row?.visitor_id as string)?.length}`);
+
+  const r2 = await post({
+    email: "wrongtype@example.com",
+    referrer: 42,
+    utm_source: null,
+    utm_medium: ["a"],
+    visitor_id: { n: 1 },
+  }, IP_CLAMP);
+  const j2 = await r2.json() as { ok?: boolean };
+  check("j5 wrong-type attribution POST → 200 {ok:true}", r2.status === 200 && j2.ok === true, `status ${r2.status} ${JSON.stringify(j2)}`);
+  const row2 = one(
+    "SELECT referrer, utm_source, utm_medium, utm_campaign, utm_content, visitor_id FROM waitlist WHERE email = 'wrongtype@example.com'",
+  ) as Record<string, unknown>;
+  check("j6 non-string attribution values → ''", !!row2 &&
+    row2.referrer === "" && row2.utm_source === "" && row2.utm_medium === "" &&
+    row2.utm_campaign === "" && row2.utm_content === "" && row2.visitor_id === "",
+    JSON.stringify(row2));
 }
 
 // ── (f) per-IP rate limit (dedicated IP) ──
