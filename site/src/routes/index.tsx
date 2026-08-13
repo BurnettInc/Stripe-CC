@@ -197,10 +197,10 @@ function Home() {
   return (
     <div className="min-h-dvh">
       {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
+      <nav className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-6 py-4 max-w-6xl mx-auto">
         <div className="flex items-center gap-3">
           <img src="/icon.svg" alt="CollectionsCopilot" className="h-8 w-auto" />
-          <span className="font-bold text-lg text-indigo-600">
+          <span className="font-bold text-base sm:text-lg text-indigo-600">
             {businessName || "CollectionsCopilot"}
           </span>
         </div>
