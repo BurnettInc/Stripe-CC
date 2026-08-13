@@ -10,6 +10,8 @@ import { handleBilling } from "./routes/billing";
 import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus, handleOAuthSession, handleOAuthHandoff, handleOAuthSuccess } from "./routes/oauth";
 import { handleInvoices } from "./routes/invoices";
 import { handleSupport } from "./routes/support";
+import { handleAdminPage, handleAdminData, requireAdminToken } from "./routes/admin";
+import { handleTrack } from "./routes/track";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { requireSession } from "./middleware/session";
@@ -177,6 +179,15 @@ if (process.env.INBOUND_WEBHOOK_TOKEN) {
   console.log(`   Inbound reply webhook: enabled (INBOUND_WEBHOOK_TOKEN set)`);
 } else {
   console.log(`   Inbound reply webhook disabled (INBOUND_WEBHOOK_TOKEN unset — /inbound/reply returns 403)`);
+}
+
+// Admin-only internal dashboard status (admin customer tracking): /admin and
+// /admin/data return 403 when ADMIN_TOKEN is unset — the admin surface is
+// disabled, mirroring the SUPPORT_API_TOKEN pattern.
+if (process.env.ADMIN_TOKEN) {
+  console.log(`   Admin dashboard: enabled (ADMIN_TOKEN set)`);
+} else {
+  console.log(`   Admin dashboard disabled (ADMIN_TOKEN unset — /admin returns 403)`);
 }
 
 // Reply-To tracking status (reply-pause D1a): customer reminders carry the
@@ -675,6 +686,44 @@ async function handleRequest(req: Request): Promise<Response> {
       // unset every request returns 403 — the API is effectively disabled.
       if (path.startsWith("/support/")) {
         return await handleSupport(db, req, path.slice("/support".length), url);
+      }
+
+      // /admin + /admin/data — owner-only internal customer-tracking dashboard
+      // (page-visit analytics, merchant funnel, subscription event log).
+      // Token-gated by ADMIN_TOKEN (?token= query param or Authorization:
+      // Bearer header). When ADMIN_TOKEN is unset every request returns 403.
+      // The gate runs BEFORE the method check so unknown methods can't probe
+      // the route surface unauthenticated (same pattern as /support/*).
+      // Deliberately NEVER linked from the public UI (no dashboard/site link,
+      // no robots/sitemap exposure — the page also carries X-Robots-Tag:
+      // noindex). Route order matters: /admin/data must match before /admin,
+      // and both must sit BEFORE the marketing-site fallback so the site's
+      // SPA handler can never swallow them.
+      if (path === "/admin" || path === "/admin/data") {
+        if (!requireAdminToken(req)) {
+          return new Response(JSON.stringify({ error: "Unauthorized — missing or invalid ADMIN_TOKEN" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (req.method !== "GET") {
+          return new Response(JSON.stringify({ error: "Method not allowed" }), {
+            status: 405,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (path === "/admin/data") return handleAdminData(db, req);
+        return handleAdminPage(db, req);
+      }
+
+      // POST /api/track (also /track — the dev site proxy strips the /api
+      // prefix before forwarding) — first-party privacy-minimal landing-page
+      // visit tracking for the admin dashboard. Public by design: it exists to
+      // collect visits, and stores only the non-identifying fields the snippet
+      // sends (visitor_id UUID, page, referrer, utm_*, ts — no IP, no UA, no
+      // cookies).
+      if ((path === "/api/track" || path === "/track") && req.method === "POST") {
+        return await handleTrack(db, req);
       }
 
       // ── Marketing site fallback ──

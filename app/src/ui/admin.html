@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>CollectionsCopilot — Admin</title>
+  <style>
+    :root {
+      --bg: #0F1117;
+      --card: #171A23;
+      --card-2: #1D2130;
+      --text: #E6E9F0;
+      --body: #9AA3B5;
+      --muted: #6B7280;
+      --border: #262B3A;
+      --primary: #635BFF;
+      --primary-light: #EEF2FF;
+      --success: #34D399;
+      --danger: #F87171;
+      --warning: #FBBF24;
+      --radius: 12px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text); padding: 32px 24px 64px;
+    }
+    header { max-width: 1100px; margin: 0 auto 24px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+    h1 { font-size: 22px; font-weight: 700; }
+    .sub { color: var(--muted); font-size: 13px; }
+    .gen { color: var(--muted); font-size: 12px; margin-left: auto; }
+    main { max-width: 1100px; margin: 0 auto; display: grid; gap: 20px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+    .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
+    .card .value small { font-size: 14px; color: var(--muted); font-weight: 500; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .panel h2 { font-size: 14px; font-weight: 600; padding: 14px 16px; border-bottom: 1px solid var(--border); color: var(--body); }
+    .panel .scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border-weak, #20242F); color: var(--body); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    code { background: var(--card-2); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #C4B5FD; }
+    .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .pill.pro { background: #2B2740; color: #C4B5FD; }
+    .pill.standard { background: #173042; color: #7DD3FC; }
+    .pill.free { background: #23272F; color: #9AA3B5; }
+    .pill.active { background: #0B2E22; color: #34D399; }
+    .pill.cancelled, .pill.past_due { background: #3A1D1D; color: #FCA5A5; }
+    .pill.none { background: #23272F; color: #9AA3B5; }
+    .pill.dev { background: #3A2E0B; color: #FBBF24; }
+    .pill.yes { background: #0B2E22; color: #34D399; }
+    .pill.no { background: #23272F; color: #6B7280; }
+    .error { background: #3A1D1D; color: #FCA5A5; border: 1px solid #7F1D1D; border-radius: var(--radius); padding: 20px; text-align: center; }
+    .empty { color: var(--muted); padding: 18px; text-align: center; }
+    .muted { color: var(--muted); }
+    a { color: #C4B5FD; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>CollectionsCopilot — Admin</h1>
+    <span class="sub">internal only · not linked anywhere public</span>
+    <span class="gen" id="gen"></span>
+  </header>
+  <main>
+    <div id="error" class="error" style="display:none;"></div>
+    <div class="cards" id="funnel"></div>
+    <div class="panel">
+      <h2>Merchants</h2>
+      <div class="scroll"><table>
+        <thead><tr>
+          <th>ID</th><th>Email</th><th>Stripe acct</th><th>Plan</th><th>Sub status</th>
+          <th>Created</th><th>First draft</th><th>Drafts</th><th>Invoices</th><th>Last activity</th><th>Flags</th>
+        </tr></thead>
+        <tbody id="merchants"></tbody>
+      </table></div>
+    </div>
+    <div class="panel">
+      <h2>Recent page visits (last 50)</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Time (UTC)</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM source</th><th>UTM medium</th><th>UTM campaign</th></tr></thead>
+        <tbody id="visits"></tbody>
+      </table></div>
+    </div>
+    <div class="panel">
+      <h2>Subscription events (last 50)</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Time (UTC)</th><th>Merchant</th><th>Event</th><th>Tier</th><th>Status</th><th>Stripe sub id</th></tr></thead>
+        <tbody id="subEvents"></tbody>
+      </table></div>
+    </div>
+  </main>
+  <script>
+    // __CC_ADMIN_TOKEN__ is replaced at serve time (GET /admin) with the real
+    // ADMIN_TOKEN — the page can then call /admin/data with it.
+    var TOKEN = "__CC_ADMIN_TOKEN__";
+    function esc(s) {
+      if (s === null || s === undefined) return '<span class="muted">—</span>';
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+    function pill(text, cls) { return '<span class="pill ' + (cls || "none") + '">' + esc(text) + "</span>"; }
+    function shortId(v) { return v ? String(v).slice(0, 14) + "…" : "—"; }
+    function t(iso) {
+      if (!iso) return '<span class="muted">—</span>';
+      return esc(String(iso).replace("T", " ").replace(/\.\d{3}Z$/, "Z"));
+    }
+    function onErr(msg) {
+      document.getElementById("error").style.display = "block";
+      document.getElementById("error").textContent = msg;
+    }
+    fetch("/admin/data?token=" + encodeURIComponent(TOKEN))
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.d && res.d.error ? res.d.error : "HTTP " + res.status);
+        var d = res.d;
+        document.getElementById("gen").textContent = "generated " + d.generated_at + " UTC";
+        var f = d.funnel;
+        document.getElementById("funnel").innerHTML =
+          card("Visits 24h", f.visits_24h) + card("Visits 7d", f.visits_7d) + card("Visits total", f.visits_total) +
+          card("Connects 24h", f.connects_24h) + card("Connects 7d", f.connects_7d) + card("Connects total", f.connects_total) +
+          card("Merchants", f.merchants_total) +
+          card("Drafts 7d", f.drafts_created_7d) + card("Drafts total", f.drafts_created_total) +
+          card("Paid active", f.paid_active.standard + f.paid_active.pro + f.dev_pro,
+            "std " + f.paid_active.standard + " · pro " + f.paid_active.pro + " · devPro " + f.dev_pro) +
+          card("Subs cancelled", f.subs_cancelled) + card("Subs past due", f.subs_past_due);
+        var mT = document.getElementById("merchants");
+        if (!d.merchants.length) mT.innerHTML = '<tr><td colspan="11" class="empty">No merchants</td></tr>';
+        d.merchants.forEach(function (m) {
+          var flags = [];
+          if (m.dev_pro) flags.push(pill("dev_pro", "dev"));
+          if (m.placeholder) flags.push(pill("placeholder", "no"));
+          var row = document.createElement("tr");
+          row.innerHTML =
+            "<td>" + esc(m.id) + "</td>" +
+            "<td>" + esc(m.email) + "</td>" +
+            "<td><code>" + esc(m.stripe_account_id) + "</code></td>" +
+            "<td>" + pill(m.plan, m.plan) + "</td>" +
+            "<td>" + pill(m.sub_status, m.sub_status) + "</td>" +
+            "<td>" + t(m.created_at) + "</td>" +
+            "<td>" + t(m.first_draft_at) + "</td>" +
+            "<td>" + esc(m.draft_count) + "</td>" +
+            "<td>" + esc(m.invoice_count) + "</td>" +
+            "<td>" + t(m.last_activity) + "</td>" +
+            "<td>" + (flags.length ? flags.join(" ") : pill("—", "no")) + "</td>";
+          mT.appendChild(row);
+        });
+        var vT = document.getElementById("visits");
+        if (!d.visits.length) vT.innerHTML = '<tr><td colspan="7" class="empty">No page visits yet</td></tr>';
+        d.visits.forEach(function (v) {
+          var row = document.createElement("tr");
+          row.innerHTML =
+            "<td>" + t(v.ts) + "</td>" +
+            "<td><code>" + esc(shortId(v.visitor_id)) + "</code></td>" +
+            "<td><code>" + esc(v.page) + "</code></td>" +
+            "<td>" + esc(v.referrer || "") + "</td>" +
+            "<td>" + esc(v.utm_source || "") + "</td>" +
+            "<td>" + esc(v.utm_medium || "") + "</td>" +
+            "<td>" + esc(v.utm_campaign || "") + "</td>";
+          vT.appendChild(row);
+        });
+        var eT = document.getElementById("subEvents");
+        if (!d.subscription_events.length) eT.innerHTML = '<tr><td colspan="6" class="empty">No subscription events yet</td></tr>';
+        d.subscription_events.forEach(function (e) {
+          var row = document.createElement("tr");
+          row.innerHTML =
+            "<td>" + t(e.created_at) + "</td>" +
+            "<td>" + esc(e.merchant_id) + "</td>" +
+            "<td>" + pill(e.event, e.event === "cancelled" ? "cancelled" : e.event === "created" ? "active" : "standard") + "</td>" +
+            "<td>" + esc(e.tier || "") + "</td>" +
+            "<td>" + esc(e.status || "") + "</td>" +
+            "<td><code>" + esc(e.stripe_subscription_id) + "</code></td>";
+          eT.appendChild(row);
+        });
+      })
+      .catch(function (err) { onErr("Failed to load admin data: " + err.message); });
+    function card(label, value, hint) {
+      return '<div class="card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(value) +
+        (hint ? " <small>" + esc(hint) + "</small>" : "") + "</div></div>";
+    }
+  </script>
+</body>
+</html>
