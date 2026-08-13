@@ -41,6 +41,8 @@ check("utm empty string treated as absent", bucketVisit({ utm_source: "   ", ref
 check("twitter.com → x", bucketVisit({ referrer: "https://twitter.com/some/status/1" }) === "x", bucketVisit({ referrer: "https://twitter.com/some/status/1" }));
 check("x.com → x", bucketVisit({ referrer: "https://x.com/me/status/2" }) === "x", bucketVisit({ referrer: "https://x.com/me/status/2" }));
 check("mobile twitter → x", bucketVisit({ referrer: "https://mobile.twitter.com/u" }) === "x", bucketVisit({ referrer: "https://mobile.twitter.com/u" }));
+check("t.co shortener → x", bucketVisit({ referrer: "https://t.co/WAHrqBU17H" }) === "x", bucketVisit({ referrer: "https://t.co/WAHrqBU17H" }));
+check("x.co shortener → x", bucketVisit({ referrer: "https://x.co/abc123" }) === "x", bucketVisit({ referrer: "https://x.co/abc123" }));
 check("reddit.com → reddit", bucketVisit({ referrer: "https://www.reddit.com/r/saas/comments/1/" }) === "reddit", bucketVisit({ referrer: "https://www.reddit.com/r/saas/comments/1/" }));
 check("old.reddit.com → reddit", bucketVisit({ referrer: "https://old.reddit.com/r/sideproject/" }) === "reddit", bucketVisit({ referrer: "https://old.reddit.com/r/sideproject/" }));
 check("news.ycombinator.com → hackernews", bucketVisit({ referrer: "https://news.ycombinator.com/item?id=42" }) === "hackernews", bucketVisit({ referrer: "https://news.ycombinator.com/item?id=42" }));
