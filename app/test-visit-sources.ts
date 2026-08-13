@@ -3,11 +3,13 @@
  *
  * Proves:
  *   (a) bucketVisit: utm_source wins over referrer; lowercased + trimmed
- *   (b) bucketVisit: referrer-host mapping (twitter.com/x.com → "x",
- *       reddit → "reddit", news.ycombinator.com → "hackernews",
- *       indiehackers → "indiehackers", google.* → "google", bing.* → "bing",
- *       duckduckgo → "duckduckgo", linkedin → "linkedin", else
- *       "referral:" + host)
+ *   (b) bucketVisit: referrer-host mapping (twitter.com/x.com/t.co/x.co → "x",
+ *       facebook.com/fb.com → "facebook", reddit → "reddit",
+ *       news.ycombinator.com → "hackernews", indiehackers → "indiehackers",
+ *       producthunt → "producthunt", betalist → "betalist",
+ *       viberank → "viberank", stripe/dashboard.stripe.com → "stripe",
+ *       google.* → "google", bing.* → "bing", duckduckgo → "duckduckgo",
+ *       linkedin/lnkd.in → "linkedin", else "referral:" + host)
  *   (c) bucketVisit: direct fallback (no utm, no referrer / empty referrer)
  *   (d) referrerHost: full URLs, bare hosts, port stripping, garbage → ""
  *   (e) aggregateVisitsBySource: per-bucket all-time + 7d counts
@@ -52,6 +54,19 @@ check("google.co.uk → google", bucketVisit({ referrer: "https://www.google.co.
 check("bing.com → bing", bucketVisit({ referrer: "https://www.bing.com/search?q=x" }) === "bing", bucketVisit({ referrer: "https://www.bing.com/search?q=x" }));
 check("duckduckgo.com → duckduckgo", bucketVisit({ referrer: "https://duckduckgo.com/?q=x" }) === "duckduckgo", bucketVisit({ referrer: "https://duckduckgo.com/?q=x" }));
 check("linkedin.com → linkedin", bucketVisit({ referrer: "https://www.linkedin.com/feed/" }) === "linkedin", bucketVisit({ referrer: "https://www.linkedin.com/feed/" }));
+check("lnkd.in shortener → linkedin", bucketVisit({ referrer: "https://lnkd.in/xyz789" }) === "linkedin", bucketVisit({ referrer: "https://lnkd.in/xyz789" }));
+check("producthunt.com → producthunt", bucketVisit({ referrer: "https://www.producthunt.com/posts/collectionscopilot" }) === "producthunt", bucketVisit({ referrer: "https://www.producthunt.com/posts/collectionscopilot" }));
+check("producthunt subdomain → producthunt", bucketVisit({ referrer: "https://launches.producthunt.com/collectionscopilot" }) === "producthunt", bucketVisit({ referrer: "https://launches.producthunt.com/collectionscopilot" }));
+check("stripe.com → stripe", bucketVisit({ referrer: "https://stripe.com/blog/collectionscopilot" }) === "stripe", bucketVisit({ referrer: "https://stripe.com/blog/collectionscopilot" }));
+check("dashboard.stripe.com → stripe", bucketVisit({ referrer: "https://dashboard.stripe.com/apps/app_com.example" }) === "stripe", bucketVisit({ referrer: "https://dashboard.stripe.com/apps/app_com.example" }));
+check("betalist.com → betalist", bucketVisit({ referrer: "https://betalist.com/startups/collectionscopilot" }) === "betalist", bucketVisit({ referrer: "https://betalist.com/startups/collectionscopilot" }));
+check("betalist subdomain → betalist", bucketVisit({ referrer: "https://www.betalist.com/startups/collectionscopilot" }) === "betalist", bucketVisit({ referrer: "https://www.betalist.com/startups/collectionscopilot" }));
+check("viberank.dev → viberank", bucketVisit({ referrer: "https://viberank.dev/product/collectionscopilot" }) === "viberank", bucketVisit({ referrer: "https://viberank.dev/product/collectionscopilot" }));
+check("viberank subdomain → viberank", bucketVisit({ referrer: "https://www.viberank.dev/collectionscopilot" }) === "viberank", bucketVisit({ referrer: "https://www.viberank.dev/collectionscopilot" }));
+check("facebook.com → facebook", bucketVisit({ referrer: "https://www.facebook.com/collectionscopilot/" }) === "facebook", bucketVisit({ referrer: "https://www.facebook.com/collectionscopilot/" }));
+check("m.facebook.com → facebook", bucketVisit({ referrer: "https://m.facebook.com/story.php?story_fbid=1" }) === "facebook", bucketVisit({ referrer: "https://m.facebook.com/story.php?story_fbid=1" }));
+check("l.facebook.com → facebook", bucketVisit({ referrer: "https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.getcollectionscopilot.com" }) === "facebook", bucketVisit({ referrer: "https://l.facebook.com/l.php?u=https%3A%2F%2Fwww.getcollectionscopilot.com" }));
+check("fb.com shortener → facebook", bucketVisit({ referrer: "https://fb.com/abc123" }) === "facebook", bucketVisit({ referrer: "https://fb.com/abc123" }));
 check("unknown host → referral:<host>", bucketVisit({ referrer: "https://example.com/page" }) === "referral:example.com", bucketVisit({ referrer: "https://example.com/page" }));
 check("unknown host keeps subdomain in referral bucket", bucketVisit({ referrer: "https://sub.example.org/x" }) === "referral:sub.example.org", bucketVisit({ referrer: "https://sub.example.org/x" }));
 

@@ -12,15 +12,20 @@
  *      value, lowercased + whitespace-trimmed (e.g. "x", "reddit",
  *      "indiehackers", "betalist", "viberank", "google", "bing", ...).
  *   2. Else if referrer is non-empty → map the referrer's host:
- *        twitter.com / x.com            → "x"
- *        reddit.com                     → "reddit"
- *        news.ycombinator.com           → "hackernews"
- *        indiehackers.com               → "indiehackers"
- *        google.*                       → "google"
- *        bing.*                         → "bing"
- *        duckduckgo.com                 → "duckduckgo"
- *        linkedin.com                   → "linkedin"
- *        anything else                  → "referral:" + host
+ *        twitter.com / x.com / t.co / x.co → "x"
+ *        facebook.com / fb.com             → "facebook"
+ *        reddit.com                        → "reddit"
+ *        news.ycombinator.com              → "hackernews"
+ *        indiehackers.com                  → "indiehackers"
+ *        producthunt.com                   → "producthunt"
+ *        betalist.com                      → "betalist"
+ *        viberank.dev                      → "viberank"
+ *        stripe.com                        → "stripe"
+ *        google.*                          → "google"
+ *        bing.*                            → "bing"
+ *        duckduckgo.com                    → "duckduckgo"
+ *        linkedin.com / lnkd.in            → "linkedin"
+ *        anything else                     → "referral:" + host
  *   3. Else → "direct".
  */
 
@@ -76,6 +81,15 @@ export function bucketVisit(v: { utm_source?: string; referrer?: string }): stri
   ) {
     return "x";
   }
+  // Facebook proper hosts plus its link shorthands: fb.com is the bare short
+  // domain, and m.facebook.com / l.facebook.com (mobile + link-tracking
+  // hosts) are subdomains of facebook.com, so the endsWith covers them.
+  if (
+    host === "facebook.com" || host.endsWith(".facebook.com") ||
+    host === "fb.com" || host.endsWith(".fb.com")
+  ) {
+    return "facebook";
+  }
   if (host === "reddit.com" || host.endsWith(".reddit.com")) {
     return "reddit";
   }
@@ -85,12 +99,27 @@ export function bucketVisit(v: { utm_source?: string; referrer?: string }): stri
   if (host === "indiehackers.com" || host.endsWith(".indiehackers.com")) {
     return "indiehackers";
   }
+  if (host === "producthunt.com" || host.endsWith(".producthunt.com")) {
+    return "producthunt";
+  }
+  if (host === "betalist.com" || host.endsWith(".betalist.com")) {
+    return "betalist";
+  }
+  if (host === "viberank.dev" || host.endsWith(".viberank.dev")) {
+    return "viberank";
+  }
+  // Stripe — covers stripe.com and dashboard.stripe.com (visitors arrive from
+  // the Stripe Dashboard/app/marketplace and Connect flows).
+  if (host === "stripe.com" || host.endsWith(".stripe.com")) {
+    return "stripe";
+  }
   // google.* / bing.* — matches the bare TLD and the www./m./<country> variants
   // (google.com, www.google.com, google.co.uk, www.google.co.uk, bing.com.au, ...).
   if (/(^|\.)google\.([a-z]{2,3}|com)(\.[a-z]{2})?$/.test(host)) return "google";
   if (/(^|\.)bing\.([a-z]{2,3}|com)(\.[a-z]{2})?$/.test(host)) return "bing";
   if (/(^|\.)duckduckgo\.com$/.test(host)) return "duckduckgo";
-  if (/(^|\.)linkedin\.com$/.test(host)) return "linkedin";
+  // linkedin.com (incl. www./m. subdomains) plus lnkd.in, LinkedIn's link shortener.
+  if (/(^|\.)linkedin\.com$/.test(host) || host === "lnkd.in" || host.endsWith(".lnkd.in")) return "linkedin";
 
   return `referral:${host}`;
 }
