@@ -120,6 +120,13 @@
         <tbody id="subEvents"></tbody>
       </table></div>
     </div>
+    <div class="panel">
+      <h2>Waitlist signups <span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0;">(latest 500)</span></h2>
+      <div class="scroll"><table>
+        <thead><tr><th>ID</th><th>Email</th><th>Joined (local)</th></tr></thead>
+        <tbody id="waitlist"></tbody>
+      </table></div>
+    </div>
   </main>
   <script>
     // __CC_ADMIN_TOKEN__ is replaced at serve time (GET /admin) with the real
@@ -155,6 +162,16 @@
       if (!iso) return '<span class="muted">—</span>';
       return esc(String(iso).replace("T", " ").replace(/\.\d{3}Z$/, "Z"));
     }
+    // Waitlist created_at is stored in SQLite format "YYYY-MM-DD HH:MM:SS" (UTC);
+    // render it as readable local browser time (ISO strings parse as-is).
+    function localT(ts) {
+      if (!ts) return '<span class="muted">—</span>';
+      var s = String(ts);
+      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) s = s.replace(" ", "T") + "Z";
+      var d = new Date(s);
+      if (isNaN(d.getTime())) return esc(String(ts));
+      return esc(d.toLocaleString());
+    }
     function onErr(msg) {
       document.getElementById("error").style.display = "block";
       document.getElementById("error").textContent = msg;
@@ -173,7 +190,8 @@
           card("Drafts 7d", f.drafts_created_7d) + card("Drafts total", f.drafts_created_total) +
           card("Paid active", f.paid_active.standard + f.paid_active.pro + f.dev_pro,
             "std " + f.paid_active.standard + " · pro " + f.paid_active.pro + " · devPro " + f.dev_pro) +
-          card("Subs cancelled", f.subs_cancelled) + card("Subs past due", f.subs_past_due);
+          card("Subs cancelled", f.subs_cancelled) + card("Subs past due", f.subs_past_due) +
+          card("Waitlist signups", d.waitlist.total);
         var sT = document.getElementById("sourceBuckets");
         if (!d.visits_by_source || !d.visits_by_source.length) {
           sT.innerHTML = '<tr><td colspan="5" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>';
@@ -239,6 +257,18 @@
             "<td>" + esc(e.status || "") + "</td>" +
             "<td><code>" + esc(e.stripe_subscription_id) + "</code></td>";
           eT.appendChild(row);
+        });
+        var wT = document.getElementById("waitlist");
+        if (!d.waitlist.entries.length) {
+          wT.innerHTML = '<tr><td colspan="3" class="empty">No waitlist signups yet</td></tr>';
+        }
+        d.waitlist.entries.forEach(function (e) {
+          var row = document.createElement("tr");
+          row.innerHTML =
+            "<td><code>" + esc(e.id) + "</code></td>" +
+            "<td>" + esc(e.email) + "</td>" +
+            "<td>" + localT(e.created_at) + "</td>";
+          wT.appendChild(row);
         });
       })
       .catch(function (err) { onErr("Failed to load admin data: " + err.message); });

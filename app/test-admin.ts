@@ -7,7 +7,7 @@
  *       (?token= or Authorization: Bearer) → 200 HTML page carrying the
  *       injected __CC_ADMIN_TOKEN__
  *   (b) /admin/data auth matrix: same gate; right token → 200 JSON with the
- *       funnel/merchants/visits/subscription_events shape
+ *       funnel/merchants/visits/subscription_events/waitlist shape
  *   (c) /api/track: valid POST → 200 and one row in page_visits; retried
  *       identical payload (same visitor_id/page/ts) → still one row
  *       (idempotent-ish); missing visitor_id/page → 400; bad JSON → 400;
@@ -19,6 +19,10 @@
  *       merchant plan/sub_status derivation (dev_pro → pro/active)
  *   (f) /admin is absent from every public surface the test can reach:
  *       the landing page fallback never serves it unauthenticated
+ *   (g) visits_by_source channel attribution + utm_content surfacing
+ *   (h) /admin/data waitlist block: total + newest-first entries with
+ *       id/email/created_at for seeded rows, the 500-entry cap, and the
+ *       waitlist panel markup on the admin page
  *
  * Runs against a booted server sharing its SQLite DB:
  *
@@ -86,9 +90,13 @@ async function main(): Promise<void> {
     generated_at: string; funnel: Record<string, unknown>; merchants: unknown[]; visits: unknown[];
     visits_by_source: Array<{ bucket: string; visits_total: number; visits_7d: number; first_touch_visitors: number }>;
     subscription_events: unknown[];
+    waitlist: { total: number; entries: Array<{ id: number; email: string; created_at: string }> };
   };
   check("admin/data has funnel + merchants + visits + subscription_events",
     !!data.funnel && Array.isArray(data.merchants) && Array.isArray(data.visits) && Array.isArray(data.subscription_events));
+  check("admin/data has waitlist block (empty on fresh DB → total 0, no entries)",
+    !!data.waitlist && data.waitlist.total === 0 && Array.isArray(data.waitlist.entries) && data.waitlist.entries.length === 0,
+    JSON.stringify(data.waitlist));
   check("admin/data has visits_by_source (channel attribution)",
     Array.isArray(data.visits_by_source) && data.visits_by_source.every((b) =>
       typeof b.bucket === "string" && typeof b.visits_total === "number" &&
@@ -246,6 +254,57 @@ async function main(): Promise<void> {
   check("admin page renders the visits-by-source table",
     html2.includes("Visits by source") && html2.includes("sourceBuckets") && html2.includes("First-touch"),
     "source table markup missing");
+
+  // ── (h) waitlist block in /admin/data ──
+  // Seed two signups directly in the DB (the admin suite has no public
+  // waitlist endpoint dependency — the waitlist suite owns that path).
+  {
+    const d = new Database(DB_PATH);
+    d.run("INSERT OR IGNORE INTO waitlist (email) VALUES (?)", ["wl-one@example.com"]);
+    d.run("INSERT OR IGNORE INTO waitlist (email) VALUES (?)", ["wl-two@example.com"]);
+    // Deterministic ordering: wl-two is newer by id AND created_at.
+    d.run("UPDATE waitlist SET created_at = datetime('now', '+1 minute') WHERE email = 'wl-two@example.com'");
+    d.close();
+  }
+  const data7 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
+    waitlist: { total: number; entries: Array<{ id: number; email: string; created_at: string }> };
+  };
+  check("admin/data waitlist total matches seeded rows",
+    data7.waitlist.total === 2, JSON.stringify(data7.waitlist));
+  check("admin/data waitlist entries newest first with id/email/created_at",
+    data7.waitlist.entries.length === 2 &&
+    data7.waitlist.entries[0].email === "wl-two@example.com" &&
+    data7.waitlist.entries[1].email === "wl-one@example.com" &&
+    typeof data7.waitlist.entries[0].id === "number" &&
+    typeof data7.waitlist.entries[0].created_at === "string" &&
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(data7.waitlist.entries[0].created_at),
+    JSON.stringify(data7.waitlist));
+
+  // Cap: entries limited to the latest 500 even when the table holds more.
+  {
+    const d = new Database(DB_PATH);
+    for (let i = 0; i < 501; i++) {
+      d.run("INSERT OR IGNORE INTO waitlist (email) VALUES (?)", [`wl-cap-${i}@example.com`]);
+    }
+    d.close();
+  }
+  const data8 = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
+    waitlist: { total: number; entries: Array<{ id: number; email: string; created_at: string }> };
+  };
+  check("admin/data waitlist total counts ALL signups (503)",
+    data8.waitlist.total === 503, JSON.stringify(data8.waitlist));
+  check("admin/data waitlist entries capped at latest 500",
+    data8.waitlist.entries.length === 500 &&
+    data8.waitlist.entries[0].email === "wl-cap-500@example.com" &&
+    !data8.waitlist.entries.some((e) => e.email === "wl-one@example.com"),
+    JSON.stringify(data8.waitlist.entries[0]));
+
+  // The admin HTML renders the waitlist panel + local-time helper markup.
+  r = await fetch(`${BASE}/admin?token=${TOKEN}`);
+  const html3 = await r.text();
+  check("admin page renders the waitlist section",
+    html3.includes("Waitlist signups") && html3.includes("No waitlist signups yet") && html3.includes("localT"),
+    "waitlist markup missing");
 
   console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll admin/track checks passed");
   process.exit(failures ? 1 : 0);

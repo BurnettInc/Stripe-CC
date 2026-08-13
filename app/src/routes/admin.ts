@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { countWaitlistSignups, listWaitlistEntries } from "../db";
 import { aggregateVisitsBySource, type VisitForAttribution } from "../visit-sources";
 
 /**
@@ -248,5 +249,9 @@ export function handleAdminData(db: Database, req: Request): Response {
     visits,
     visits_by_source: visitsBySource(db),
     subscription_events: subscriptionEvents,
+    waitlist: {
+      total: countWaitlistSignups(db),
+      entries: listWaitlistEntries(db),
+    },
   }, 200);
 }
