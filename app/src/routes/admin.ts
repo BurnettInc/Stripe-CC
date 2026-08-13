@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { countWaitlistSignups, listWaitlistEntries } from "../db";
+import { countWaitlistSignups, listWaitlistEntries, type WaitlistEntry } from "../db";
 import { aggregateUtmCampaigns, aggregateVisitsBySource, bucketVisit, displayBucketName, referrerHost, type VisitForAttribution } from "../visit-sources";
 
 /**
@@ -288,13 +288,10 @@ export function handleAdminData(db: Database, req: Request): Response {
  * parseable referrer exists, else []. The original {id, email, created_at}
  * fields (plus the stored referrer, utm_* and visitor_id) are left intact.
  */
-function waitlistEntryWithSource(e: {
-  id: number; email: string; created_at: string;
-  referrer: string; utm_source: string;
-}): {
-  id: number; email: string; created_at: string; referrer: string; utm_source: string;
-  utm_medium: string; utm_campaign: string; utm_content: string; visitor_id: string;
-  source_bucket: string; display: string; hosts: string[];
+function waitlistEntryWithSource(e: WaitlistEntry): WaitlistEntry & {
+  source_bucket: string;
+  display: string;
+  hosts: string[];
 } {
   const sourceBucket = bucketVisit({ referrer: e.referrer, utm_source: e.utm_source });
   const host = referrerHost(e.referrer ?? "");
