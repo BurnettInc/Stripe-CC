@@ -446,6 +446,16 @@ export function countWaitlistSignups(db: Database): number {
   const row = db.query("SELECT COUNT(*) AS n FROM waitlist").get() as { n: number } | undefined;
   return row?.n ?? 0;
 }
+/** Latest waitlist signups, newest first (id DESC — matches the visits / subscription-events admin lists), capped at 500. */
+export function listWaitlistEntries(
+  db: Database,
+  limit = 500
+): Array<{ id: number; email: string; created_at: string }> {
+  const cap = Math.min(Math.max(Math.trunc(limit), 1), 500);
+  return db
+    .query("SELECT id, email, created_at FROM waitlist ORDER BY id DESC LIMIT ?")
+    .all(cap) as Array<{ id: number; email: string; created_at: string }>;
+}
 /**
  * Record a subscription lifecycle event (append-only log behind the admin
  * dashboard's "subscription events" view). Called from the /billing webhook
