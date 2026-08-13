@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { ensureDefaultMerchant, resolveMerchant } from "../db";
 import { saveStripeConnection, getStripeConnection } from "../middleware/auth";
 import { readCookie } from "../middleware/session";
+import { notifyOwnerStripeConnect } from "../pipeline/owner-notify";
 import Stripe from "stripe";
 
 // ── Cross-host session handoff ──
@@ -293,6 +294,17 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
     );
 
     console.log(`[oauth] Stripe account connected: ${accountId} (merchant ${merchantId})`);
+
+    // Owner signup notification: email the owner (OWNER_NOTIFY_EMAIL) when a
+    // real merchant finishes connecting. Dev/test merchants are excluded
+    // inside (dev_pro / acct_default / .local). Never throws into the
+    // callback — failures are caught and logged by the module.
+    try {
+      const accountEmail = typeof account.email === "string" && account.email ? account.email : null;
+      await notifyOwnerStripeConnect(db, merchantId, accountId, accountEmail);
+    } catch (err: unknown) {
+      console.error(`[oauth] owner connect notification error: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     // Cross-host session handoff: set the Railway-host session cookie here
     // (first-party, as today) AND redirect the merchant through
