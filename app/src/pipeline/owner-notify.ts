@@ -115,6 +115,29 @@ async function sendOwnerNotification(
 }
 
 /**
+ * "New waitlist signup: <email>" — fired from POST /waitlist on a NEW signup
+ * only (duplicates skip; the handler decides). Landing-page visitors are not
+ * merchants, so there is no dev/test exclusion — every new signup notifies.
+ * Never throws: sendOwnerNotification swallows and logs all failures.
+ */
+export async function notifyOwnerWaitlistSignup(
+  db: Database,
+  email: string,
+  totalCount: number,
+): Promise<OwnerNotifyResult> {
+  const subject = `New waitlist signup: ${email}`;
+  const body = [
+    `A new visitor just joined the CollectionsCopilot waitlist.`,
+    ``,
+    `  Email:      ${email}`,
+    `  Signed up:  ${new Date().toISOString()}`,
+    `  Total list: ${totalCount}`,
+    ``,
+    `This is the opt-in they gave — email the list when the app is live.`,
+  ].join("\n");
+  return sendOwnerNotification(db, subject, body);
+}
+/**
  * "🎉 New signup — <email> connected Stripe" — fired from the OAuth callback
  * success path after a merchant finishes connecting. accountEmail (the Stripe
  * account holder's email, from the retrieved account object) is preferred for

@@ -13,6 +13,7 @@ import { handleInvoices } from "./routes/invoices";
 import { handleSupport } from "./routes/support";
 import { handleAdminPage, handleAdminData, requireAdminToken } from "./routes/admin";
 import { handleTrack } from "./routes/track";
+import { handleWaitlist } from "./routes/waitlist";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { requireSession } from "./middleware/session";
@@ -757,6 +758,16 @@ async function handleRequest(req: Request): Promise<Response> {
       // cookies).
       if ((path === "/api/track" || path === "/track") && req.method === "POST") {
         return await handleTrack(db, req);
+      }
+
+      // POST /api/waitlist (also /waitlist — the dev site proxy strips the
+      // /api prefix before forwarding) — public landing-page waitlist email
+      // capture, replacing the /stripe/connect CTAs. Public by design (no
+      // token): validated, per-IP rate-limited, idempotent on duplicates,
+      // owner-notified on new signups. Must sit BEFORE the marketing-site
+      // fallback so the SPA handler can never swallow it.
+      if ((path === "/api/waitlist" || path === "/waitlist") && req.method === "POST") {
+        return await handleWaitlist(db, req);
       }
 
       // ── Marketing site fallback ──

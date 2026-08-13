@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { readFile } from "node:fs/promises";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 
 const getBusinessName = createServerFn({ method: "GET" }).handler(async () => {
   try {
@@ -121,6 +121,77 @@ function SubscribeButton({ tier, label, highlight }: { tier: string; label: stri
   );
 }
 
+function WaitlistForm() {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const value = email.trim();
+    if (!value) {
+      setError("Enter your email address");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: value }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (res.ok && data.ok) {
+        setDone(true);
+      } else {
+        setError(data.error || "Something went wrong — please try again.");
+      }
+    } catch {
+      setError("Something went wrong — please try again.");
+    }
+    setLoading(false);
+  };
+
+  if (done) {
+    return (
+      <div
+        id="waitlist"
+        className="w-full max-w-md rounded-lg border border-indigo-200 bg-indigo-50 px-6 py-3 text-base font-medium text-indigo-900"
+      >
+        You're on the list — we'll email you when CollectionsCopilot is live.
+      </div>
+    );
+  }
+
+  return (
+    <form
+      id="waitlist"
+      onSubmit={submit}
+      noValidate
+      className="flex w-full max-w-md flex-col gap-3 sm:flex-row"
+    >
+      <input
+        type="email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        placeholder="you@example.com"
+        required
+        className="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-base text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      />
+      <button
+        type="submit"
+        disabled={loading}
+        className="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading ? "Joining..." : "Join the waitlist"}
+      </button>
+      {error && <p className="w-full text-sm text-red-600">{error}</p>}
+    </form>
+  );
+}
+
 function Home() {
   const businessName = Route.useLoaderData();
   return (
@@ -134,10 +205,10 @@ function Home() {
           </span>
         </div>
         <a
-          href="#pricing"
+          href="#waitlist"
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
         >
-          Get Started
+          Join the waitlist
         </a>
       </nav>
 
@@ -158,13 +229,8 @@ function Home() {
           personalized, escalating reminders — so you get paid without lifting a
           finger.
         </p>
-        <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
-          <a
-            href="/stripe/connect"
-            className="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors shadow-sm"
-          >
-            Start recovering invoices →
-          </a>
+        <div className="mt-10 flex flex-col items-center gap-4">
+          <WaitlistForm />
           <a
             href="#how-it-works"
             className="rounded-lg border border-gray-300 px-6 py-3 text-base font-medium text-gray-700 hover:bg-gray-50 transition-colors"
@@ -502,7 +568,7 @@ function Home() {
               period: "",
               body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Nothing sends until you subscribe.",
               features: [],
-              cta: "Connect your Stripe account",
+              cta: "Join the waitlist",
               highlight: false,
               free: true,
             },
@@ -567,7 +633,7 @@ function Home() {
               </ul>
               {plan.free ? (
                 <a
-                  href="/stripe/connect"
+                  href="#waitlist"
                   className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   {plan.cta}
@@ -640,15 +706,15 @@ function Home() {
             Ready to stop chasing payments?
           </h2>
           <p className="text-gray-400 max-w-lg mx-auto mb-8">
-            Connect your Stripe account and let CollectionsCopilot handle the
-            follow-ups. Polite, personalized, and persistent — without you lifting a
+            Join the waitlist and we'll email you the moment CollectionsCopilot is
+            live. Polite, personalized, and persistent — without you lifting a
             finger.
           </p>
           <a
-            href="/stripe/connect"
+            href="#waitlist"
             className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
           >
-            Get Started
+            Join the waitlist
           </a>
         </div>
       </section>

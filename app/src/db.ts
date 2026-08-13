@@ -433,6 +433,20 @@ export function recordPageVisit(
 }
 
 /**
+ * Record a waitlist signup (landing-page email capture). Returns true when a
+ * NEW row was inserted, false when the email was already on the list
+ * (idempotent — duplicates are a no-op, never an error).
+ */
+export function recordWaitlistSignup(db: Database, email: string): boolean {
+  const result = db.run("INSERT OR IGNORE INTO waitlist (email) VALUES (?)", [email]);
+  return result.changes > 0;
+}
+/** Total number of waitlist signups (used in the owner notification body). */
+export function countWaitlistSignups(db: Database): number {
+  const row = db.query("SELECT COUNT(*) AS n FROM waitlist").get() as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+/**
  * Record a subscription lifecycle event (append-only log behind the admin
  * dashboard's "subscription events" view). Called from the /billing webhook
  * handler at every material transition: checkout.session.completed → 'created',
