@@ -72,6 +72,17 @@
   </header>
   <main>
     <div id="error" class="error" style="display:none;"></div>
+    <div class="panel" style="padding:14px 16px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:260px;">
+        <div style="font-size:13px; font-weight:600;">Tracking: <span id="trackState">counting your visits</span></div>
+        <div class="muted" style="font-size:12px; margin-top:4px; line-height:1.5;">
+          The landing-page snippet checks <code>cc_skip</code> in this browser's localStorage.
+          Your own visits won't be counted in the funnel while it is set — same origin,
+          so it applies to the live site too.
+        </div>
+      </div>
+      <button id="skipToggle" type="button" style="background:var(--card-2); border:1px solid var(--border); color:var(--text); padding:8px 14px; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;">Stop counting my visits</button>
+    </div>
     <div class="cards" id="funnel"></div>
     <div class="panel">
       <h2>Visits by source</h2>
@@ -114,6 +125,24 @@
     // __CC_ADMIN_TOKEN__ is replaced at serve time (GET /admin) with the real
     // ADMIN_TOKEN — the page can then call /admin/data with it.
     var TOKEN = "__CC_ADMIN_TOKEN__";
+    // Own-visit skip toggle: writes/clears localStorage cc_skip on this origin
+    // (same origin as the landing-page tracking snippet, so it takes effect on
+    // the live site immediately). No page reload — state updates in place.
+    function refreshSkipUI() {
+      var skipped = localStorage.getItem("cc_skip") === "1";
+      document.getElementById("trackState").textContent = skipped
+        ? "skipped — your visits are NOT counted"
+        : "counting your visits";
+      document.getElementById("skipToggle").textContent = skipped
+        ? "Count my visits again"
+        : "Stop counting my visits";
+    }
+    document.getElementById("skipToggle").addEventListener("click", function () {
+      if (localStorage.getItem("cc_skip") === "1") localStorage.removeItem("cc_skip");
+      else localStorage.setItem("cc_skip", "1");
+      refreshSkipUI();
+    });
+    refreshSkipUI();
     function esc(s) {
       if (s === null || s === undefined) return '<span class="muted">—</span>';
       return String(s).replace(/[&<>"']/g, function (c) {
