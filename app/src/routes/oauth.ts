@@ -21,6 +21,7 @@ import Stripe from "stripe";
 // now carry the www cookie.
 const WWW_BASE = "https://www.getcollectionscopilot.com";
 const WWW_DASHBOARD_URL = `${WWW_BASE}/dashboard`;
+export { WWW_BASE, WWW_DASHBOARD_URL };
 
 // Allow-listed destinations for the ?next= handoff parameter (open-redirect
 // guard): only our own hosts + Stripe's dashboard. Anything else falls back to
@@ -39,7 +40,7 @@ const ALLOWED_NEXT_ORIGINS = new Set([
  * the callback sets it for the Railway host, giving the merchant a cookie on
  * both hosts with the same token.
  */
-function sessionCookieFor(token: string): string {
+export function sessionCookieFor(token: string): string {
   return `session=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=2592000`;
 }
 

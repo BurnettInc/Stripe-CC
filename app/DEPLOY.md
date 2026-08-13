@@ -64,8 +64,13 @@ production.
 
 | Variable | Required | What it's for |
 |---|---|---|
-| `BASE_URL` | ✅ | The Railway public URL, **no trailing slash**: `https://your-app.up.railway.app`. Drives Stripe Connect OAuth redirect/return URLs, billing checkout return URLs, and email unsubscribe links (all built as `${BASE_URL}/...`). |
+| `BASE_URL` | ✅ | The Railway public URL, **no trailing slash**: `https://your-app.up.railway.app`. Drives Stripe Connect OAuth redirect/return URLs, the Stripe Apps marketplace install URL, billing checkout return URLs, and email unsubscribe links (all built as `${BASE_URL}/...`). |
 | `STRIPE_SECRET_KEY` | ✅ | Owner's Stripe secret key — test-mode key (`sk_test_…`) while testing, live key (`sk_live_…`) when ready. Webhooks & billing fail without it. |
+| `STRIPE_CLIENT_ID` | ✅ (for Stripe App install) — **legacy default** | The Stripe Apps application client id (`ca_…`) from the Stripe dashboard (Apps → your app → API authentication). Used as the **fallback** client id for BOTH test and live marketplace authorize URLs when the mode-specific `STRIPE_APP_TEST_CLIENT_ID` / `STRIPE_APP_LIVE_CLIENT_ID` are unset (backward compatible — this is the live/default client id, so existing single-env setups keep working). Without any client id the install page shows a clear "not configured" notice and never crashes. |
+| `STRIPE_APP_TEST_CLIENT_ID` | ✅ (for test installs) | The app client id (`ca_…`) for **test-mode** marketplace install links (test and live OAuth install links carry DIFFERENT client ids — see the External test tab in the Stripe dashboard). Overrides `STRIPE_CLIENT_ID` when building the test-mode authorize URL (`/oauth/install/start?link=test`). Falls back to `STRIPE_CLIENT_ID` when unset. |
+| `STRIPE_APP_LIVE_CLIENT_ID` | ✅ (for live installs) | The app client id (`ca_…`) for **live-mode** marketplace install links. Overrides `STRIPE_CLIENT_ID` when building the live-mode authorize URL (`/oauth/install/start?link=live`). Falls back to `STRIPE_CLIENT_ID` when unset. |
+| `STRIPE_APP_TEST_KEY` | ✅ (for Stripe App install) | The app **developer API key** for **test-mode links** (Apps → your app → API authentication → developer keys). Used as the Basic-auth credential when exchanging the one-time authorization code and when refreshing access tokens for test-mode installs. |
+| `STRIPE_APP_LIVE_KEY` | ❌ optional — **falls back to `STRIPE_SECRET_KEY`** | The app **developer API key** for **live-mode links** (Apps → your app → API authentication → developer keys). Same role as `STRIPE_APP_TEST_KEY` but for live installs. **Optional override only:** per Stripe's OAuth docs, the app developer key for a live-mode install IS the developer account's own live secret key, so when this var is unset live-mode links use `STRIPE_SECRET_KEY` as the developer key — live installs work with zero extra env vars (set it only if you want a dedicated developer key distinct from `STRIPE_SECRET_KEY`). Test mode is unaffected: `STRIPE_APP_TEST_KEY` is still required for test links and `STRIPE_SECRET_KEY` (a live key) is never reused for them. |
 | `STRIPE_WEBHOOK_SECRET` | ✅ | Signing secret (`whsec_…`) of the **/webhook** endpoint from Stripe (step 4). **Mandatory** — the app exits at boot without it when `NODE_ENV=production` (webhook signature verification is a hard requirement, not optional). |
 | `STRIPE_BILLING_WEBHOOK_SECRET` | ✅ | Signing secret of the **/billing** endpoint (step 4). (Code falls back to `STRIPE_WEBHOOK_SECRET` if unset, but set the real one.) |
 | `TOKEN_ENCRYPTION_KEY` | ✅ | Stable random value — encrypts session and OAuth tokens at rest. Generate once with `openssl rand -hex 32`. **Changing it logs every merchant out and invalidates stored Stripe tokens — never rotate casually.** |
@@ -108,6 +113,45 @@ For merchant Stripe-account connection to work, add the OAuth redirect URI in
 The app also serves `/stripe/oauth/callback` and `/api/oauth/callback` as
 aliases; the account-link return URL is built from `BASE_URL` automatically, so
 keep `BASE_URL` free of a trailing slash.
+
+## 5b. Stripe Apps marketplace install (OAuth v2) — install URL + developer keys
+The Stripe App Marketplace installs CollectionsCopilot through Stripe's **OAuth
+v2** flow (parallel to — and independent from — the web Connect flow above).
+The URL you give Stripe as the **marketplace install URL** is:
+
+- `https://<railway-url>/oauth/install` (production: `https://stripe-cc-production.up.railway.app/oauth/install`)
+
+What the flow does (all backend; no stripe-app changes needed — the manifest
+already declares `"stripe_api_access_type": "oauth"` with
+`allowed_redirect_uris: ["https://<railway-url>/oauth/callback"]`):
+
+1. The install URL renders a branded page with a **"Connect with Stripe"**
+   button per configured mode (test/live) — the page the reviewer required,
+   with clear instructions and OAuth install links.
+2. The button → `GET /oauth/install/start?link=test|live` → the backend mints a
+   CSRF-safe `state` (stored one-time, 30-min TTL, link type encoded inside)
+   and 302s to `https://marketplace.stripe.com/oauth/v2/authorize?client_id=…&redirect_uri=…&state=…`.
+3. After the user authorizes, Stripe redirects to `GET /oauth/callback?code=…&state=…`
+   (the same path the web flow uses — the backend branches on the `code` param).
+   The backend verifies+consumes the state, exchanges the one-time code at
+   `POST https://api.stripe.com/v1/oauth/token` (Basic auth with the developer
+   key matching the link type), stores `{stripe_user_id, access_token,
+   refresh_token, livemode, expires_at}` in the `oauth_tokens` table
+   (encrypted at rest with `TOKEN_ENCRYPTION_KEY`), creates/finds the merchant,
+   mirrors into `stripe_connections`, mints a session and bounces through the
+   www-host `/oauth/session` handoff → the user lands logged-in on the
+   dashboard. Access tokens expire ~1h; refresh tokens expire ~1yr and roll on
+   every exchange (`refreshAppAccessToken()` in
+   `src/routes/oauth-app-install.ts`).
+
+Required env for the install flow (see the table above): `STRIPE_APP_TEST_CLIENT_ID`
+and `STRIPE_APP_LIVE_CLIENT_ID` (per-mode app client ids `ca_…`; `STRIPE_CLIENT_ID`
+is the legacy default fallback), and `STRIPE_APP_TEST_KEY` / `STRIPE_APP_LIVE_KEY`
+(app developer keys). Developer keys and the per-mode OAuth install links live
+in the Stripe dashboard under **Apps → your app → API authentication** (test and
+live links carry different client ids). When a client id or key is missing the
+matching mode's link/button is hidden or fails with a clear error page —
+test-mode installs don't need the live vars and vice versa.
 
 ## 6. First boot — database initialization (no manual step)
 

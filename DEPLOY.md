@@ -80,7 +80,7 @@ SQLite DB now survives deploys.
 - ✅ `STRIPE_WEBHOOK_SECRET` **live** (owner-provided; endpoint `https://stripe-cc-production.up.railway.app/webhook` with invoice.created/updated/paid, charge.refunded, dispute.created, account.application.deauthorized).
 - ✅ `STRIPE_BILLING_WEBHOOK_SECRET` **live** (owner-provided; endpoint `https://stripe-cc-production.up.railway.app/billing` with checkout.session.completed, customer.subscription.deleted, customer.subscription.updated).
 - All three set on Railway 2026-08-11; redeploys SUCCESS; `/health` ok.
-- ℹ️ `STRIPE_CLIENT_ID` (`ca_…`) is account-level (no test/live variant) — leave as-is.
+- ℹ️ `STRIPE_CLIENT_ID` (`ca_…`) is the **legacy default** client id — the app now prefers the per-mode `STRIPE_APP_TEST_CLIENT_ID` / `STRIPE_APP_LIVE_CLIENT_ID` (test and live OAuth install links carry different client ids; see the External test tab). Leave `STRIPE_CLIENT_ID` as-is (live/default) and add the two mode-specific vars for the Stripe App install flow.
 
 ### 3. OPENAI_API_KEY (optional but recommended)
 Not currently set — AI-personalized draft copy falls back to templates (safe). Set it on Railway
