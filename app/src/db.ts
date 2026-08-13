@@ -420,13 +420,14 @@ export function recordPageVisit(
     utm_source: string;
     utm_medium: string;
     utm_campaign: string;
+    utm_content: string;
     ts: string;
   }
 ): boolean {
   const result = db.run(
-    `INSERT OR IGNORE INTO page_visits (visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, ts)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [params.visitor_id, params.page, params.referrer, params.utm_source, params.utm_medium, params.utm_campaign, params.ts]
+    `INSERT OR IGNORE INTO page_visits (visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [params.visitor_id, params.page, params.referrer, params.utm_source, params.utm_medium, params.utm_campaign, params.utm_content, params.ts]
   );
   return result.changes > 0;
 }

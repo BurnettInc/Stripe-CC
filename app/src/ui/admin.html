@@ -58,6 +58,10 @@
     .empty { color: var(--muted); padding: 18px; text-align: center; }
     .muted { color: var(--muted); }
     a { color: #C4B5FD; }
+    .barwrap { background: var(--card-2); border-radius: 999px; height: 8px; min-width: 60px; }
+    .bar { display: block; height: 8px; border-radius: 999px; background: var(--primary); min-width: 2px; }
+    td.bucket { color: var(--text); font-weight: 600; white-space: nowrap; }
+    .srcnote { padding: 14px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -69,6 +73,18 @@
   <main>
     <div id="error" class="error" style="display:none;"></div>
     <div class="cards" id="funnel"></div>
+    <div class="panel">
+      <h2>Visits by source</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>Source</th><th>Visits (all-time)</th><th>Visits (7d)</th><th>First-touch visitors</th><th style="min-width:120px;">Share</th></tr></thead>
+        <tbody id="sourceBuckets"></tbody>
+      </table></div>
+      <div class="srcnote">
+        Bucketing: utm_source wins when present; otherwise the referrer host maps to a channel
+        (x, reddit, hackernews, indiehackers, google, bing, duckduckgo, linkedin, referral:&lt;host&gt;); no utm + no referrer = direct.
+        First-touch = each visitor is counted once, under the source of their very first visit.
+      </div>
+    </div>
     <div class="panel">
       <h2>Merchants</h2>
       <div class="scroll"><table>
@@ -82,7 +98,7 @@
     <div class="panel">
       <h2>Recent page visits (last 50)</h2>
       <div class="scroll"><table>
-        <thead><tr><th>Time (UTC)</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM source</th><th>UTM medium</th><th>UTM campaign</th></tr></thead>
+        <thead><tr><th>Time (UTC)</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM source</th><th>UTM medium</th><th>UTM campaign</th><th>UTM content</th></tr></thead>
         <tbody id="visits"></tbody>
       </table></div>
     </div>
@@ -129,6 +145,23 @@
           card("Paid active", f.paid_active.standard + f.paid_active.pro + f.dev_pro,
             "std " + f.paid_active.standard + " · pro " + f.paid_active.pro + " · devPro " + f.dev_pro) +
           card("Subs cancelled", f.subs_cancelled) + card("Subs past due", f.subs_past_due);
+        var sT = document.getElementById("sourceBuckets");
+        if (!d.visits_by_source || !d.visits_by_source.length) {
+          sT.innerHTML = '<tr><td colspan="5" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>';
+        } else {
+          var maxTotal = d.visits_by_source.reduce(function (m, b) { return Math.max(m, b.visits_total); }, 1);
+          d.visits_by_source.forEach(function (b) {
+            var pct = Math.max(2, Math.round(100 * b.visits_total / maxTotal));
+            var row = document.createElement("tr");
+            row.innerHTML =
+              "<td class=\"bucket\">" + esc(b.bucket) + "</td>" +
+              "<td>" + esc(b.visits_total) + "</td>" +
+              "<td>" + esc(b.visits_7d) + "</td>" +
+              "<td>" + esc(b.first_touch_visitors) + "</td>" +
+              "<td><div class=\"barwrap\" title=\"" + esc(b.visits_total) + " visits\"><span class=\"bar\" style=\"width:" + pct + "%\"></span></div></td>";
+            sT.appendChild(row);
+          });
+        }
         var mT = document.getElementById("merchants");
         if (!d.merchants.length) mT.innerHTML = '<tr><td colspan="11" class="empty">No merchants</td></tr>';
         d.merchants.forEach(function (m) {
@@ -151,7 +184,7 @@
           mT.appendChild(row);
         });
         var vT = document.getElementById("visits");
-        if (!d.visits.length) vT.innerHTML = '<tr><td colspan="7" class="empty">No page visits yet</td></tr>';
+        if (!d.visits.length) vT.innerHTML = '<tr><td colspan="8" class="empty">No page visits yet</td></tr>';
         d.visits.forEach(function (v) {
           var row = document.createElement("tr");
           row.innerHTML =
@@ -161,7 +194,8 @@
             "<td>" + esc(v.referrer || "") + "</td>" +
             "<td>" + esc(v.utm_source || "") + "</td>" +
             "<td>" + esc(v.utm_medium || "") + "</td>" +
-            "<td>" + esc(v.utm_campaign || "") + "</td>";
+            "<td>" + esc(v.utm_campaign || "") + "</td>" +
+            "<td>" + esc(v.utm_content || "") + "</td>";
           vT.appendChild(row);
         });
         var eT = document.getElementById("subEvents");

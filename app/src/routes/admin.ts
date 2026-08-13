@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { aggregateVisitsBySource, type VisitForAttribution } from "../visit-sources";
 
 /**
  * Admin-only internal customer tracking dashboard (owner request 2026-08-12).
@@ -212,6 +213,21 @@ function merchantsList(db: Database) {
 }
 
 /**
+ * Visits-by-source channel attribution: every visit bucketed by utm_source
+ * (wins), else referrer host, else "direct" — plus per-bucket counts
+ * (all-time + last 7d) and a first-touch line (each distinct visitor is
+ * attributed to the source of their FIRST visit row; unique visitors per
+ * bucket). See src/visit-sources.ts for the deterministic bucketing rules.
+ */
+function visitsBySource(db: Database) {
+  const rows = db.query(
+    "SELECT id, visitor_id, referrer, utm_source, ts FROM page_visits"
+  ).all() as VisitForAttribution[];
+  const cutoff7d = new Date(Date.now() - 7 * 86400000).toISOString();
+  return aggregateVisitsBySource(rows, cutoff7d);
+}
+
+/**
  * GET /admin/data — the funnel + merchant + visit + subscription-event data
  * behind the admin page. Token-gated identically to GET /admin.
  */
@@ -220,7 +236,7 @@ export function handleAdminData(db: Database, req: Request): Response {
     return json({ error: "Unauthorized — missing or invalid ADMIN_TOKEN" }, 403);
   }
   const visits = db.query(
-    "SELECT id, visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, ts FROM page_visits ORDER BY id DESC LIMIT 50"
+    "SELECT id, visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts FROM page_visits ORDER BY id DESC LIMIT 50"
   ).all();
   const subscriptionEvents = db.query(
     "SELECT * FROM subscription_events ORDER BY id DESC LIMIT 50"
@@ -230,6 +246,7 @@ export function handleAdminData(db: Database, req: Request): Response {
     funnel: funnel(db),
     merchants: merchantsList(db),
     visits,
+    visits_by_source: visitsBySource(db),
     subscription_events: subscriptionEvents,
   }, 200);
 }

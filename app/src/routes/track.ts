@@ -7,7 +7,7 @@ import { recordPageVisit } from "../db";
  * tracking for the internal admin dashboard.
  *
  * Payload (JSON, all optional except visitor_id + page):
- *   { visitor_id, page, referrer?, utm_source?, utm_medium?, utm_campaign?, ts? }
+ *   { visitor_id, page, referrer?, utm_source?, utm_medium?, utm_campaign?, utm_content?, ts? }
  *
  * No IP, no User-Agent, no cookies are read, logged or stored: the snippet
  * sends exactly these fields and nothing else. ts is the client's ISO
@@ -51,6 +51,7 @@ export async function handleTrack(db: Database, req: Request): Promise<Response>
     utm_source: str(body.utm_source, 200),
     utm_medium: str(body.utm_medium, 200),
     utm_campaign: str(body.utm_campaign, 200),
+    utm_content: str(body.utm_content, 200),
     ts,
   });
 
