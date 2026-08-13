@@ -33,20 +33,28 @@
  * mutated locally and restored):
  *   (g) create/consume install state (roundtrip, one-time, unknown → null)
  *   (h) appDevKeyFor picks test/live key, null when unset (graceful no-op);
- *       appClientIdFor picks per-mode STRIPE_APP_{TEST|LIVE}_CLIENT_ID with a
- *       STRIPE_CLIENT_ID fallback, null when nothing resolves
+ *       live mode FALLS BACK to STRIPE_SECRET_KEY when STRIPE_APP_LIVE_KEY is
+ *       unset (the suite process deletes the shell-exported STRIPE_SECRET_KEY
+ *       to exercise the true null/missing paths); appClientIdFor picks per-mode
+ *       STRIPE_APP_{TEST|LIVE}_CLIENT_ID with a STRIPE_CLIENT_ID fallback,
+ *       null when nothing resolves
  *   (i) buildAuthorizeUrl: per-mode client_id (mode env wins, STRIPE_CLIENT_ID
  *       falls back) + redirect_uri + state, or a clear error naming the
  *       missing env vars
  *   (m) installPageHtml: a mode's button appears only when BOTH its client id
- *       and its developer key resolve; the "not configured" notice lists the
- *       missing env vars per mode
+ *       and its developer key resolve (live key slot satisfied by
+ *       STRIPE_SECRET_KEY alone); the "not configured" notice lists the
+ *       missing env vars per mode ("set STRIPE_APP_LIVE_KEY or
+ *       STRIPE_SECRET_KEY" when both live key vars are unset)
  *   (j) exchangeCodeForTokens: happy path through the stub; missing-key error
- *       without any network call
+ *       (naming STRIPE_APP_LIVE_KEY + STRIPE_SECRET_KEY fallback for live)
+ *       without any network call; live exchange authenticates with the
+ *       STRIPE_SECRET_KEY value as Basic auth when STRIPE_APP_LIVE_KEY is unset
  *   (k) save/getAppOAuthTokens: encrypted at rest, decrypted on read, upsert
  *   (l) refreshAppAccessToken: expired pair → refresh (stub, grant_type=
  *       refresh_token, rolling refresh token stored), valid pair → no network
- *       call, missing refresh token / missing key / unknown user → clean errors
+ *       call, missing refresh token / missing key / unknown user → clean
+ *       errors; live refresh falls back to STRIPE_SECRET_KEY as Basic auth
  *
  * Run via: bash /tmp/run-suite.sh oauth-install
  */
@@ -251,8 +259,14 @@ async function main(): Promise<void> {
   check("h1: test key selected", mod.appDevKeyFor("test") === "sk_test_unit", "");
   check("h2: live key selected", mod.appDevKeyFor("live") === "sk_live_unit", "");
   delete process.env.STRIPE_APP_LIVE_KEY;
-  check("h3: missing live key → null (no crash)", mod.appDevKeyFor("live") === null, "");
+  // The shell exports STRIPE_SECRET_KEY — strip it so the null path is real.
+  delete process.env.STRIPE_SECRET_KEY;
+  check("h3: live key null when neither STRIPE_APP_LIVE_KEY nor STRIPE_SECRET_KEY set (no crash)", mod.appDevKeyFor("live") === null, "");
+  process.env.STRIPE_SECRET_KEY = "sk_live_fallback";
+  check("h3b: live key falls back to STRIPE_SECRET_KEY", mod.appDevKeyFor("live") === "sk_live_fallback", "");
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
+  check("h3c: STRIPE_APP_LIVE_KEY overrides the STRIPE_SECRET_KEY fallback", mod.appDevKeyFor("live") === "sk_live_unit", "");
+  delete process.env.STRIPE_SECRET_KEY;
 
   // ── (h2) unit: per-mode client id selection (mode env wins, fallback) ──
   process.env.STRIPE_CLIENT_ID = "ca_fallback";
@@ -271,7 +285,11 @@ async function main(): Promise<void> {
   process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_mode";
   check("h8: missingEnvFor empty when everything resolves", mod.missingEnvFor("test").length === 0 && mod.missingEnvFor("live").length === 0, JSON.stringify([mod.missingEnvFor("test"), mod.missingEnvFor("live")]));
   delete process.env.STRIPE_APP_LIVE_KEY;
-  check("h9: missingEnvFor reports the missing key only", mod.missingEnvFor("live").length === 1 && mod.missingEnvFor("live")[0] === "STRIPE_APP_LIVE_KEY", JSON.stringify(mod.missingEnvFor("live")));
+  delete process.env.STRIPE_SECRET_KEY;
+  check("h9: missingEnvFor reports the combined live key entry when both unset", mod.missingEnvFor("live").length === 1 && mod.missingEnvFor("live")[0] === "STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY", JSON.stringify(mod.missingEnvFor("live")));
+  process.env.STRIPE_SECRET_KEY = "sk_live_fallback";
+  check("h9b: STRIPE_SECRET_KEY satisfies live's key slot (no key entry)", mod.missingEnvFor("live").length === 0, JSON.stringify(mod.missingEnvFor("live")));
+  delete process.env.STRIPE_SECRET_KEY;
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
 
   // ── (i) unit: authorize URL builder (per-mode client id) ──
@@ -305,8 +323,14 @@ async function main(): Promise<void> {
   const exCall = stub.calls.find((c) => c.path === "/v1/oauth/token");
   check("j3: stub got the code + grant", exCall?.body.includes("code=code_unit") && exCall.body.includes("grant_type=authorization_code"), exCall?.body || "");
   delete process.env.STRIPE_APP_LIVE_KEY;
+  delete process.env.STRIPE_SECRET_KEY;
   const exLive = await mod.exchangeCodeForTokens("code_unit", "live");
-  check("j4: missing live key → error without network call", !exLive.ok && exLive.error.includes("STRIPE_APP_LIVE_KEY"), JSON.stringify(exLive));
+  check("j4: neither live key nor STRIPE_SECRET_KEY → error naming both, no network call", !exLive.ok && exLive.error.includes("STRIPE_APP_LIVE_KEY") && exLive.error.includes("STRIPE_SECRET_KEY"), JSON.stringify(exLive));
+  process.env.STRIPE_SECRET_KEY = "sk_live_fallback";
+  const exLiveFallback = await mod.exchangeCodeForTokens("code_fallback", "live");
+  const exLiveCall = stub.calls.find((c) => c.path === "/v1/oauth/token" && c.body.includes("code=code_fallback"));
+  check("j5: live exchange falls back to STRIPE_SECRET_KEY as Basic auth", exLiveFallback.ok && exLiveCall?.auth === `Basic ${Buffer.from("sk_live_fallback:").toString("base64")}`, JSON.stringify({ exLiveFallback, calls: stub.calls }));
+  delete process.env.STRIPE_SECRET_KEY;
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
 
   // ── (k) unit: token storage (encrypted at rest) ──
@@ -365,8 +389,17 @@ async function main(): Promise<void> {
   mod.saveAppOAuthTokens(u, { stripe_user_id: "acct_live_no_key", merchant_id: 1, access_token: "a", refresh_token: "rt", stripe_publishable_key: "", livemode: 1, link_type: "live" });
   u.run("UPDATE oauth_tokens SET expires_at = datetime('now', '-1 hour') WHERE stripe_user_id = 'acct_live_no_key'");
   delete process.env.STRIPE_APP_LIVE_KEY;
+  delete process.env.STRIPE_SECRET_KEY;
   const rf6 = await mod.refreshAppAccessToken(u, "acct_live_no_key");
-  check("l10: missing live key → clean error", !rf6.ok && rf6.error.includes("STRIPE_APP_LIVE_KEY"), JSON.stringify(rf6));
+  check("l10: neither live key nor STRIPE_SECRET_KEY → clean error naming both", !rf6.ok && rf6.error.includes("STRIPE_APP_LIVE_KEY") && rf6.error.includes("STRIPE_SECRET_KEY"), JSON.stringify(rf6));
+  process.env.STRIPE_SECRET_KEY = "sk_live_fallback";
+  mod.saveAppOAuthTokens(u, { stripe_user_id: "acct_live_fallback", merchant_id: 1, access_token: "a", refresh_token: "rt_live_fallback", stripe_publishable_key: "", livemode: 1, link_type: "live" });
+  u.run("UPDATE oauth_tokens SET expires_at = datetime('now', '-1 hour') WHERE stripe_user_id = 'acct_live_fallback'");
+  resetStub();
+  const rf7 = await mod.refreshAppAccessToken(u, "acct_live_fallback");
+  const rfCallFallback = stub.calls.find((c) => c.path === "/v1/oauth/token" && c.body.includes("refresh_token=rt_live_fallback"));
+  check("l11: live refresh falls back to STRIPE_SECRET_KEY as Basic auth", rf7.ok && rf7.refreshed && rfCallFallback?.auth === `Basic ${Buffer.from("sk_live_fallback:").toString("base64")}`, JSON.stringify({ rf7, calls: stub.calls }));
+  delete process.env.STRIPE_SECRET_KEY;
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
   u.close();
 
@@ -395,14 +428,27 @@ async function main(): Promise<void> {
   check("m4: live button still shown", pageNoTest.includes(`${pageBase}/oauth/install/start?link=live`), "");
   check("m5: notice names STRIPE_APP_TEST_CLIENT_ID", pageNoTest.includes("STRIPE_APP_TEST_CLIENT_ID"), "");
 
-  // Nothing resolves → full per-mode notice.
+  // Nothing resolves → full per-mode notice. (STRIPE_SECRET_KEY must be unset
+  // too — the shell exports it, and it would otherwise satisfy live's key
+  // slot and remove the key entry from the notice.)
   delete process.env.STRIPE_APP_LIVE_CLIENT_ID;
   delete process.env.STRIPE_APP_TEST_KEY;
   delete process.env.STRIPE_APP_LIVE_KEY;
+  delete process.env.STRIPE_SECRET_KEY;
   const pageNone = mod.installPageHtml(pageBase, modesWith(), missingMap());
   check("m6: nothing configured → notice present", pageNone.includes("Installation is not configured yet."), "");
   check("m7: notice lists test-mode missing vars", pageNone.includes("Test mode: set") && pageNone.includes("STRIPE_APP_TEST_CLIENT_ID") && pageNone.includes("STRIPE_APP_TEST_KEY"), "");
-  check("m8: notice lists live-mode missing vars", pageNone.includes("Live mode: set") && pageNone.includes("STRIPE_APP_LIVE_CLIENT_ID") && pageNone.includes("STRIPE_APP_LIVE_KEY"), "");
+  check("m8: notice lists live-mode missing vars", pageNone.includes("Live mode: set") && pageNone.includes("STRIPE_APP_LIVE_CLIENT_ID") && pageNone.includes("STRIPE_APP_LIVE_KEY") && pageNone.includes("STRIPE_SECRET_KEY"), "");
+
+  // Live key slot satisfied by STRIPE_SECRET_KEY alone → live button shows
+  // (client id via the STRIPE_CLIENT_ID fallback); test stays hidden (its
+  // developer key is still unset).
+  process.env.STRIPE_CLIENT_ID = "ca_page_fallback";
+  process.env.STRIPE_SECRET_KEY = "sk_live_fallback";
+  const pageLiveFallback = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  check("m9: live button shows when STRIPE_SECRET_KEY satisfies live's key slot", pageLiveFallback.includes(`${pageBase}/oauth/install/start?link=live`), "");
+  check("m10: test button still hidden (test key unset)", !pageLiveFallback.includes(`${pageBase}/oauth/install/start?link=test`), "");
+  delete process.env.STRIPE_SECRET_KEY;
 
   // Restore env for any later sections.
   process.env.STRIPE_CLIENT_ID = "ca_unit_client";

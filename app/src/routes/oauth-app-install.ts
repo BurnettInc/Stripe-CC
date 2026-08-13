@@ -38,7 +38,13 @@
  *
  * Env: STRIPE_APP_TEST_CLIENT_ID / STRIPE_APP_LIVE_CLIENT_ID (per-mode app
  * client ids, ca_…; STRIPE_CLIENT_ID is the legacy default fallback),
- * STRIPE_APP_TEST_KEY / STRIPE_APP_LIVE_KEY (app developer API keys).
+ * STRIPE_APP_TEST_KEY / STRIPE_APP_LIVE_KEY (app developer API keys). For
+ * LIVE links the developer key falls back to STRIPE_SECRET_KEY when
+ * STRIPE_APP_LIVE_KEY is unset — per Stripe's OAuth docs the app developer
+ * key for a live-mode install IS the developer account's own live secret key
+ * (their curl example authenticates with `-u sk_live_***:`). Test mode is
+ * unchanged: STRIPE_APP_TEST_KEY is still required (STRIPE_SECRET_KEY is a
+ * live key and must never be reused for test links).
  * Everything degrades to a clear error page — never a crash — when unset.
  */
 import type { Database } from "bun:sqlite";
@@ -63,10 +69,13 @@ export function isLinkType(value: string): value is LinkType {
 }
 
 /** App developer API key matching the link type (docs: use the key that
- * matches the link type — test links only work with test-mode keys). */
+ * matches the link type — test links only work with test-mode keys). For
+ * live links the key falls back to STRIPE_SECRET_KEY when STRIPE_APP_LIVE_KEY
+ * is unset: per Stripe's OAuth docs the app developer key for a live-mode
+ * install IS the developer account's own live secret key. */
 export function appDevKeyFor(linkType: LinkType): string | null {
   return linkType === "live"
-    ? (process.env.STRIPE_APP_LIVE_KEY ?? null)
+    ? (process.env.STRIPE_APP_LIVE_KEY ?? process.env.STRIPE_SECRET_KEY ?? null)
     : (process.env.STRIPE_APP_TEST_KEY ?? null);
 }
 
@@ -82,14 +91,21 @@ export function appClientIdFor(linkType: LinkType): string | null {
 /** Env vars still missing for a link type to be installable (client id slot
  * first, then developer key). The install page's per-mode notices render this;
  * when appClientIdFor resolves through the STRIPE_CLIENT_ID fallback the mode
- * var is not reported. */
+ * var is not reported. For LIVE mode, STRIPE_SECRET_KEY satisfies the
+ * developer-key slot (the appDevKeyFor fallback), so the key entry appears
+ * only when BOTH STRIPE_APP_LIVE_KEY and STRIPE_SECRET_KEY are unset, and it
+ * reads "set STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY". */
 export function missingEnvFor(linkType: LinkType): string[] {
   const missing: string[] = [];
   if (!appClientIdFor(linkType)) {
     missing.push(linkType === "live" ? "STRIPE_APP_LIVE_CLIENT_ID" : "STRIPE_APP_TEST_CLIENT_ID");
   }
   if (!appDevKeyFor(linkType)) {
-    missing.push(linkType === "live" ? "STRIPE_APP_LIVE_KEY" : "STRIPE_APP_TEST_KEY");
+    missing.push(
+      linkType === "live"
+        ? "STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY"
+        : "STRIPE_APP_TEST_KEY"
+    );
   }
   return missing;
 }
@@ -148,13 +164,18 @@ export function installPageHtml(
 
   // Human text for a mode's missing env vars, e.g. "<code>STRIPE_APP_TEST_CLIENT_ID</code>
   // (or the default <code>STRIPE_CLIENT_ID</code>) and <code>STRIPE_APP_TEST_KEY</code>".
+  // The live key slot reads "set <code>STRIPE_APP_LIVE_KEY</code> or
+  // <code>STRIPE_SECRET_KEY</code>" (the STRIPE_SECRET_KEY fallback).
   const missingTextFor = (linkType: LinkType): string =>
     missingEnv[linkType]
-      .map((env) =>
-        env.endsWith("_CLIENT_ID")
+      .map((env) => {
+        if (env === "STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY") {
+          return `<code>STRIPE_APP_LIVE_KEY</code> or <code>STRIPE_SECRET_KEY</code>`;
+        }
+        return env.endsWith("_CLIENT_ID")
           ? `<code>${env}</code> (or the default <code>STRIPE_CLIENT_ID</code>)`
-          : `<code>${env}</code>`
-      )
+          : `<code>${env}</code>`;
+      })
       .join(" and ");
 
   let body: string;
@@ -269,7 +290,13 @@ export async function exchangeCodeForTokens(
 ): Promise<{ ok: true; tokens: ExchangeResult } | { ok: false; error: string }> {
   const key = appDevKeyFor(linkType);
   if (!key) {
-    return { ok: false, error: `STRIPE_APP_${linkType === "live" ? "LIVE" : "TEST"}_KEY is not set — cannot exchange the authorization code for ${linkType}-mode tokens.` };
+    return {
+      ok: false,
+      error:
+        linkType === "live"
+          ? "Neither STRIPE_APP_LIVE_KEY nor STRIPE_SECRET_KEY is set — cannot exchange the authorization code for live-mode tokens."
+          : "STRIPE_APP_TEST_KEY is not set — cannot exchange the authorization code for test-mode tokens.",
+    };
   }
   const body = new URLSearchParams({ grant_type: "authorization_code", code });
   const res = await fetch(`${STRIPE_API}/oauth/token`, {
@@ -390,7 +417,15 @@ export async function refreshAppAccessToken(
 
   if (!row.refresh_token) return { ok: false, error: "No refresh token stored — cannot refresh." };
   const key = appDevKeyFor(row.link_type);
-  if (!key) return { ok: false, error: `STRIPE_APP_${row.link_type === "live" ? "LIVE" : "TEST"}_KEY is not set — cannot refresh tokens for ${row.link_type}-mode link.` };
+  if (!key) {
+    return {
+      ok: false,
+      error:
+        row.link_type === "live"
+          ? "Neither STRIPE_APP_LIVE_KEY nor STRIPE_SECRET_KEY is set — cannot refresh tokens for live-mode link."
+          : "STRIPE_APP_TEST_KEY is not set — cannot refresh tokens for test-mode link.",
+    };
+  }
 
   const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: row.refresh_token });
   const res = await fetch(`${STRIPE_API}/oauth/token`, {
