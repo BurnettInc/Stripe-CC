@@ -993,9 +993,9 @@
           <div>
             <span id="plan-name" style="font-size:1.1rem;font-weight:700;"></span>
             <p id="plan-since" style="margin:6px 0 0;font-size:0.85rem;color:var(--muted);"></p>
-            <p style="margin:2px 0 0;font-size:0.8rem;color:var(--muted);">Switch or cancel anytime from Manage Billing.</p>
+            <p id="plan-manage-hint" style="margin:2px 0 0;font-size:0.8rem;color:var(--muted);">Switch or cancel anytime from Manage Billing.</p>
           </div>
-          <button class="btn-outline" style="font-size:0.85rem;white-space:nowrap;" onclick="manageBilling(this)">⚙️ Manage Billing</button>
+          <button id="plan-manage-billing" class="btn-outline" style="font-size:0.85rem;white-space:nowrap;" onclick="manageBilling(this)">⚙️ Manage Billing</button>
         </div>
       </div>
       <!-- Pricing block — hidden while an active subscription exists -->
@@ -1123,8 +1123,11 @@
           if (s.free_drafts_unlimited) {
             if (freeDraftsValue) freeDraftsValue.textContent = 'Unlimited';
             if (freeDraftsSub) freeDraftsSub.textContent = 'no limit on your plan';
-            if (freeDraftsLink) { freeDraftsLink.href = '/billing/portal'; freeDraftsLink.title = 'Manage your subscription'; }
-            if (freeDraftsHint) freeDraftsHint.textContent = 'Manage plan \u2192';
+            if (freeDraftsLink) {
+              if (IS_DEV_PRO) { freeDraftsLink.removeAttribute('href'); freeDraftsLink.title = 'Developer preview'; }
+              else { freeDraftsLink.href = '/billing/portal'; freeDraftsLink.title = 'Manage your subscription'; }
+            }
+            if (freeDraftsHint) freeDraftsHint.textContent = IS_DEV_PRO ? 'Developer preview' : 'Manage plan \u2192';
           } else {
             if (freeDraftsValue) freeDraftsValue.textContent = (s.free_drafts_remaining ?? 0) + ' of 5';
             if (freeDraftsSub) freeDraftsSub.textContent = 'of 5 remaining';
@@ -1415,8 +1418,10 @@
           var sub = await res.json();
           var isPro = sub.tier === 'pro' && sub.status === 'active';
           var isActive = sub.tier && sub.status === 'active';
+          var isDevPro = !!sub.dev_pro;
           IS_SUB_ACTIVE = isActive;
           IS_PRO = isPro;
+          IS_DEV_PRO = isDevPro;
           if (isActive) {
             var price = sub.tier === 'pro' ? '29' : '15';
             var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
@@ -1424,13 +1429,34 @@
             // The plan card is the single source of truth for plan details
             // (name + price, since date, Manage Billing) — no duplicate pill.
             document.getElementById('plan-name').textContent = tierName + ' plan — $' + price + '/mo';
-            document.getElementById('plan-since').textContent = 'Since ' + dateStr;
+            document.getElementById('plan-since').textContent = isDevPro
+              ? 'Developer preview — subscribe to manage billing'
+              : 'Since ' + dateStr;
             if (planCard) planCard.style.display = 'block';
             if (pricing) pricing.style.display = 'none';
             statusEl.innerHTML = '';
             // Plan card carries its own Manage Billing button — hide the old one
             subActions.style.display = 'none';
             proBadge.style.display = isPro ? 'inline-block' : 'none';
+            // Dev preview (dev_pro=1) merchants have no real subscription — the
+            // billing portal has nothing to manage. Hide Manage Billing and reword
+            // the plan-card hint so the preview never invites a dead portal trip.
+            var planManageBtn = document.getElementById('plan-manage-billing');
+            if (planManageBtn) planManageBtn.style.display = isDevPro ? 'none' : '';
+            var planManageHint = document.getElementById('plan-manage-hint');
+            if (planManageHint) planManageHint.textContent = isDevPro
+              ? 'Subscribe to manage billing and keep reminders running.'
+              : 'Switch or cancel anytime from Manage Billing.';
+            // Same for the free-drafts stat card: keep "Unlimited / no limit on
+            // your plan" but drop the /billing/portal link so the preview can't
+            // navigate into a portal that cannot exist. (Re-applied here so the
+            // init race with loadStats() converges either way.)
+            if (isDevPro) {
+              var fdl = document.getElementById('stat-free-drafts-link');
+              if (fdl) { fdl.removeAttribute('href'); fdl.title = 'Developer preview'; }
+              var fdh = document.getElementById('stat-free-drafts-hint');
+              if (fdh) fdh.textContent = 'Developer preview';
+            }
             // Gate Full Auto behind Pro
             if (fullAutoPill) {
               if (!isPro) {
@@ -1562,6 +1588,7 @@
     var isPaused = false;
     var IS_SUB_ACTIVE = false;
     var IS_PRO = false;
+    var IS_DEV_PRO = false;
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
