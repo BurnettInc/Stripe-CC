@@ -374,12 +374,23 @@ async function main(): Promise<void> {
   const unknown = await get(`${BASE}/oauth/callback?code=x&state=deadbeef`);
   check("e1: unknown state → clean error page", unknown.status === 200 && (await unknown.text()).includes("invalid or has expired"), `status=${unknown.status}`);
   const missing = await get(`${BASE}/oauth/callback?code=x`);
-  check("e2: code without state → clean error page", missing.status === 200 && (await missing.text()).includes("missing the authorization code"), `status=${missing.status}`);
+  check("e2: code without state → specific clean error page (bare-link diagnosis)", missing.status === 200 && (await missing.text()).includes("no state parameter"), `status=${missing.status}`);
+  const stateOnly = await get(`${BASE}/oauth/callback?state=abc`);
+  check("e2a: state without code → specific clean error page", stateOnly.status === 200 && (await stateOnly.text()).includes("no authorization code"), `status=${stateOnly.status}`);
   const bare = await get(`${BASE}/oauth/callback`);
   check("e2b: bare callback (no params) keeps pre-existing Express redirect", bare.status === 302 && (bare.headers.get("location") || "").includes("/dashboard?error=missing_account"), `status=${bare.status} loc=${bare.headers.get("location")}`);
   const denied = await get(`${BASE}/oauth/callback?error=access_denied&error_description=User+declined`);
   const deniedHtml = await denied.text();
   check("e3: denial → friendly page", denied.status === 200 && deniedHtml.includes("Authorization was not completed"), `status=${denied.status}`);
+  const mismatch = await get(`${BASE}/oauth/callback?error=redirect_uri_mismatch&error_description=The+redirect_uri+is+not+registered`);
+  const mismatchHtml = await mismatch.text();
+  check("e4: redirect_uri_mismatch → page shows Stripe's error + App Settings hint", mismatch.status === 200 && mismatchHtml.includes("redirect_uri_mismatch") && mismatchHtml.includes("The redirect_uri is not registered") && mismatchHtml.includes("Stripe App Settings") && mismatchHtml.includes("no trailing slash"), `status=${mismatch.status}`);
+  const descOnly = await get(`${BASE}/oauth/callback?error_description=Something+broke`);
+  const descOnlyHtml = await descOnly.text();
+  check("e4b: error_description alone → handled as unknown error, not generic missing-params", descOnly.status === 200 && descOnlyHtml.includes("unknown_error") && descOnlyHtml.includes("Something broke") && !descOnlyHtml.includes("missing the authorization code or state"), `status=${descOnly.status}`);
+  const invalidClient = await get(`${BASE}/oauth/callback?error=invalid_client_id&error_description=bad`);
+  const invalidClientHtml = await invalidClient.text();
+  check("e4c: invalid_client_id → hints at server env check", invalidClient.status === 200 && invalidClientHtml.includes("STRIPE_APP_LIVE_CLIENT_ID"), `status=${invalidClient.status}`);
 
   // ── (f) Express web-connect branch untouched: account param (no code) ──
   // `?account=` (empty) takes the Express handler's missing-account path — a
@@ -462,6 +473,21 @@ async function main(): Promise<void> {
   check("i2: missing client id → clear error naming both env vars", "error" in builtMissing && (builtMissing as { error: string }).error.includes("STRIPE_APP_TEST_CLIENT_ID") && (builtMissing as { error: string }).error.includes("STRIPE_CLIENT_ID"), JSON.stringify(builtMissing));
   const builtMissingLive = mod.buildAuthorizeUrl("abc:live", "live");
   check("i2b: missing live client id → error names STRIPE_APP_LIVE_CLIENT_ID", "error" in builtMissingLive && (builtMissingLive as { error: string }).error.includes("STRIPE_APP_LIVE_CLIENT_ID"), JSON.stringify(builtMissingLive));
+  // ── (i3) unit: trailing-slash normalization of BASE_URL / redirect_uri ──
+  // The redirect_uri must be byte-identical to the manifest's
+  // allowed_redirect_uris entry; a BASE_URL (or STRIPE_APP_REDIRECT_URI) that
+  // carries a trailing slash must be normalized before building the URL.
+  const prevBase = process.env.BASE_URL;
+  process.env.STRIPE_CLIENT_ID = "ca_unit_client";
+  process.env.BASE_URL = "https://stripe-cc-production.up.railway.app/";
+  delete process.env.STRIPE_APP_REDIRECT_URI;
+  const builtSlash = mod.buildAuthorizeUrl("abc:test", "test");
+  check("i3a: BASE_URL trailing slash normalized — redirect_uri byte-identical to manifest", "url" in builtSlash && (builtSlash as { url: string }).url.includes("redirect_uri=https%3A%2F%2Fstripe-cc-production.up.railway.app%2Foauth%2Fcallback"), JSON.stringify(builtSlash));
+  process.env.STRIPE_APP_REDIRECT_URI = "https://stripe-cc-production.up.railway.app/oauth/callback/";
+  const builtSlashOverride = mod.buildAuthorizeUrl("abc:test", "test");
+  check("i3b: STRIPE_APP_REDIRECT_URI trailing slash normalized", "url" in builtSlashOverride && (builtSlashOverride as { url: string }).url.includes("redirect_uri=https%3A%2F%2Fstripe-cc-production.up.railway.app%2Foauth%2Fcallback"), JSON.stringify(builtSlashOverride));
+  delete process.env.STRIPE_APP_REDIRECT_URI;
+  if (prevBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = prevBase;
   process.env.STRIPE_CLIENT_ID = "ca_unit_client";
 
   // ── (j) unit: code exchange (through the stub) ──
