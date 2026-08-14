@@ -535,7 +535,18 @@ async function handleRequest(req: Request): Promise<Response> {
       // on that so both flows share the manifest's allowed_redirect_uris path
       // while the web-connect flow keeps its exact current behavior.
       if ((path === "/stripe/oauth/callback" || path === "/oauth/callback" || path === "/api/oauth/callback") && req.method === "GET") {
-        const isCodeFlow = url.searchParams.has("code") || (url.searchParams.has("error") && !url.searchParams.has("account"));
+        // Log the FULL raw query for EVERY callback hit (both OAuth flows) so
+        // Railway logs show exactly what Stripe sent — including the bare
+        // no-params case below, which routes to the Express handler and would
+        // otherwise be invisible in the install handler's logs.
+        console.log(`[oauth-app] callback dispatch raw query: ${url.searchParams.toString() || "(empty)"}`);
+        console.log(`[oauth-app] callback dispatch url: ${req.url}`);
+        const isCodeFlow =
+          url.searchParams.has("code") ||
+          ((url.searchParams.has("error") ||
+            url.searchParams.has("error_description") ||
+            url.searchParams.has("state")) &&
+            !url.searchParams.has("account"));
         if (isCodeFlow) return handleAppInstallCallback(db, req);
         return handleStripeOAuthCallback(db, req);
       }

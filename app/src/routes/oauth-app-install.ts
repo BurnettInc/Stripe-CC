@@ -60,6 +60,16 @@ const MARKETPLACE_AUTHORIZE_URL = "https://marketplace.stripe.com/oauth/v2/autho
 // Same env-override convention as routes/billing.ts: endpoint tests point
 // STRIPE_API_BASE at a local stub (e.g. http://localhost:3199/v1).
 const STRIPE_API = (process.env.STRIPE_API_BASE || "https://api.stripe.com/v1").replace(/\/+$/, "");
+
+/** BASE_URL (or the localhost dev default), normalized to never carry a
+ * trailing slash. The OAuth redirect_uri must be BYTE-IDENTICAL to the
+ * manifest's allowed_redirect_uris entry and to whatever is registered in
+ * Stripe App Settings — a stray trailing "/" breaks the match and Stripe
+ * rejects the authorize request. Every redirect_uri/redirect target in this
+ * module is built from this value. */
+export function baseUrlFor(): string {
+  return (process.env.BASE_URL || "http://localhost:3002").replace(/\/+$/, "");
+}
 // State rows are valid for 30 minutes (the one-time code itself expires in 5).
 const STATE_TTL_MINUTES = 30;
 const LINK_TYPES = ["test", "live"] as const;
@@ -143,10 +153,17 @@ export function consumeInstallState(
 }
 
 // ── Authorize URL ──
+// Matches the Stripe Apps OAuth v2 docs exactly (docs.stripe.com/
+// stripe-apps/api-authentication/oauth): the marketplace authorize URL takes
+// client_id + redirect_uri + state. There is NO `scope` query parameter in
+// the docs' flow — the scope is implied by the app (the token response
+// returns `scope: "stripe_apps"`), so adding one would be wrong. `state`
+// doubles as the link-type carrier (docs: "pass the relevant link type within
+// the state parameter") and is echoed back by Stripe on the callback.
 export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: string } | { error: string } {
   const clientId = appClientIdFor(linkType);
-  const baseUrl = process.env.BASE_URL || "http://localhost:3002";
-  const redirectUri = process.env.STRIPE_APP_REDIRECT_URI || `${baseUrl}/oauth/callback`;
+  const baseUrl = baseUrlFor();
+  const redirectUri = (process.env.STRIPE_APP_REDIRECT_URI || `${baseUrl}/oauth/callback`).replace(/\/+$/, "");
   if (!clientId) {
     const modeEnv = linkType === "live" ? "STRIPE_APP_LIVE_CLIENT_ID" : "STRIPE_APP_TEST_CLIENT_ID";
     return { error: `Neither ${modeEnv} nor the default STRIPE_CLIENT_ID is set — the ${linkType}-mode app install link cannot be built. Set the app's ${linkType}-mode client id (ca_…) in the Stripe dashboard.` };
@@ -300,7 +317,7 @@ export function installPageHtml(
  * cookie). */
 export function handleAppInstallPage(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
-  const baseUrl = process.env.BASE_URL || "http://localhost:3002";
+  const baseUrl = baseUrlFor();
   // A mode is installable only when BOTH its client id and its developer key
   // resolve (client id can come from the STRIPE_CLIENT_ID fallback).
   const configuredModes: LinkType[] = LINK_TYPES.filter((lt) => appClientIdFor(lt) && appDevKeyFor(lt));
@@ -335,7 +352,7 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
  * → 302 back to /oauth/install so the user lands on the sign-in card. */
 export function handleAppInstallStart(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
-  const baseUrl = process.env.BASE_URL || "http://localhost:3002";
+  const baseUrl = baseUrlFor();
   const account = accountFromCookie(db, req);
   if (!account) {
     return new Response(null, { status: 302, headers: { Location: `${baseUrl}/oauth/install` } });
@@ -352,7 +369,10 @@ export function handleAppInstallStart(db: Database, req: Request): Response {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
-  console.log(`[oauth-app] install start: account=${account.id} link=${linkType} state=${state.slice(0, 16)}… → marketplace authorize`);
+  // Log the FULL authorize URL so Railway logs show exactly what Stripe is
+  // asked to authorize (client_id, redirect_uri, state) — the redirect_uri
+  // here must match Stripe App Settings byte-for-byte.
+  console.log(`[oauth-app] install start: account=${account.id} link=${linkType} → ${built.url}`);
   return new Response(null, { status: 302, headers: { Location: built.url } });
 }
 
@@ -705,8 +725,11 @@ export async function backfillMerchantInvoices(
 
 // ── Callback ──
 
-function appOAuthErrorPage(message: string): string {
+function appOAuthErrorPage(message: string, hint?: string): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const hintHtml = hint
+    ? `<p style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:10px 14px;font-size:13px;color:#3730A3;">${esc(hint)}</p>`
+    : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -729,6 +752,7 @@ function appOAuthErrorPage(message: string): string {
     <div class="logo">Collections<span>Copilot</span></div>
     <h1>Couldn't complete the install</h1>
     <p>${esc(message)}</p>
+    ${hintHtml}
     <a class="btn" href="/oauth/install">Back to installation</a>
     <p class="small">Still stuck? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>
   </div>
@@ -738,34 +762,94 @@ function appOAuthErrorPage(message: string): string {
 
 /**
  * GET /oauth/callback?code=…&state=… — the marketplace OAuth v2 callback
- * (index.ts branches here when the `code` param is present). Verifies the
- * state (CSRF), exchanges the one-time code, stores the token pair, creates/
- * finds the merchant (linked to the platform account that started the
- * install — the state row's account_id), mints a session and bounces through
- * the www-host /oauth/session handoff so the user lands logged-in on the
- * dashboard.
+ * (index.ts branches here when the `code` param is present OR an `error` param
+ * arrives without `account`). Verifies the state (CSRF), exchanges the
+ * one-time code, stores the token pair, creates/finds the merchant (linked to
+ * the platform account that started the install — the state row's account_id),
+ * mints a session and bounces through the www-host /oauth/session handoff so
+ * the user lands logged-in on the dashboard.
+ *
+ * Every hit is logged with the FULL raw query string first (`[oauth-app]
+ * callback raw query:`) so a failed install is diagnosable from Railway logs
+ * without guessing what Stripe sent.
  */
 export async function handleAppInstallCallback(db: Database, req: Request): Promise<Response> {
   ensureDefaultMerchant(db);
-  const baseUrl = process.env.BASE_URL || "http://localhost:3002";
+  const baseUrl = baseUrlFor();
   const url = new URL(req.url);
+  const rawQuery = url.searchParams.toString();
   const code = url.searchParams.get("code") ?? "";
   const state = url.searchParams.get("state") ?? "";
-  const denied = url.searchParams.get("error") ?? "";
+  const error = url.searchParams.get("error") ?? "";
+  const errorDescription = url.searchParams.get("error_description") ?? "";
 
-  // User declined on Stripe's screen (Stripe redirects back with `error` and
-  // no code). Show a friendly page instead of a confusing "invalid code".
-  if (denied) {
-    return new Response(appOAuthErrorPage(`Authorization was not completed (${denied}). You can try again any time.`), {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
+  // ── (A) Raw-query logging — BEFORE any branching ──
+  // Railway logs must show exactly what Stripe sent back (every key: code,
+  // state, error, error_description, and any future/unknown keys), plus the
+  // full URL. Without this, "the callback is missing code or state" is
+  // unverifiable: was it code-without-state? state-without-code? an error
+  // param we ignored? nothing at all?
+  console.log(`[oauth-app] callback raw query: ${rawQuery || "(empty)"}`);
+  console.log(`[oauth-app] callback url: ${req.url}`);
+  const allKeys = [...url.searchParams.keys()];
+  if (allKeys.length > 0) {
+    console.log(
+      `[oauth-app] callback params: ${allKeys
+        .map((k) => `${k}=${String(url.searchParams.get(k) ?? "").slice(0, 120)}`)
+        .join(" | ")}`
+    );
+  }
+
+  // ── (E) Explicit error-param handling ──
+  // Stripe redirects back with `error` + `error_description` when the
+  // authorize step fails (redirect_uri_mismatch, access_denied,
+  // invalid_client_id, invalid_scope, …). Show Stripe's ACTUAL error (never
+  // the generic missing-params message for this case) plus a fix hint where
+  // one is known.
+  if (error || errorDescription) {
+    const shownError = error || "unknown_error";
+    console.error(`[oauth-app] callback error: ${shownError}${errorDescription ? ` — ${errorDescription}` : ""}`);
+    let hint = "Please start the installation again from the install page.";
+    if (shownError === "redirect_uri_mismatch") {
+      hint = "Check that the redirect URI in Stripe App Settings matches https://stripe-cc-production.up.railway.app/oauth/callback exactly (no trailing slash), then start the installation again.";
+    } else if (shownError === "access_denied") {
+      hint = "You declined the authorization — you can start the installation again any time.";
+    } else if (shownError === "invalid_client_id") {
+      hint = "Stripe doesn't recognize the app's client id — check STRIPE_APP_LIVE_CLIENT_ID / STRIPE_APP_TEST_CLIENT_ID on the server.";
+    } else if (shownError === "invalid_scope") {
+      hint = "The requested OAuth scope is not valid for this app.";
+    }
+    return new Response(
+      appOAuthErrorPage(`Authorization was not completed (${shownError}).${errorDescription ? ` ${errorDescription}.` : ""}`, hint),
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    );
+  }
+
+  // ── Distinct no-params messages (generic only as last resort) ──
+  // Stripe echoes `state` back only when it was present in the authorize URL,
+  // so "code WITHOUT state" means a bare OAuth link (no state=…) was tested
+  // directly instead of the install page's /oauth/install/start flow. We must
+  // NOT exchange the code without state (state is the one-time DB-backed CSRF
+  // proof), but the user gets the real reason, not a generic message.
+  if (code && !state) {
+    return new Response(
+      appOAuthErrorPage(
+        "The callback received an authorization code but no state parameter — this usually happens when a bare OAuth link (without state=…) is tested directly instead of going through the install page. Please start the installation again from the install page."
+      ),
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    );
+  }
+  if (state && !code) {
+    return new Response(
+      appOAuthErrorPage("The callback received a state parameter but no authorization code. Please start the installation again."),
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    );
   }
   if (!code || !state) {
-    return new Response(appOAuthErrorPage("The callback is missing the authorization code or state. Please start the installation again."), {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
+    return new Response(
+      appOAuthErrorPage("The callback is missing the authorization code or state. Please start the installation again."),
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    );
   }
 
   const consumed = consumeInstallState(db, state);
@@ -830,9 +914,24 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
   // breaks the install. Idempotent via upsertInvoice on stripe_invoice_id.
   await backfillMerchantInvoices(db, merchantId, tokens.access_token);
 
-  // Mint the session + cross-host handoff (identical mechanics to the Express
-  // callback in routes/oauth.ts): Railway-host cookie here, then bounce
-  // through www /oauth/session so the dashboard host gets the same cookie.
+  // ── Mint the session + cross-host handoff ──
+  // SameSite / persistence analysis (task D): the install STATE is
+  // DB-backed (oauth_install_states, one-time + 30-min TTL) — nothing about
+  // this flow depends on browser cookies surviving the Stripe redirect, so
+  // cookie SameSite was never implicated in state loss; the state always
+  // round-trips server-side. The cookies that DO matter:
+  //   • cc_account (platform sign-in, set by /api/account/verify):
+  //     SameSite=Lax + Secure — correct; the whole install flow is
+  //     first-party on the Railway host, no cross-site subresource use.
+  //   • session (merchant session, set below): SameSite=None + Secure +
+  //     HttpOnly — required because this callback is a top-level navigation
+  //     FROM Stripe's site (cross-site), and the same cookie must later be
+  //     re-set on the www dashboard host via /oauth/session (a different
+  //     registrable domain). SameSite=None is the only policy that lets the
+  //     browser carry it on those first-party navigations.
+  // Identical mechanics to the Express callback in routes/oauth.ts:
+  // Railway-host cookie here, then bounce through www /oauth/session so the
+  // dashboard host gets the same cookie.
   const sessionToken = randomBytes(32).toString("hex");
   db.run(
     "INSERT INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))",
