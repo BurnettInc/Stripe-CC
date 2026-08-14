@@ -49,7 +49,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
-import { ensureDefaultMerchant } from "../db";
+import { ensureDefaultMerchant, upsertInvoice } from "../db";
 import { encryptValue, decryptValue, getEncryptionKey } from "../middleware/auth";
 import { saveStripeConnection } from "../middleware/auth";
 import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
@@ -492,6 +492,118 @@ export function findOrCreateMerchant(db: Database, stripeUserId: string, email?:
   return Number(info.lastInsertRowid);
 }
 
+// ── Post-connect data sync (invoice backfill) ──
+
+/** Convert a unix-seconds timestamp to the watcher's date convention
+ * (YYYY-MM-DD, UTC). Mirrors watcher.ts's due_date derivation exactly so the
+ * backfilled rows and webhook-derived rows share one date format. */
+function unixToIsoDate(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toISOString().split("T")[0];
+}
+
+/**
+ * Map one Stripe invoice object (from GET /v1/invoices, the merchant's OWN
+ * account via their OAuth access token) to the SAME status semantics the
+ * watcher stores — never a parallel scheme:
+ *   - paid          → 'paid'    (amount = amount_paid, due_date = created)
+ *   - open          → 'overdue' when due_date is in the past, else 'open'
+ *                     (amount = amount_due, due_date = invoice due_date;
+ *                      open invoices without a due_date use created)
+ *   - anything else (void / uncollectible / draft / …) → null = NOT active,
+ *                     skipped entirely: nothing to chase, so the backfill
+ *                     never surfaces a dead debt as actionable.
+ * Customer name/email fall back to "—" when the invoice carries none.
+ */
+function mapBackfilledInvoice(
+  inv: Record<string, unknown>,
+  merchantId: number
+): {
+  stripe_invoice_id: string;
+  merchant_id: number;
+  customer_name: string;
+  customer_email: string;
+  amount_cents: number;
+  currency: string;
+  due_date: string;
+  status: string;
+} | null {
+  if (!inv || typeof inv.id !== "string" || !inv.id) return null;
+  const status = typeof inv.status === "string" ? inv.status : "";
+  const name = typeof inv.customer_name === "string" && inv.customer_name ? inv.customer_name : "—";
+  const email = typeof inv.customer_email === "string" && inv.customer_email ? inv.customer_email : "—";
+  const currency = typeof inv.currency === "string" && inv.currency ? inv.currency : "usd";
+  const created = typeof inv.created === "number" ? inv.created : Date.now() / 1000;
+
+  if (status === "paid") {
+    return {
+      stripe_invoice_id: inv.id,
+      merchant_id: merchantId,
+      customer_name: name,
+      customer_email: email,
+      amount_cents: typeof inv.amount_paid === "number" ? inv.amount_paid : 0,
+      currency,
+      due_date: unixToIsoDate(created),
+      status: "paid",
+    };
+  }
+  if (status !== "open") return null; // void / uncollectible / draft: not active
+
+  const dueDate = typeof inv.due_date === "number" ? inv.due_date : created;
+  return {
+    stripe_invoice_id: inv.id,
+    merchant_id: merchantId,
+    customer_name: name,
+    customer_email: email,
+    amount_cents: typeof inv.amount_due === "number" ? inv.amount_due : 0,
+    currency,
+    due_date: unixToIsoDate(dueDate),
+    status: dueDate * 1000 < Date.now() ? "overdue" : "open",
+  };
+}
+
+/**
+ * Post-connect data sync: best-effort fetch of the merchant's recent invoices
+ * (limit 100) using the fresh access_token scoped to their own Stripe account,
+ * so a brand-new marketplace install lands on a dashboard that already shows
+ * their invoices instead of an empty one (the Stripe reviewer's round-2 ask).
+ *
+ * Idempotent by construction: every row goes through upsertInvoice, which
+ * updates in place on stripe_invoice_id (UNIQUE) — re-runs never duplicate.
+ * Never throws: any failure logs and degrades to the previous empty-dashboard
+ * behavior. One API call total, rate-limit safe (single 100-row list).
+ */
+export async function backfillMerchantInvoices(
+  db: Database,
+  merchantId: number,
+  accessToken: string
+): Promise<{ inserted: number; error?: string }> {
+  try {
+    const res = await fetch(`${STRIPE_API}/invoices?limit=100`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) {
+      const msg = `HTTP ${res.status}`;
+      console.warn(`[oauth-app] invoice backfill failed (${msg}) — install continues with an empty dashboard`);
+      return { inserted: 0, error: msg };
+    }
+    const data = (await res.json().catch(() => null)) as { data?: unknown } | null;
+    const list = Array.isArray(data?.data) ? data.data : [];
+    let inserted = 0;
+    for (const raw of list) {
+      const mapped = mapBackfilledInvoice((raw ?? {}) as Record<string, unknown>, merchantId);
+      if (!mapped) continue;
+      upsertInvoice(db, mapped);
+      inserted++;
+    }
+    console.log(`[oauth-app] backfilled ${inserted} invoice(s) for merchant ${merchantId}`);
+    return { inserted };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[oauth-app] invoice backfill failed (${msg}) — install continues with an empty dashboard`);
+    return { inserted: 0, error: msg };
+  }
+}
+
 // ── Callback ──
 
 function appOAuthErrorPage(message: string): string {
@@ -602,6 +714,14 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
     refresh_token: tokens.refresh_token,
     stripe_publishable_key: tokens.stripe_publishable_key ?? "",
   });
+
+  // Post-connect data sync: pull the merchant's recent invoices (their own
+  // account, via the fresh access_token) so a brand-new marketplace install
+  // lands on a dashboard that already shows their invoices rather than an
+  // empty one (reviewer round-2 ask). Best-effort — any failure logs and
+  // degrades to the previous empty-dashboard behavior; never blocks or
+  // breaks the install. Idempotent via upsertInvoice on stripe_invoice_id.
+  await backfillMerchantInvoices(db, merchantId, tokens.access_token);
 
   // Mint the session + cross-host handoff (identical mechanics to the Express
   // callback in routes/oauth.ts): Railway-host cookie here, then bounce

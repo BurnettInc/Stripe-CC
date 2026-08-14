@@ -488,6 +488,52 @@
     }
     .connect-banner-btn:hover { background: var(--primary-hover); }
 
+    /* ── Connection + subscription status banner ──
+       The clear source of truth for "is my Stripe account connected and is
+       my subscription active?", driven entirely by /stats (loadStats). Three
+       states: ok (connected + active), warn (not connected / subscription
+       required). Hidden until the first successful /stats so a brand-new
+       unauthenticated visitor keeps the connect-banner above as the entry
+       point. */
+    .status-banner {
+      display: none; /* shown by loadStats() once /stats succeeds */
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+      padding: 16px 22px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: #fff;
+      line-height: 1.5;
+    }
+    .status-banner.banner-ok { background: #F0FDF4; border-color: #86EFAC; }
+    .status-banner.banner-warn { background: #FFFBEB; border-color: #FCD34D; }
+    .status-banner strong { font-size: 1rem; color: var(--text); }
+    .status-banner p { margin: 4px 0 0; color: var(--body); font-size: 0.85rem; }
+    .status-banner-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+    .status-banner-dot.ok { background: #16A34A; }
+    .status-banner-dot.warn { background: #D97706; }
+    .status-banner-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .status-banner-btn {
+      display: inline-block;
+      background: #fff;
+      border: 1px solid var(--border-strong);
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .status-banner-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .status-banner-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff !important; }
+    .status-banner-btn-primary:hover { background: var(--primary-hover); }
+    .badge-live { background: #DCFCE7; color: #15803D; }
+    .badge-test { background: #E0E7FF; color: #4338CA; }
+
     /* ── Pause toggle switch ── */
     .switch { position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; }
     .switch input { opacity: 0; width: 0; height: 0; }
@@ -748,6 +794,25 @@
         <p>CollectionsCopilot watches for overdue invoices and sends polite, escalating reminders automatically. Free to start — no card required.</p>
       </div>
       <a class="connect-banner-btn" href="/stripe/connect">Connect Stripe &rarr;</a>
+    </div>
+
+    <!-- Connection + subscription status banner. Driven entirely by /stats
+         (renderStatusBanner in loadStats): hidden until the first successful
+         /stats so a brand-new unauthenticated visitor keeps the connect-banner
+         above as the entry point. Once authed it becomes the clear source of
+         truth — "Not connected to Stripe" + Connect CTA, "Connected to Stripe —
+         subscription required" + Subscribe Standard/Pro CTAs, or "Active —
+         Connected to Stripe" with a Test/Live badge from the connection's
+         mode. -->
+    <div class="status-banner" id="status-banner">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="status-banner-dot" id="status-banner-dot"></span>
+        <div>
+          <strong id="status-banner-title">Checking your Stripe connection&hellip;</strong>
+          <p id="status-banner-sub"></p>
+        </div>
+      </div>
+      <div class="status-banner-actions" id="status-banner-actions"></div>
     </div>
 
     <!-- Stats Cards -->
@@ -1096,6 +1161,59 @@
       }
     }
 
+    // ── Connection + subscription status banner ──
+    // The clear source of truth for "is my Stripe account connected and is my
+    // subscription active?" — rendered from /stats only (no duplicated logic):
+    //   • not connected    → warn "Not connected to Stripe" + Connect CTA
+    //   • connected, no    → warn "Connected to Stripe — subscription
+    //     active plan        required" + Subscribe Standard/Pro CTAs (the
+    //                       reviewer's exact wording)
+    //   • connected+active → ok "Active — Connected to Stripe" + Test/Live
+    //                       badge when the connection's mode is known
+    //                        (stripe_livemode from the marketplace-install
+    //                        token pair; null = web-connect, badge omitted)
+    function renderStatusBanner(s) {
+      var banner = document.getElementById('status-banner');
+      if (!banner) return;
+      var dot = document.getElementById('status-banner-dot');
+      var title = document.getElementById('status-banner-title');
+      var sub = document.getElementById('status-banner-sub');
+      var actions = document.getElementById('status-banner-actions');
+      banner.style.display = 'flex';
+      banner.className = 'status-banner';
+      if (!s.stripeConnected) {
+        banner.classList.add('banner-warn');
+        dot.className = 'status-banner-dot warn';
+        title.textContent = s.stripeDisconnected
+          ? 'Stripe connection lost — reconnect to keep reminders running'
+          : 'Not connected to Stripe';
+        sub.textContent = s.stripeDisconnected
+          ? 'Your Stripe account was deauthorized. Reconnect to keep CollectionsCopilot watching for overdue invoices.'
+          : 'Connect your Stripe account so CollectionsCopilot can watch for overdue invoices and send payment reminders.';
+        actions.innerHTML = '<a class="connect-banner-btn" href="/stripe/connect">' +
+          (s.stripeDisconnected ? 'Reconnect Stripe &rarr;' : 'Connect Stripe &rarr;') + '</a>';
+      } else if (s.sub_status !== 'active') {
+        banner.classList.add('banner-warn');
+        dot.className = 'status-banner-dot warn';
+        title.textContent = 'Connected to Stripe — subscription required';
+        sub.textContent = 'Your Stripe account is connected and your invoices are synced. Choose a plan to start sending automatic payment reminders.';
+        actions.innerHTML =
+          '<button onclick="subscribe(\'standard\')" id="status-banner-standard" class="status-banner-btn">Subscribe Standard — $15/mo</button>' +
+          '<button onclick="subscribe(\'pro\')" id="status-banner-pro" class="status-banner-btn status-banner-btn-primary">Subscribe Pro — $29/mo</button>';
+      } else {
+        banner.classList.add('banner-ok');
+        dot.className = 'status-banner-dot ok';
+        var badge = '';
+        if (s.stripe_livemode === true || s.stripe_livemode === 1) badge = ' <span class="pill-badge badge-live">Live</span>';
+        else if (s.stripe_livemode === false || s.stripe_livemode === 0) badge = ' <span class="pill-badge badge-test">Test</span>';
+        title.innerHTML = 'Active — Connected to Stripe' + badge;
+        sub.textContent = s.plan === 'pro'
+          ? 'CollectionsCopilot is watching your invoices — Pro features are unlocked.'
+          : 'CollectionsCopilot is watching your invoices for overdue payments.';
+        actions.innerHTML = '';
+      }
+    }
+
     // ── Load Stats ──
     async function loadStats() {
       try {
@@ -1170,6 +1288,9 @@
           // right state (connected status, or a connect link when disconnected).
           var connectBanner = document.getElementById('connect-banner');
           if (connectBanner) connectBanner.style.display = 'none';
+          // Status banner — the clear source of truth for connection +
+          // subscription state (rendered from this same /stats payload).
+          renderStatusBanner(s);
           // Standard 50-invoice cap banner — shown only while over the limit
           // (active Standard with >= 50 overdue invoices; the watcher blocks
           // new tracking until the count drops back under 50).
