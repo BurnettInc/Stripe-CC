@@ -107,6 +107,23 @@ export function getStripeKey(db: Database, merchantId: number): string | null {
 }
 
 /**
+ * Remove a merchant's stored Stripe connection(s) and mark the merchant
+ * disconnected. Used when the stored Stripe account id can no longer be used
+ * by the web-connect flow (account deleted, revoked, deauthorized, or created
+ * under a different key/mode than the active STRIPE_SECRET_KEY). Deleting the
+ * row makes getStripeConnection() return null → the dashboard flips back to
+ * the clean "Connect Stripe" state, and the next /stripe/connect attempt
+ * starts fresh. disconnected=1 additionally flips the status banner to the
+ * "Reconnect Stripe" copy and stops the watcher from building new tasks for
+ * the merchant until a successful reconnect clears it (see the OAuth
+ * callback). Idempotent: a merchant with no connection rows is a no-op.
+ */
+export function clearStripeConnection(db: Database, merchantId: number): void {
+  db.run("DELETE FROM stripe_connections WHERE merchant_id = ?", [merchantId]);
+  db.run("UPDATE merchants SET disconnected=1 WHERE id=?", [merchantId]);
+}
+
+/**
  * Store an OAuth connection for a merchant.
  * Upserts: if the same Stripe account ID already exists for this merchant, update it.
  */
@@ -145,4 +162,10 @@ export function saveStripeConnection(
       [params.stripe_account_id, params.merchant_id, accessToken, refreshToken, params.stripe_publishable_key, now, now]
     );
   }
+  // A successful (re)connect clears any prior disconnect flag — a merchant
+  // who reconnects after clearStripeConnection / application.deauthorized
+  // must come back to the "connected" dashboard state. This is the single
+  // choke point every connect path (web-connect + marketplace install) goes
+  // through.
+  db.run("UPDATE merchants SET disconnected=0 WHERE id=?", [params.merchant_id]);
 }

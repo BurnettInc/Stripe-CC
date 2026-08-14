@@ -782,6 +782,13 @@
       We couldn't open the billing page — your plan or Stripe connection may need attention.
       <a href="mailto:support@getcollectionscopilot.com">Contact support</a> if this keeps happening.
     </div>
+    <!-- Shown when the app cleared a stale/invalid Stripe connection and sent
+         the merchant back here (?error=reconnect_required) — a friendly
+         reconnect state with a CTA, never the raw Stripe error. -->
+    <div class="billing-error-banner" id="reconnect-banner" style="background:#FFFBEB;border-color:#FCD34D;color:#92400E;">
+      Your Stripe connection is no longer valid — please reconnect to keep CollectionsCopilot watching for overdue invoices.
+      <a href="/stripe/connect" style="color:var(--primary);font-weight:600;text-decoration:underline;">Reconnect Stripe &rarr;</a>
+    </div>
 
     <!-- Connect empty-state (visible BEFORE any session exists, so a brand-new
          visitor landing on /dashboard always has an entry point to start
@@ -2108,6 +2115,18 @@
       if (new URLSearchParams(window.location.search).get('billing') === 'error') {
         var bannerEl = document.getElementById('billing-error-banner');
         if (bannerEl) bannerEl.style.display = 'block';
+      }
+      // The app cleared a stale/invalid Stripe connection and sent the
+      // merchant here to reconnect (?error=reconnect_required) — show the
+      // friendly banner with the Connect CTA (never the raw Stripe error).
+      if (new URLSearchParams(window.location.search).get('error') === 'reconnect_required') {
+        var reconnectEl = document.getElementById('reconnect-banner');
+        if (reconnectEl) reconnectEl.style.display = 'block';
+        // Drop the param so a refresh doesn't re-show the banner.
+        var url = new URL(window.location.href);
+        url.searchParams.delete('error');
+        url.searchParams.delete('detail');
+        window.history.replaceState({}, '', url);
       }
     })();
     loadSubscription();
