@@ -101,6 +101,16 @@ if (stripeKey) {
   console.log(`   Stripe key: not set (webhooks & billing will fail)`);
 }
 
+// App channel-link token status (masked to the suffix — never log the full
+// token). Required for marketplace installs: Stripe rejects authorize links
+// without the chnlink path segment ("The provided OAuth link is invalid").
+const chnlinkToken = process.env.STRIPE_APP_CHNLINK || "";
+if (chnlinkToken) {
+  console.log(`   App channel-link token: …${chnlinkToken.slice(-4)} (configured)`);
+} else {
+  console.log(`   App channel-link token: NOT SET (marketplace installs will be rejected by Stripe)`);
+}
+
 // Email provider status
 const sendgridKey = process.env.SENDGRID_API_KEY;
 const resendKey = process.env.RESEND_API_KEY;

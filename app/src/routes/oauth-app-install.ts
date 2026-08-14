@@ -14,8 +14,10 @@
  *   2. GET /oauth/install/start      — generate a CSRF-safe state row (link
  *                                      type test|live encoded inside the state
  *                                      per the docs), 302 → marketplace.stripe
- *                                      .com/oauth/v2/authorize?client_id=…&
- *                                      redirect_uri=…&state=…
+ *                                      .com/oauth/v2/chnlink_{TOKEN}/authorize
+ *                                      ?client_id=…&redirect_uri=…&state=…
+ *                                      (the chnlink path segment comes from
+ *                                      STRIPE_APP_CHNLINK — see below)
  *   3. GET /oauth/callback?code=…&state=…
  *                                    — Stripe redirects back with a one-time
  *                                      code (valid 5 min). Verify+consume the
@@ -38,8 +40,13 @@
  *
  * Env: STRIPE_APP_TEST_CLIENT_ID / STRIPE_APP_LIVE_CLIENT_ID (per-mode app
  * client ids, ca_…; STRIPE_CLIENT_ID is the legacy default fallback),
- * STRIPE_APP_TEST_KEY / STRIPE_APP_LIVE_KEY (app developer API keys). For
- * LIVE links the developer key falls back to STRIPE_SECRET_KEY when
+ * STRIPE_APP_TEST_KEY / STRIPE_APP_LIVE_KEY (app developer API keys), and
+ * STRIPE_APP_CHNLINK — the app's channel-link token (chnlink_…). Stripe's
+ * dashboard-generated install links carry the chnlink token IN THE PATH
+ * (marketplace.stripe.com/oauth/v2/chnlink_{TOKEN}/authorize); the public
+ * OAuth docs omit it, but Stripe REJECTS authorize requests without it
+ * ("The provided OAuth link is invalid") — so it is required for BOTH modes.
+ * For LIVE links the developer key falls back to STRIPE_SECRET_KEY when
  * STRIPE_APP_LIVE_KEY is unset — per Stripe's OAuth docs the app developer
  * key for a live-mode install IS the developer account's own live secret key
  * (their curl example authenticates with `-u sk_live_***:`). Test mode is
@@ -56,7 +63,9 @@ import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
 import { accountFromCookie } from "./accounts";
 
 // ── Constants ──
-const MARKETPLACE_AUTHORIZE_URL = "https://marketplace.stripe.com/oauth/v2/authorize";
+// The marketplace authorize endpoint carries the app's chnlink token in the
+// path: https://marketplace.stripe.com/oauth/v2/chnlink_{TOKEN}/authorize
+// (built in buildAuthorizeUrl — see the IMPORTANT note there).
 // Same env-override convention as routes/billing.ts: endpoint tests point
 // STRIPE_API_BASE at a local stub (e.g. http://localhost:3199/v1).
 const STRIPE_API = (process.env.STRIPE_API_BASE || "https://api.stripe.com/v1").replace(/\/+$/, "");
@@ -99,15 +108,31 @@ export function appClientIdFor(linkType: LinkType): string | null {
   return modeClientId ?? process.env.STRIPE_CLIENT_ID ?? null;
 }
 
-/** Env vars still missing for a link type to be installable (client id slot
- * first, then developer key). The install page's per-mode notices render this;
- * when appClientIdFor resolves through the STRIPE_CLIENT_ID fallback the mode
+/** The app's channel-link token (chnlink_…). Stripe's dashboard-generated
+ * install links carry it IN THE URL PATH (marketplace.stripe.com/oauth/v2/
+ * chnlink_{TOKEN}/authorize); the public OAuth docs omit it, but Stripe
+ * rejects authorize requests without it ("The provided OAuth link is
+ * invalid"). ONE token for the whole app — both test and live links share
+ * it, and the mode is selected by the client_id. Required for BOTH modes;
+ * when unset buildAuthorizeUrl returns a clear error and the install page
+ * shows a "set STRIPE_APP_CHNLINK" notice. */
+export function appChnlink(): string | null {
+  return process.env.STRIPE_APP_CHNLINK ?? null;
+}
+
+/** Env vars still missing for a link type to be installable (channel-link
+ * token first — it gates BOTH modes — then client id slot, then developer
+ * key). The install page's per-mode notices render this; when
+ * appClientIdFor resolves through the STRIPE_CLIENT_ID fallback the mode
  * var is not reported. For LIVE mode, STRIPE_SECRET_KEY satisfies the
  * developer-key slot (the appDevKeyFor fallback), so the key entry appears
  * only when BOTH STRIPE_APP_LIVE_KEY and STRIPE_SECRET_KEY are unset, and it
  * reads "set STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY". */
 export function missingEnvFor(linkType: LinkType): string[] {
   const missing: string[] = [];
+  if (!appChnlink()) {
+    missing.push("STRIPE_APP_CHNLINK");
+  }
   if (!appClientIdFor(linkType)) {
     missing.push(linkType === "live" ? "STRIPE_APP_LIVE_CLIENT_ID" : "STRIPE_APP_TEST_CLIENT_ID");
   }
@@ -153,13 +178,21 @@ export function consumeInstallState(
 }
 
 // ── Authorize URL ──
-// Matches the Stripe Apps OAuth v2 docs exactly (docs.stripe.com/
+// Matches the Stripe Apps OAuth v2 flow (docs.stripe.com/
 // stripe-apps/api-authentication/oauth): the marketplace authorize URL takes
 // client_id + redirect_uri + state. There is NO `scope` query parameter in
 // the docs' flow — the scope is implied by the app (the token response
 // returns `scope: "stripe_apps"`), so adding one would be wrong. `state`
 // doubles as the link-type carrier (docs: "pass the relevant link type within
 // the state parameter") and is echoed back by Stripe on the callback.
+// IMPORTANT — the docs omit the chnlink path segment, but Stripe's own
+// dashboard-generated install links carry it (…/oauth/v2/chnlink_{TOKEN}/
+// authorize) and Stripe REJECTS authorize requests without it ("The provided
+// OAuth link is invalid", reproduced in both modes). The token comes from
+// STRIPE_APP_CHNLINK; a leading "chnlink_" prefix on the env value (the exact
+// path token from App Settings) is tolerated and normalized, so the produced
+// URL always carries exactly one "chnlink_…" segment. When unset a clear
+// error is returned (never a malformed link).
 export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: string } | { error: string } {
   const clientId = appClientIdFor(linkType);
   const baseUrl = baseUrlFor();
@@ -168,8 +201,15 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
     const modeEnv = linkType === "live" ? "STRIPE_APP_LIVE_CLIENT_ID" : "STRIPE_APP_TEST_CLIENT_ID";
     return { error: `Neither ${modeEnv} nor the default STRIPE_CLIENT_ID is set — the ${linkType}-mode app install link cannot be built. Set the app's ${linkType}-mode client id (ca_…) in the Stripe dashboard.` };
   }
+  const chnlink = appChnlink();
+  if (!chnlink) {
+    return { error: "STRIPE_APP_CHNLINK is not set — the app's channel-link token is required for Stripe to accept the authorize link. Copy it from the install links in Stripe App Settings." };
+  }
+  // Normalize: tolerate the env value carrying the "chnlink_" prefix (as the
+  // path token appears in App Settings) so we never emit a doubled prefix.
+  const token = chnlink.replace(/^chnlink_/, "");
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state });
-  return { url: `${MARKETPLACE_AUTHORIZE_URL}?${params.toString()}` };
+  return { url: `https://marketplace.stripe.com/oauth/v2/chnlink_${token}/authorize?${params.toString()}` };
 }
 
 // ── Minimal branded install page ──
@@ -180,7 +220,8 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
 // cookie it renders the "sign in / create account" card (email input → POST
 // /api/account/request-magic-link → one-time link); with one it renders the
 // "Connect with Stripe" buttons per configured mode (a mode is installable
-// only when BOTH its client id and its developer key resolve), plus "Signed in
+// only when BOTH its client id and its developer key resolve, AND the app's
+// STRIPE_APP_CHNLINK is set), plus "Signed in
 // as {email} · sign out" and — when the account already owns a connected
 // merchant — an "open your dashboard" link.
 export function installPageHtml(
@@ -318,9 +359,12 @@ export function installPageHtml(
 export function handleAppInstallPage(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
   const baseUrl = baseUrlFor();
-  // A mode is installable only when BOTH its client id and its developer key
-  // resolve (client id can come from the STRIPE_CLIENT_ID fallback).
-  const configuredModes: LinkType[] = LINK_TYPES.filter((lt) => appClientIdFor(lt) && appDevKeyFor(lt));
+  // A mode is installable only when NOTHING is missing for it: the app's
+  // channel-link token (STRIPE_APP_CHNLINK — required for both modes), its
+  // client id (mode var, or the STRIPE_CLIENT_ID fallback), and its developer
+  // key (live falls back to STRIPE_SECRET_KEY). missingEnvFor encodes all
+  // three, so a mode is configured iff its missing list is empty.
+  const configuredModes: LinkType[] = LINK_TYPES.filter((lt) => missingEnvFor(lt).length === 0);
   const missingEnv: Record<LinkType, string[]> = { test: missingEnvFor("test"), live: missingEnvFor("live") };
 
   const url = new URL(req.url);
@@ -379,10 +423,12 @@ export function installStartResponse(db: Database, linkType: LinkType, accountId
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
-  // Log the FULL authorize URL so Railway logs show exactly what Stripe is
-  // asked to authorize (client_id, redirect_uri, state) — the redirect_uri
-  // here must match Stripe App Settings byte-for-byte.
-  console.log(`[oauth-app] install start: account=${accountId ?? "legacy"} link=${linkType} → ${built.url}`);
+  // Log the authorize URL so Railway logs show exactly what Stripe is asked
+  // to authorize (client_id, redirect_uri, state) — the redirect_uri here must
+  // match Stripe App Settings byte-for-byte. The chnlink token is masked to
+  // its suffix (it is app-level, but never log the full token).
+  const maskedUrl = built.url.replace(/chnlink_[^/]+/, (m) => `chnlink_…${m.slice(-4)}`);
+  console.log(`[oauth-app] install start: account=${accountId ?? "legacy"} link=${linkType} → ${maskedUrl}`);
   return new Response(null, { status: 302, headers: { Location: built.url } });
 }
 
