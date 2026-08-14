@@ -270,6 +270,27 @@ async function main(): Promise<void> {
   const stateBogus = new URL(startBogus.headers.get("location") || "").searchParams.get("state") || "";
   check("b8: unknown link falls back to test", /^[0-9a-f]{48}:test$/.test(stateBogus), stateBogus);
 
+  // ── (b2) EVERY authorize entry point yields a state + a persisted DB row ──
+  // The install page's ?auto=1 chain (with AND without ?link=) must end in an
+  // authorize redirect whose state was persisted BEFORE the redirect. These
+  // hit /oauth/install/start via the auto chain, exactly like a real install.
+  const autoNoLink = await get(`${BASE}/oauth/install?auto=1`, ACC_COOKIE);
+  check("b9: ?auto=1 (no link) 302s to install/start?link=test (default)", autoNoLink.status === 302 && autoNoLink.headers.get("location") === "https://stripe-cc-production.up.railway.app/oauth/install/start?link=test", `loc=${autoNoLink.headers.get("location")}`);
+  const autoStart = await get(`${BASE}/oauth/install/start?link=test`, ACC_COOKIE);
+  const autoState = new URL(autoStart.headers.get("location") || "").searchParams.get("state") || "";
+  check("b10: auto chain (no link) authorize URL carries CSRF state", /^[0-9a-f]{48}:test$/.test(autoState), autoState);
+  const autoLive = await get(`${BASE}/oauth/install?auto=1&link=live`, ACC_COOKIE);
+  check("b11: ?auto=1&link=live 302s to install/start?link=live", autoLive.status === 302 && autoLive.headers.get("location") === "https://stripe-cc-production.up.railway.app/oauth/install/start?link=live", `loc=${autoLive.headers.get("location")}`);
+  const autoLiveStart = await get(`${BASE}/oauth/install/start?link=live`, ACC_COOKIE);
+  const autoLiveState = new URL(autoLiveStart.headers.get("location") || "").searchParams.get("state") || "";
+  check("b12: live auto chain authorize URL carries :live state", /^[0-9a-f]{48}:live$/.test(autoLiveState), autoLiveState);
+  const d1b = db();
+  const rowAutoLive = d1b.query("SELECT link_type, account_id FROM oauth_install_states WHERE state = ?").get(autoLiveState) as { link_type: string; account_id: number | null } | null;
+  check("b13: live state row persisted BEFORE the redirect (link type + account)", rowAutoLive?.link_type === "live" && rowAutoLive?.account_id === ACC_ID, JSON.stringify(rowAutoLive));
+  const rowAutoTest = d1b.query("SELECT link_type, account_id FROM oauth_install_states WHERE state = ?").get(autoState) as { link_type: string; account_id: number | null } | null;
+  check("b13b: test auto-chain state row persisted too", rowAutoTest?.link_type === "test" && rowAutoTest?.account_id === ACC_ID, JSON.stringify(rowAutoTest));
+  d1b.close();
+
   // ── (c) callback happy path ──
   resetStub();
   const cb = await get(`${BASE}/oauth/callback?code=code_test&state=${encodeURIComponent(stateTest)}`);
@@ -373,8 +394,14 @@ async function main(): Promise<void> {
   // ── (e) invalid states / missing params / denial ──
   const unknown = await get(`${BASE}/oauth/callback?code=x&state=deadbeef`);
   check("e1: unknown state → clean error page", unknown.status === 200 && (await unknown.text()).includes("invalid or has expired"), `status=${unknown.status}`);
+  resetStub();
+  const unknown2 = await get(`${BASE}/oauth/callback?code=code_x2&state=deadbeef`);
+  check("e1b: mismatched/unknown state → rejected BEFORE exchange (NO /v1/oauth/token call)", (await unknown2.text()).includes("invalid or has expired") && stub.calls.length === 0, JSON.stringify(stub.calls));
   const missing = await get(`${BASE}/oauth/callback?code=x`);
   check("e2: code without state → specific clean error page (bare-link diagnosis)", missing.status === 200 && (await missing.text()).includes("no state parameter"), `status=${missing.status}`);
+  resetStub();
+  const noState2 = await get(`${BASE}/oauth/callback?code=code_y2`);
+  check("e2c: code without state → specific page + NO token exchange (fail-closed)", (await noState2.text()).includes("no state parameter") && stub.calls.length === 0, JSON.stringify(stub.calls));
   const stateOnly = await get(`${BASE}/oauth/callback?state=abc`);
   check("e2a: state without code → specific clean error page", stateOnly.status === 200 && (await stateOnly.text()).includes("no authorization code"), `status=${stateOnly.status}`);
   const bare = await get(`${BASE}/oauth/callback`);
@@ -413,6 +440,24 @@ async function main(): Promise<void> {
   check("g6: account_id roundtrips through create/consume", consumed2?.link_type === "live" && consumed2.account_id === 7, JSON.stringify(consumed2));
   const s3 = mod.createInstallState(u, "test", null);
   check("g7: legacy create (no account) → consumed account_id null", mod.consumeInstallState(u, s3)?.account_id === null, "");
+
+  // ── (g2) unit: installStartResponse is FAIL-CLOSED ──
+  // If the state cannot be persisted (DB without the table), the builder must
+  // render an error page and NOT redirect — a redirect without a stored state
+  // would make the callback's CSRF validation impossible.
+  const rawDb = new Database("/tmp/cc-oauth-noschema.db");
+  rawDb.run("CREATE TABLE IF NOT EXISTS t (id INTEGER)");
+  const failResp = mod.installStartResponse(rawDb, "test", 1);
+  check("g8: state-persist failure → 200 error page, NO redirect (fail-closed)", failResp.status === 200 && failResp.headers.get("location") === null && (failResp.headers.get("content-type") || "").includes("text/html"), `status=${failResp.status} loc=${failResp.headers.get("location")}`);
+  check("g8b: error page explains the state-storage failure", (await failResp.text()).includes("failed to store the one-time state"), "");
+  rawDb.close();
+  // The happy path through the SAME builder still 302s with a state (the HTTP
+  // b-series covers the full chain; this pins the builder contract itself).
+  process.env.STRIPE_CLIENT_ID = "ca_g9_client";
+  const okResp = mod.installStartResponse(u, "live", 7);
+  check("g9: happy path → 302 to marketplace authorize WITH state", okResp.status === 302 && (okResp.headers.get("location") || "").startsWith("https://marketplace.stripe.com/oauth/v2/authorize?") && /state=[0-9a-f]{48}%3Alive/.test(okResp.headers.get("location") || ""), okResp.headers.get("location") || "");
+  const okConsumed = mod.consumeInstallState(u, new URL(okResp.headers.get("location") || "").searchParams.get("state") || "");
+  check("g9b: happy-path state row existed (consumable after redirect)", okConsumed?.link_type === "live" && okConsumed.account_id === 7, JSON.stringify(okConsumed));
 
   // ── (h) unit: developer key selection (graceful when unset) ──
   process.env.STRIPE_APP_TEST_KEY = "sk_test_unit";

@@ -346,6 +346,46 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
   });
 }
 
+/**
+ * THE single entry point to the marketplace authorize hop — fail-closed by
+ * construction:
+ *   1. a fresh state is minted AND persisted (oauth_install_states row) FIRST;
+ *      if persistence fails, an error page is rendered and NO redirect happens
+ *      (a redirect without a stored state would make the callback's CSRF
+ *      validation impossible);
+ *   2. only then is the authorize URL built — buildAuthorizeUrl ALWAYS injects
+ *      the state into the query;
+ *   3. the full URL is logged, then the 302 goes out.
+ * Every caller (today: GET /oauth/install/start, and any future entry point)
+ * goes through this one function, so no code path can ever produce a
+ * state-less marketplace authorize redirect.
+ */
+export function installStartResponse(db: Database, linkType: LinkType, accountId: number | null): Response {
+  let state: string;
+  try {
+    state = createInstallState(db, linkType, accountId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[oauth-app] install start: FAILED to persist state (link=${linkType}, account=${accountId ?? "legacy"}): ${msg} — refusing to redirect`);
+    return new Response(
+      appOAuthErrorPage("We couldn't start the installation — the server failed to store the one-time state. Please try again in a moment."),
+      { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+    );
+  }
+  const built = buildAuthorizeUrl(state, linkType);
+  if ("error" in built) {
+    return new Response(appOAuthErrorPage(built.error), {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+  // Log the FULL authorize URL so Railway logs show exactly what Stripe is
+  // asked to authorize (client_id, redirect_uri, state) — the redirect_uri
+  // here must match Stripe App Settings byte-for-byte.
+  console.log(`[oauth-app] install start: account=${accountId ?? "legacy"} link=${linkType} → ${built.url}`);
+  return new Response(null, { status: 302, headers: { Location: built.url } });
+}
+
 /** GET /oauth/install/start — REQUIRE a valid account cookie (the reviewer's
  * flow signs in BEFORE connecting), mint a fresh state stamped with the
  * account, and 302 into Stripe's marketplace authorize flow. No/invalid cookie
@@ -361,19 +401,7 @@ export function handleAppInstallStart(db: Database, req: Request): Response {
   const linkParam = url.searchParams.get("link") ?? "";
   const linkType: LinkType = isLinkType(linkParam) ? linkParam : "test";
 
-  const state = createInstallState(db, linkType, account.id);
-  const built = buildAuthorizeUrl(state, linkType);
-  if ("error" in built) {
-    return new Response(appOAuthErrorPage(built.error), {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-  }
-  // Log the FULL authorize URL so Railway logs show exactly what Stripe is
-  // asked to authorize (client_id, redirect_uri, state) — the redirect_uri
-  // here must match Stripe App Settings byte-for-byte.
-  console.log(`[oauth-app] install start: account=${account.id} link=${linkType} → ${built.url}`);
-  return new Response(null, { status: 302, headers: { Location: built.url } });
+  return installStartResponse(db, linkType, account.id);
 }
 
 // ── Token exchange + storage ──
@@ -832,6 +860,11 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
   // NOT exchange the code without state (state is the one-time DB-backed CSRF
   // proof), but the user gets the real reason, not a generic message.
   if (code && !state) {
+    // FAIL-CLOSED: never exchange a code without its state (state is the
+    // one-time DB-backed CSRF proof). Log the truncated code prefix so the hit
+    // can be correlated with Stripe's OAuth dashboard, then show the specific
+    // bare-link diagnosis page.
+    console.warn(`[oauth-app] callback: code WITHOUT state (code prefix ${code.slice(0, 12)}…) — a bare authorize URL (no state=…) was used; refusing to exchange (fail-closed). Start the install from /oauth/install instead.`);
     return new Response(
       appOAuthErrorPage(
         "The callback received an authorization code but no state parameter — this usually happens when a bare OAuth link (without state=…) is tested directly instead of going through the install page. Please start the installation again from the install page."
@@ -840,12 +873,14 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
     );
   }
   if (state && !code) {
+    console.warn(`[oauth-app] callback: state WITHOUT code (state prefix ${state.slice(0, 12)}…) — refusing to exchange.`);
     return new Response(
       appOAuthErrorPage("The callback received a state parameter but no authorization code. Please start the installation again."),
       { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
     );
   }
   if (!code || !state) {
+    console.warn("[oauth-app] callback: no code AND no state — refusing to exchange.");
     return new Response(
       appOAuthErrorPage("The callback is missing the authorization code or state. Please start the installation again."),
       { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
@@ -854,12 +889,14 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
 
   const consumed = consumeInstallState(db, state);
   if (!consumed) {
+    console.warn(`[oauth-app] callback: state NOT FOUND / consumed / expired (state prefix ${state.slice(0, 12)}…) — refusing to exchange (fail-closed).`);
     return new Response(appOAuthErrorPage("This installation link is invalid or has expired. Please start the installation again."), {
       status: 200,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
   const { link_type: linkType, account_id: installAccountId } = consumed;
+  console.log(`[oauth-app] callback: state OK (link=${linkType}, account=${installAccountId ?? "legacy"}) — exchanging code (prefix ${code.slice(0, 12)}…)`);
 
   const exchanged = await exchangeCodeForTokens(code, linkType);
   if (!exchanged.ok) {
