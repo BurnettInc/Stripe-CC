@@ -15,9 +15,17 @@ import { notifyOwnerPaidSubscription, notifyOwnerCancelledSubscription } from ".
 // Stripe API base. STRIPE_API_BASE lets endpoint tests point the backend at a
 // local stub instead of the real API; production keeps the default.
 const STRIPE_API = (process.env.STRIPE_API_BASE || "https://api.stripe.com/v1").replace(/\/+$/, "");
+// LIVE-mode prices from the app's platform Stripe account (created 2026-08,
+// product prod_V4UTPE3ZeaxodT / prod_V4UT21Dzrdzg9d). Checkout is ALWAYS
+// authenticated with STRIPE_SECRET_KEY (sk_live_… in production, see
+// handleCheckout), so these constants MUST stay mode-locked to the live
+// catalog: the old price_1TyiJ9…/price_1TyiJA… ids exist only in TEST mode
+// (verified via API — live key returns 404 "No such price" for both), which
+// made every live Checkout Session fail. The webhook handler below also maps
+// subscription items back to tiers by comparing against these ids.
 const PRICE_IDS: Record<string, string> = {
-  standard: "price_1TyiJ9AD4cJGS9CrgoI4TzX4",
-  pro: "price_1TyiJAAD4cJGS9CrBUJ8XjwN",
+  standard: "price_1U4LUtAD4cJGS9CrkqXP6IxH",
+  pro: "price_1U4LUtAD4cJGS9Cr6Gd2824F",
 };
 
 /**
