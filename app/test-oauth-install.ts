@@ -28,6 +28,21 @@
  *   (f) the Express web-connect callback branch is untouched: /oauth/callback
  *       without a code (with `account`) still dispatches to the existing
  *       handler (missing-account redirect behavior preserved)
+ *   (c2) post-connect backfill: the callback fetches the merchant's own
+ *       /v1/invoices (Bearer access token) and stores them with the watcher's
+ *       exact semantics — overdue (past-due open), paid (amount_paid +
+ *       created-as-due_date), open (future-due), em-dash name/email fallback,
+ *       and void/draft/uncollectible skipped as not active
+ *   (c3) backfill idempotency: a re-install (fresh state, same account)
+ *       updates in place — never duplicates rows
+ *   (c4) backfill never fails the install: invoices 500 → callback still 302s,
+ *       existing rows untouched, backfillMerchantInvoices returns an error
+ *       result instead of throwing
+ *   (c5) /stats carries the banner's inputs: stripeConnected + plan +
+ *       sub_status + stripe_livemode (from oauth_tokens) for a fresh install
+ *   (c6) dashboard HTML carries the status banner markup + renderer covering
+ *       all three states ("Not connected to Stripe" / "Connected to Stripe —
+ *       subscription required" / "Active — Connected to Stripe")
  *
  * Unit level (direct module imports in this process, own DB handle, env
  * mutated locally and restored):
@@ -79,17 +94,44 @@ function db(): Database {
   return new Database(DB_PATH);
 }
 
-// ── In-process Stripe stub (OAuth token + account endpoints) ──
+// ── In-process Stripe stub (OAuth token + account + invoices endpoints) ──
+const DAY = 86400;
+const nowSec = Math.floor(Date.now() / 1000);
+// Deterministic invoice list for the post-connect backfill (the merchant's
+// own account via their access token). Timestamps are fixed relative to
+// "now" so the expected statuses/dates are computable in this test process.
+const BACKFILL_INVOICES = [
+  { id: "in_ovd1", status: "open", due_date: nowSec - 10 * DAY, created: nowSec - 40 * DAY, amount_due: 12345, amount_paid: 0, currency: "usd", customer_name: "Overdue Co", customer_email: "overdue@example.com" },
+  { id: "in_paid1", status: "paid", created: nowSec - 30 * DAY, amount_due: 5000, amount_paid: 5000, currency: "usd", customer_name: "Paid Co", customer_email: "paid@example.com" },
+  { id: "in_open1", status: "open", due_date: nowSec + 20 * DAY, created: nowSec - 5 * DAY, amount_due: 777, amount_paid: 0, currency: "eur", customer_name: "Future Co", customer_email: "future@example.com" },
+  // Not-active statuses: must NOT be stored by the backfill.
+  { id: "in_void1", status: "void", created: nowSec - 3 * DAY, amount_due: 555, amount_paid: 0, currency: "usd" },
+  { id: "in_draft1", status: "draft", created: nowSec - 2 * DAY, amount_due: 444, amount_paid: 0, currency: "usd" },
+  { id: "in_unc1", status: "uncollectible", created: nowSec - 1 * DAY, amount_due: 333, amount_paid: 0, currency: "usd" },
+  // No customer fields → the em-dash fallback.
+  { id: "in_nameless1", status: "open", due_date: nowSec + 5 * DAY, created: nowSec - 4 * DAY, amount_due: 999, amount_paid: 0, currency: "usd" },
+];
+const iso = (unix: number) => new Date(unix * 1000).toISOString().split("T")[0];
+const EXPECTED_BACKFILL_DATES = {
+  ovd: iso(nowSec - 10 * DAY),
+  paid: iso(nowSec - 30 * DAY),
+  open: iso(nowSec + 20 * DAY),
+  nameless: iso(nowSec + 5 * DAY),
+};
+
 const stub: {
   calls: { path: string; method: string; auth: string; body: string }[];
   server: ReturnType<typeof Bun.serve>;
+  failInvoices: boolean;
 } = {
   calls: [],
   server: undefined as unknown as ReturnType<typeof Bun.serve>,
+  failInvoices: false,
 };
 
 function resetStub(): void {
   stub.calls = [];
+  stub.failInvoices = false;
 }
 
 function startStub(): void {
@@ -130,6 +172,14 @@ function startStub(): void {
       }
       if (url.pathname === "/v1/account" && req.method === "GET") {
         return Response.json({ id: "acct_market_test", email: "merchant@example.com", display_name: "Merchant Co" });
+      }
+      if (url.pathname === "/v1/invoices" && req.method === "GET") {
+        // Backfill failure mode: a 500 must degrade gracefully, never break
+        // the install callback.
+        if (stub.failInvoices) {
+          return Response.json({ error: "server_error" }, { status: 500 });
+        }
+        return Response.json({ data: BACKFILL_INVOICES, has_more: false });
       }
       return Response.json({ error: "not_found" }, { status: 404 });
     },
@@ -216,6 +266,62 @@ async function main(): Promise<void> {
   check("c16: session minted for the merchant", !!sessRow && sessRow.merchant_id === connRow?.merchant_id, JSON.stringify(sessRow));
   const stateAfter = d2.query("SELECT 1 AS ok FROM oauth_install_states WHERE state = ?").get(stateTest);
   check("c17: state consumed (one-time)", stateAfter === null, JSON.stringify(stateAfter));
+
+  // ── (c2) post-connect backfill: invoices synced from the merchant's account ──
+  const invCall = stub.calls.find((c) => c.path === "/v1/invoices");
+  check("c18: backfill fetched /v1/invoices with the merchant's Bearer access token", !!invCall && invCall.auth === "Bearer acct_access_token", JSON.stringify(stub.calls));
+  const invRows = d2.query(
+    "SELECT stripe_invoice_id, customer_name, customer_email, amount_cents, currency, due_date, status FROM invoices WHERE merchant_id = ?"
+  ).all(connRow.merchant_id) as Array<Record<string, unknown>>;
+  const invById = new Map(invRows.map((r) => [r.stripe_invoice_id, r]));
+  const ovd = invById.get("in_ovd1");
+  check("c19: overdue open invoice stored as 'overdue' with amount_due + due_date", !!ovd && ovd.status === "overdue" && ovd.amount_cents === 12345 && ovd.currency === "usd" && ovd.due_date === EXPECTED_BACKFILL_DATES.ovd && ovd.customer_name === "Overdue Co" && ovd.customer_email === "overdue@example.com", JSON.stringify(ovd));
+  const paid = invById.get("in_paid1");
+  check("c20: paid invoice stored as 'paid' with amount_paid + created-as-due_date", !!paid && paid.status === "paid" && paid.amount_cents === 5000 && paid.due_date === EXPECTED_BACKFILL_DATES.paid, JSON.stringify(paid));
+  const open = invById.get("in_open1");
+  check("c21: future-due open invoice stored as 'open'", !!open && open.status === "open" && open.amount_cents === 777 && open.currency === "eur" && open.due_date === EXPECTED_BACKFILL_DATES.open, JSON.stringify(open));
+  const nameless = invById.get("in_nameless1");
+  check("c22: missing customer name/email fall back to em-dash", !!nameless && nameless.customer_name === "—" && nameless.customer_email === "—", JSON.stringify(nameless));
+  check("c23: void/draft/uncollectible invoices not stored (not active)", !invById.has("in_void1") && !invById.has("in_draft1") && !invById.has("in_unc1"), JSON.stringify([...invById.keys()]));
+
+  // ── (c3) backfill idempotency: a re-install (fresh state, same Stripe
+  // account) must NOT duplicate invoice rows — upsertInvoice updates in place ──
+  const start2 = await get(`${BASE}/oauth/install/start?link=test`);
+  const state2 = new URL(start2.headers.get("location") || "").searchParams.get("state") || "";
+  resetStub();
+  const cb2 = await get(`${BASE}/oauth/callback?code=code_test&state=${encodeURIComponent(state2)}`);
+  check("c24: re-install callback still 302s through the handoff", cb2.status === 302 && (cb2.headers.get("location") || "").includes("/oauth/session"), `status=${cb2.status}`);
+  const d3 = db();
+  const invRows2 = d3.query("SELECT stripe_invoice_id FROM invoices WHERE merchant_id = ?").all(connRow.merchant_id) as Array<{ stripe_invoice_id: string }>;
+  check("c25: re-run upserts in place — no duplicate rows", invRows2.length === invRows.length && invRows2.every((r) => invById.has(r.stripe_invoice_id)), JSON.stringify(invRows2));
+  d3.close();
+
+  // ── (c4) backfill never fails the install when the invoices call errors ──
+  const start3 = await get(`${BASE}/oauth/install/start?link=test`);
+  const state3 = new URL(start3.headers.get("location") || "").searchParams.get("state") || "";
+  resetStub();
+  stub.failInvoices = true;
+  const cb3 = await get(`${BASE}/oauth/callback?code=code_test&state=${encodeURIComponent(state3)}`);
+  check("c26: invoices 500 → callback still succeeds (302 handoff)", cb3.status === 302 && (cb3.headers.get("location") || "").includes("/oauth/session"), `status=${cb3.status} loc=${cb3.headers.get("location")}`);
+  const d4 = db();
+  const invRows3 = d4.query("SELECT stripe_invoice_id FROM invoices WHERE merchant_id = ?").all(connRow.merchant_id) as Array<{ stripe_invoice_id: string }>;
+  check("c27: failed backfill leaves existing rows untouched", invRows3.length === invRows.length, JSON.stringify(invRows3));
+  // Unit-level never-throw check against the failing stub (keep failInvoices on).
+  const bfFail = await mod.backfillMerchantInvoices(d4, connRow.merchant_id, "acct_access_token");
+  check("c28: backfillMerchantInvoices returns an error result, never throws", bfFail.inserted === 0 && typeof bfFail.error === "string", JSON.stringify(bfFail));
+  d4.close();
+
+  // ── (c5) /stats carries the banner's inputs (plan/sub_status/livemode) ──
+  const statsRes = await fetch(`${BASE}/stats`, { headers: { Cookie: `session=${sessionToken}` } });
+  const stats = await statsRes.json();
+  check("c29: /stats reports stripeConnected for the installed merchant", statsRes.status === 200 && stats.stripeConnected === true, JSON.stringify(stats));
+  check("c30: /stats reports plan=free + sub_status=none for a fresh install (subscription required)", stats.plan === "free" && stats.sub_status === "none", JSON.stringify(stats));
+  check("c31: /stats reports the connection's livemode from oauth_tokens (test → false)", stats.stripe_livemode === false, JSON.stringify(stats));
+
+  // ── (c6) dashboard HTML carries the status banner (markup + renderer) ──
+  const dash = await (await fetch(`${BASE}/dashboard`)).text();
+  check("c32: dashboard has the status banner markup", dash.includes('id="status-banner"') && dash.includes('id="status-banner-title"') && dash.includes('id="status-banner-actions"') && dash.includes('id="status-banner-dot"'), "");
+  check("c33: dashboard banner renderer covers all three states (reviewer wording)", dash.includes("renderStatusBanner") && dash.includes("Connected to Stripe — subscription required") && dash.includes("Active — Connected to Stripe") && dash.includes("Subscribe Standard — $15/mo") && dash.includes("Subscribe Pro — $29/mo") && dash.includes("Not connected to Stripe"), "");
   d2.close();
 
   // ── (d) state replay fails cleanly ──

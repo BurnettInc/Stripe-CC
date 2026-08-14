@@ -1,4 +1,4 @@
-import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscriber, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor, isMerchantDisconnected } from "./db";
+import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscriber, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor, isMerchantDisconnected, getSubscriptionByMerchantId, isDevPro } from "./db";
 import { corsHeadersFor } from "./middleware/cors";
 import { handleWebhook } from "./routes/webhook";
 import { handlePastDuePage, handleRemindersPage } from "./routes/pages";
@@ -263,6 +263,18 @@ async function handleRequest(req: Request): Promise<Response> {
         const stripeDisconnected = isMerchantDisconnected(db, merchantId);
         const stripeConnected = !!stripeConn && !stripeDisconnected;
         const stripeAccountId = stripeConn?.id ?? null;
+        // Subscription + connection-mode state for the dashboard's status
+        // banner. plan/sub_status reuse the /subscription endpoint's exact
+        // derivation (getSubscriptionByMerchantId + dev_pro), so the banner
+        // never duplicates logic. stripe_livemode comes from the
+        // marketplace-install token pair (oauth_tokens) when one exists —
+        // web-connect flows don't record a mode, so null = unknown and the
+        // banner omits the Test/Live badge.
+        const sub = getSubscriptionByMerchantId(db, merchantId);
+        const devPro = isDevPro(db, merchantId);
+        const oauthMode = db
+          .query("SELECT livemode FROM oauth_tokens WHERE merchant_id = ? ORDER BY updated_at DESC LIMIT 1")
+          .get(merchantId) as { livemode: number } | null;
         // Total invoices processed (any status)
         const totalInvoicesRow = db.query("SELECT COUNT(*) as count FROM invoices WHERE merchant_id=?").get(merchantId) as { count: number };
         const totalInvoices = totalInvoicesRow.count;
@@ -324,6 +336,9 @@ async function handleRequest(req: Request): Promise<Response> {
           stripeConnected,
           stripeDisconnected,
           stripeAccountId,
+          plan: devPro ? "pro" : (sub?.tier ?? "free"),
+          sub_status: devPro ? "active" : (sub?.status ?? "none"),
+          stripe_livemode: oauthMode ? oauthMode.livemode === 1 : null,
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
