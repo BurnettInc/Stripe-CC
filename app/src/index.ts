@@ -14,6 +14,7 @@ import { handleSupport } from "./routes/support";
 import { handleAdminPage, handleAdminData, requireAdminToken } from "./routes/admin";
 import { handleTrack } from "./routes/track";
 import { handleWaitlist } from "./routes/waitlist";
+import { handleAccountRequestMagicLink, handleAccountVerify, handleAccountMe, handleAccountLogout } from "./routes/accounts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { requireSession } from "./middleware/session";
@@ -783,6 +784,38 @@ async function handleRequest(req: Request): Promise<Response> {
       // fallback so the SPA handler can never swallow it.
       if ((path === "/api/waitlist" || path === "/waitlist") && req.method === "POST") {
         return await handleWaitlist(db, req);
+      }
+
+      // POST /api/account/request-magic-link (also /account/request-magic-link
+      // — the dev site proxy strips the /api prefix before forwarding) —
+      // public magic-link sign-in for the marketplace install flow (account
+      // layer, reviewer round-2). Valid, non-rate-limited emails ALWAYS get
+      // 200 {ok:true} (no account-existence leak); invalid → 400; per-email +
+      // per-IP limit 5/hr → 429. Public by design (the sign-in card on
+      // /oauth/install posts here). Must sit BEFORE the marketing-site
+      // fallback so the SPA handler can never swallow it.
+      if ((path === "/api/account/request-magic-link" || path === "/account/request-magic-link") && req.method === "POST") {
+        return await handleAccountRequestMagicLink(db, req);
+      }
+
+      // GET /api/account/verify (also /account/verify) — consume the one-time
+      // magic link: mint the 30-day account session, set the HttpOnly
+      // cc_account cookie, 302 to the safe ?next= destination. Invalid /
+      // expired / used tokens get a friendly error page.
+      if ((path === "/api/account/verify" || path === "/account/verify") && req.method === "GET") {
+        return handleAccountVerify(db, req);
+      }
+
+      // GET /api/account/me (also /account/me) — the signed-in account's
+      // email from the cc_account cookie (401 when absent).
+      if ((path === "/api/account/me" || path === "/account/me") && req.method === "GET") {
+        return handleAccountMe(db, req);
+      }
+
+      // POST /api/account/logout (also /account/logout) — clear the account
+      // cookie + drop the account session row.
+      if ((path === "/api/account/logout" || path === "/account/logout") && req.method === "POST") {
+        return handleAccountLogout(db, req);
       }
 
       // ── Marketing site fallback ──

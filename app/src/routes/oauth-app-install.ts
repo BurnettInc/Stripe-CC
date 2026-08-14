@@ -53,6 +53,7 @@ import { ensureDefaultMerchant, upsertInvoice } from "../db";
 import { encryptValue, decryptValue, getEncryptionKey } from "../middleware/auth";
 import { saveStripeConnection } from "../middleware/auth";
 import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
+import { accountFromCookie } from "./accounts";
 
 // ── Constants ──
 const MARKETPLACE_AUTHORIZE_URL = "https://marketplace.stripe.com/oauth/v2/authorize";
@@ -113,25 +114,32 @@ export function missingEnvFor(linkType: LinkType): string[] {
 // ── CSRF-safe state ──
 // State = "<random-hex>:<link-type>". The DB row is authoritative for the link
 // type (never trust a parsed suffix); rows are one-time (deleted on consume)
-// and expire after STATE_TTL_MINUTES.
-export function createInstallState(db: Database, linkType: LinkType): string {
+// and expire after STATE_TTL_MINUTES. Since the account layer (migration 017)
+// the row also records WHICH platform account started the install
+// (account_id, nullable for legacy rows) — the callback reads it back to link
+// the created merchant to the account (account → merchant → subscription).
+export function createInstallState(db: Database, linkType: LinkType, accountId: number | null = null): string {
   // Opportunistic cleanup of expired rows (also enforced at read).
   db.run("DELETE FROM oauth_install_states WHERE created_at < datetime('now', ?)", [`-${STATE_TTL_MINUTES} minutes`]);
   const state = `${randomBytes(24).toString("hex")}:${linkType}`;
-  db.run("INSERT INTO oauth_install_states (state, link_type) VALUES (?, ?)", [state, linkType]);
+  db.run("INSERT INTO oauth_install_states (state, link_type, account_id) VALUES (?, ?, ?)", [state, linkType, accountId]);
   return state;
 }
 
-/** Verify + consume a state row. Returns the link type, or null when the
+/** Verify + consume a state row. Returns the link type + the account that
+ * started the install (null for legacy/back-compat rows), or null when the
  * state is unknown, expired, or already used. One-time by construction. */
-export function consumeInstallState(db: Database, state: string): LinkType | null {
+export function consumeInstallState(
+  db: Database,
+  state: string
+): { link_type: LinkType; account_id: number | null } | null {
   if (!state) return null;
   const row = db
-    .query("SELECT link_type FROM oauth_install_states WHERE state = ? AND created_at >= datetime('now', ?)")
-    .get(state, `-${STATE_TTL_MINUTES} minutes`) as { link_type: LinkType } | null;
+    .query("SELECT link_type, account_id FROM oauth_install_states WHERE state = ? AND created_at >= datetime('now', ?)")
+    .get(state, `-${STATE_TTL_MINUTES} minutes`) as { link_type: LinkType; account_id: number | null } | null;
   if (!row) return null;
   db.run("DELETE FROM oauth_install_states WHERE state = ?", [state]);
-  return row.link_type;
+  return { link_type: row.link_type, account_id: row.account_id ?? null };
 }
 
 // ── Authorize URL ──
@@ -150,14 +158,20 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
 // ── Minimal branded install page ──
 // The reviewer required the marketplace install URL to be a page that
 // initiates onboarding with clear instructions using OAuth install links — not
-// a bare redirect. The page renders a "Connect with Stripe" button per
-// configured mode (a mode is installable only when BOTH its client id and its
-// developer key resolve); each button starts /oauth/install/start, which
-// builds a fresh state and redirects into the marketplace authorize flow.
+// a bare redirect. Since the account layer (owner decision 8/13, reviewer
+// round-2) the page is GATED on a platform sign-in: without a valid cc_account
+// cookie it renders the "sign in / create account" card (email input → POST
+// /api/account/request-magic-link → one-time link); with one it renders the
+// "Connect with Stripe" buttons per configured mode (a mode is installable
+// only when BOTH its client id and its developer key resolve), plus "Signed in
+// as {email} · sign out" and — when the account already owns a connected
+// merchant — an "open your dashboard" link.
 export function installPageHtml(
   baseUrl: string,
   configuredModes: LinkType[],
-  missingEnv: Record<LinkType, string[]>
+  missingEnv: Record<LinkType, string[]>,
+  account?: { email: string } | null,
+  dashboardUrl?: string | null
 ): string {
   const buttonFor = (linkType: LinkType, label: string) =>
     `<a href="${baseUrl}/oauth/install/start?link=${linkType}" style="display:block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;margin:10px 0;text-align:center;">${label}</a>`;
@@ -179,28 +193,79 @@ export function installPageHtml(
       .join(" and ");
 
   let body: string;
-  if (configuredModes.length === 0) {
-    const perMode = LINK_TYPES.map((lt) => {
-      const envs = missingEnv[lt];
-      if (envs.length === 0) return "";
-      return `<br>${lt === "test" ? "Test" : "Live"} mode: set ${missingTextFor(lt)}`;
-    }).join("");
-    body = `<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong>${perMode} Once set, this page will show a "Connect with Stripe" button. No action is needed on your side.</p>`;
+  if (!account) {
+    // ── Signed-out state: sign in / create account card ──
+    // The reviewer's flow: marketplace → listing → Install → user logs in or
+    // signs up on our platform → connect Stripe → install → sync → subscribe.
+    // One email input serves both (first-time = signup, same endpoint); the
+    // endpoint ALWAYS 200s so account existence is never leaked. Tiny inline
+    // fetch shows "Check your inbox" on success without leaving the page.
+    body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Sign in to install CollectionsCopilot. We'll email you a one-time sign-in link — no password needed.</p>
+      <form id="magic-link-form" style="margin:0 0 12px;">
+        <input type="email" id="magic-email" name="email" required placeholder="you@company.com" autocomplete="email" style="display:block;width:100%;box-sizing:border-box;padding:12px 14px;font-size:15px;border:1px solid #D1D5DB;border-radius:8px;margin-bottom:12px;" />
+        <button type="submit" style="display:block;width:100%;background:#635BFF;color:#fff;border:0;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;cursor:pointer;">Email me a sign-in link</button>
+      </form>
+      <p id="magic-link-status" style="font-size:14px;margin:10px 0 0;min-height:20px;"></p>
+      <p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>
+      <script>
+        var form = document.getElementById('magic-link-form');
+        var status = document.getElementById('magic-link-status');
+        if (form) form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var email = (document.getElementById('magic-email').value || '').trim();
+          var btn = form.querySelector('button');
+          btn.disabled = true;
+          fetch('/api/account/request-magic-link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email })
+          }).then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (data) { return { res: res, data: data }; });
+          }).then(function (r) {
+            if (r.res.ok) {
+              status.textContent = 'Check your inbox — your sign-in link is on its way.';
+              status.style.color = '#047857';
+            } else {
+              status.textContent = (r.data && r.data.error) ? r.data.error : 'Something went wrong — please try again.';
+              status.style.color = '#B91C1C';
+              btn.disabled = false;
+            }
+          }).catch(function () {
+            status.textContent = 'Something went wrong — please try again.';
+            status.style.color = '#B91C1C';
+            btn.disabled = false;
+          });
+        });
+      </script>`;
   } else {
-    body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Connect your Stripe account to let CollectionsCopilot watch for overdue invoices and send your customers friendly, automatic payment reminders.</p>
-      <ol style="color:#4B5563;font-size:14px;line-height:1.8;margin:0 0 22px;padding-left:20px;text-align:left;">
-        <li>Click <strong>Connect with Stripe</strong> below — you'll be taken to Stripe's authorization screen.</li>
-        <li>Review the permissions and approve the connection.</li>
-        <li>You'll land in your CollectionsCopilot dashboard, ready to configure reminders.</li>
-      </ol>
-      ${configuredModes.includes("test") ? buttonFor("test", "Connect with Stripe — test mode") : ""}
-      ${configuredModes.includes("live") ? buttonFor("live", "Connect with Stripe — live mode") : ""}
-      ${
-        LINK_TYPES.filter((lt) => !configuredModes.includes(lt) && missingEnv[lt].length > 0)
-          .map((lt) => `<p style="color:#9CA3AF;font-size:12px;margin:12px 0 0;">${lt === "test" ? "Test" : "Live"} mode is not available yet — set ${missingTextFor(lt)}.</p>`)
-          .join("")
-      }
-      <p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>`;
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const accountLine = `<p style="color:#6B7280;font-size:13px;margin:0 0 16px;">Signed in as <strong style="color:#374151;">${esc(account.email)}</strong> · <a href="#" onclick="fetch('/api/account/logout',{method:'POST'}).then(function(){window.location.href='/oauth/install';});return false;" style="color:#6B7280;">sign out</a></p>`;
+    const connectedLine = dashboardUrl
+      ? `<p style="color:#047857;font-size:13px;margin:0 0 14px;">✅ You're connected — <a href="${dashboardUrl}" style="color:#047857;font-weight:600;">open your dashboard</a></p>`
+      : "";
+    if (configuredModes.length === 0) {
+      const perMode = LINK_TYPES.map((lt) => {
+        const envs = missingEnv[lt];
+        if (envs.length === 0) return "";
+        return `<br>${lt === "test" ? "Test" : "Live"} mode: set ${missingTextFor(lt)}`;
+      }).join("");
+      body = `${accountLine}${connectedLine}<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong>${perMode} Once set, this page will show a "Connect with Stripe" button. No action is needed on your side.</p>`;
+    } else {
+      body = `${accountLine}${connectedLine}<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Connect your Stripe account to let CollectionsCopilot watch for overdue invoices and send your customers friendly, automatic payment reminders.</p>
+        <ol style="color:#4B5563;font-size:14px;line-height:1.8;margin:0 0 22px;padding-left:20px;text-align:left;">
+          <li>Click <strong>Connect with Stripe</strong> below — you'll be taken to Stripe's authorization screen.</li>
+          <li>Review the permissions and approve the connection.</li>
+          <li>You'll land in your CollectionsCopilot dashboard, ready to configure reminders.</li>
+        </ol>
+        ${configuredModes.includes("test") ? buttonFor("test", "Connect with Stripe — test mode") : ""}
+        ${configuredModes.includes("live") ? buttonFor("live", "Connect with Stripe — live mode") : ""}
+        ${
+          LINK_TYPES.filter((lt) => !configuredModes.includes(lt) && missingEnv[lt].length > 0)
+            .map((lt) => `<p style="color:#9CA3AF;font-size:12px;margin:12px 0 0;">${lt === "test" ? "Test" : "Live"} mode is not available yet — set ${missingTextFor(lt)}.</p>`)
+            .join("")
+        }
+        <p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>`;
+    }
   }
 
   return `<!DOCTYPE html>
@@ -227,9 +292,12 @@ export function installPageHtml(
 </html>`;
 }
 
-/** GET /oauth/install — the marketplace install page. ?auto=1 skips the page
- * and 302s straight into the authorize flow (useful for programmatic links
- * and tests). */
+/** GET /oauth/install — the marketplace install page. Account-gated since the
+ * account layer (reviewer round-2): no valid cc_account cookie → the sign-in /
+ * create-account card; valid → the Connect buttons + signed-in line. ?auto=1
+ * skips the page and 302s straight into the authorize flow (useful for
+ * programmatic links and tests — /oauth/install/start still enforces the
+ * cookie). */
 export function handleAppInstallPage(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
   const baseUrl = process.env.BASE_URL || "http://localhost:3002";
@@ -243,22 +311,40 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
     const link = isLinkType(url.searchParams.get("link") ?? "") ? url.searchParams.get("link")! : "test";
     return new Response(null, { status: 302, headers: { Location: `${baseUrl}/oauth/install/start?link=${link}` } });
   }
-  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv), {
+
+  const account = accountFromCookie(db, req);
+  // Optional nicety: when the signed-in account already owns a connected
+  // merchant, offer a direct link to the dashboard.
+  const dashboardUrl = account
+    ? (db.query(
+        "SELECT id FROM merchants WHERE account_id = ? AND stripe_account_id != 'acct_default' ORDER BY id LIMIT 1"
+      ).get(account.id) as { id: number } | null)
+      ? `${baseUrl}/dashboard`
+      : null
+    : null;
+
+  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
 }
 
-/** GET /oauth/install/start — mint a fresh state and 302 into Stripe's
- * marketplace authorize flow. */
+/** GET /oauth/install/start — REQUIRE a valid account cookie (the reviewer's
+ * flow signs in BEFORE connecting), mint a fresh state stamped with the
+ * account, and 302 into Stripe's marketplace authorize flow. No/invalid cookie
+ * → 302 back to /oauth/install so the user lands on the sign-in card. */
 export function handleAppInstallStart(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
   const baseUrl = process.env.BASE_URL || "http://localhost:3002";
+  const account = accountFromCookie(db, req);
+  if (!account) {
+    return new Response(null, { status: 302, headers: { Location: `${baseUrl}/oauth/install` } });
+  }
   const url = new URL(req.url);
   const linkParam = url.searchParams.get("link") ?? "";
   const linkType: LinkType = isLinkType(linkParam) ? linkParam : "test";
 
-  const state = createInstallState(db, linkType);
+  const state = createInstallState(db, linkType, account.id);
   const built = buildAuthorizeUrl(state, linkType);
   if ("error" in built) {
     return new Response(appOAuthErrorPage(built.error), {
@@ -266,7 +352,7 @@ export function handleAppInstallStart(db: Database, req: Request): Response {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
-  console.log(`[oauth-app] install start: link=${linkType} state=${state.slice(0, 16)}… → marketplace authorize`);
+  console.log(`[oauth-app] install start: account=${account.id} link=${linkType} state=${state.slice(0, 16)}… → marketplace authorize`);
   return new Response(null, { status: 302, headers: { Location: built.url } });
 }
 
@@ -480,14 +566,27 @@ async function fetchAccountDetails(accessToken: string): Promise<{ email?: strin
 /** Find the merchant owning a Stripe account, or create it (reusing the
  * merchants table; same shape ensureDefaultMerchant writes). Unknown emails
  * fall back to a .local placeholder so notification/summary code treats the
- * row as a placeholder until the real email is known. */
-export function findOrCreateMerchant(db: Database, stripeUserId: string, email?: string | null): number {
+ * row as a placeholder until the real email is known. When the install was
+ * started by a platform account (state row's account_id), the merchant is
+ * LINKED to that account — account → merchant → subscription (billing
+ * unchanged) — regardless of whether the row already existed, so a merchant
+ * first created via web-connect gets attached when the marketplace install
+ * completes. */
+export function findOrCreateMerchant(
+  db: Database,
+  stripeUserId: string,
+  email?: string | null,
+  accountId?: number | null
+): number {
   const existing = db.query("SELECT id FROM merchants WHERE stripe_account_id = ?").get(stripeUserId) as { id: number } | null;
-  if (existing) return existing.id;
+  if (existing) {
+    if (accountId) db.run("UPDATE merchants SET account_id = ? WHERE id = ?", [accountId, existing.id]);
+    return existing.id;
+  }
   const finalEmail = email && email.includes("@") ? email : `user_${stripeUserId}@install.local`;
   const info = db.run(
-    "INSERT INTO merchants (stripe_account_id, email, trust_mode) VALUES (?, ?, 'draft')",
-    [stripeUserId, finalEmail]
+    "INSERT INTO merchants (stripe_account_id, email, trust_mode, account_id) VALUES (?, ?, 'draft', ?)",
+    [stripeUserId, finalEmail, accountId ?? null]
   );
   return Number(info.lastInsertRowid);
 }
@@ -641,8 +740,10 @@ function appOAuthErrorPage(message: string): string {
  * GET /oauth/callback?code=…&state=… — the marketplace OAuth v2 callback
  * (index.ts branches here when the `code` param is present). Verifies the
  * state (CSRF), exchanges the one-time code, stores the token pair, creates/
- * finds the merchant, mints a session and bounces through the www-host
- * /oauth/session handoff so the user lands logged-in on the dashboard.
+ * finds the merchant (linked to the platform account that started the
+ * install — the state row's account_id), mints a session and bounces through
+ * the www-host /oauth/session handoff so the user lands logged-in on the
+ * dashboard.
  */
 export async function handleAppInstallCallback(db: Database, req: Request): Promise<Response> {
   ensureDefaultMerchant(db);
@@ -667,13 +768,14 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
     });
   }
 
-  const linkType = consumeInstallState(db, state);
-  if (!linkType) {
+  const consumed = consumeInstallState(db, state);
+  if (!consumed) {
     return new Response(appOAuthErrorPage("This installation link is invalid or has expired. Please start the installation again."), {
       status: 200,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
+  const { link_type: linkType, account_id: installAccountId } = consumed;
 
   const exchanged = await exchangeCodeForTokens(code, linkType);
   if (!exchanged.ok) {
@@ -694,7 +796,12 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
   // Best-effort account details for the merchant row's email (never fatal).
   const account = await fetchAccountDetails(tokens.access_token);
 
-  const merchantId = findOrCreateMerchant(db, tokens.stripe_user_id, account?.email);
+  // Link the merchant to the platform account that started the install
+  // (state row's account_id; null for legacy/back-compat state rows). This is
+  // the account → merchant → subscription chain the reviewer asked for: the
+  // purchased subscription (getSubscriptionByMerchantId) becomes reachable
+  // from the account through the merchant. Billing itself is unchanged.
+  const merchantId = findOrCreateMerchant(db, tokens.stripe_user_id, account?.email, installAccountId);
   saveAppOAuthTokens(db, {
     stripe_user_id: tokens.stripe_user_id,
     merchant_id: merchantId,
