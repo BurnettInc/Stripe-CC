@@ -9,14 +9,21 @@
  * STRIPE_APP_TEST_KEY/STRIPE_APP_LIVE_KEY, TOKEN_ENCRYPTION_KEY, and
  * BASE_URL=https://stripe-cc-production.up.railway.app so the authorize
  * redirect_uri is EXACTLY the manifest's allowed_redirect_uris entry):
- *   (a) /oauth/install renders the branded install page with per-mode
- *       "Connect with Stripe" buttons (test + live) and step instructions;
- *       ?auto=1 302s into the authorize flow
- *   (b) /oauth/install/start?link=test → 302 to
+ *   (a) /oauth/install renders the branded install page: SIGNED-OUT it shows
+ *       the sign-in/create-account card (email input + "Email me a sign-in
+ *       link") and NO connect buttons; SIGNED-IN (account cookie from the
+ *       magic-link flow) it shows the per-mode "Connect with Stripe" buttons
+ *       (test + live), step instructions and "Signed in as … · sign out";
+ *       ?auto=1 302s into the authorize flow (install/start still enforces
+ *       the cookie)
+ *   (b) /oauth/install/start WITHOUT an account cookie → 302 back to
+ *       /oauth/install (the reviewer's flow signs in BEFORE connecting);
+ *       WITH the cookie → 302 to
  *       https://marketplace.stripe.com/oauth/v2/authorize with
  *       client_id=STRIPE_CLIENT_ID (legacy fallback — the suite server has no
- *       mode-specific client ids), redirect_uri=the manifest URI, and a
- *       CSRF-safe state ("<48 hex>:<link-type>") stored in oauth_install_states
+ *       mode-specific client ids), redirect_uri=the manifest URI, a CSRF-safe
+ *       state ("<48 hex>:<link-type>") stored in oauth_install_states and
+ *       stamped with the signed-in account's account_id
  *   (c) callback happy path: /oauth/callback?code=…&state=… exchanges the code
  *       with the stub (Basic auth = the TEST developer key), stores
  *       oauth_tokens (encrypted at rest) + stripe_connections mirror, creates
@@ -186,8 +193,8 @@ function startStub(): void {
   });
 }
 
-function get(u: string): Promise<Response> {
-  return fetch(u, { redirect: "manual" });
+function get(u: string, cookie?: string): Promise<Response> {
+  return fetch(u, { redirect: "manual", headers: cookie ? { Cookie: cookie } : {} });
 }
 
 async function main(): Promise<void> {
@@ -199,19 +206,49 @@ async function main(): Promise<void> {
   startStub();
   resetStub();
 
+  // ── (a0) account setup — the install flow is now GATED on a platform
+  // account (reviewer round-2): sign up + verify via the magic-link flow and
+  // reuse the cc_account cookie for every /oauth/install/start request. The
+  // callback itself needs no cookie (the state row carries the account_id),
+  // but the state is created by the signed-in /oauth/install/start, so the
+  // cookie is required to reach the authorize hop in the first place.
+  const accRes = await fetch(`${BASE}/api/account/request-magic-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": "10.0.0.99" },
+    body: JSON.stringify({ email: "installer@example.com" }),
+  });
+  check("a0: account signup via magic link succeeds", accRes.status === 200 && (await accRes.json()).ok === true, `status=${accRes.status}`);
+  const accDb = db();
+  const accMagic = accDb.query(
+    "SELECT ml.token FROM account_magic_links ml JOIN accounts a ON a.id = ml.account_id WHERE a.email = 'installer@example.com' ORDER BY ml.id DESC LIMIT 1"
+  ).get() as { token: string } | null;
+  const accVerify = await get(`${BASE}/api/account/verify?token=${encodeURIComponent(accMagic?.token ?? "")}&next=/oauth/install`);
+  check("a0b: account verify mints the cc_account cookie", accVerify.status === 302 && (accVerify.headers.get("set-cookie") || "").startsWith("cc_account="), `status=${accVerify.status}`);
+  const ACC_COOKIE = (accVerify.headers.get("set-cookie") || "").split(";")[0];
+  const ACC_ID = (accDb.query("SELECT id FROM accounts WHERE email = 'installer@example.com'").get() as { id: number }).id;
+
   // ── (a) install page ──
+  // Signed-OUT state (no account cookie): the page renders the sign-in /
+  // create-account card, NOT the connect buttons.
   const page = await fetch(`${BASE}/oauth/install`);
   const pageHtml = await page.text();
   check("a1: install page 200 html", page.status === 200 && page.headers.get("content-type")?.includes("text/html"), `status=${page.status}`);
   check("a2: branded title", pageHtml.includes("Install CollectionsCopilot"), "");
-  check("a3: test-mode connect button (railway base from env)", pageHtml.includes("https://stripe-cc-production.up.railway.app/oauth/install/start?link=test"), "");
-  check("a4: live-mode connect button", pageHtml.includes("https://stripe-cc-production.up.railway.app/oauth/install/start?link=live"), "");
-  check("a5: step instructions present", pageHtml.includes("Click <strong>Connect with Stripe</strong>"), "");
+  check("a2b: signed-out page shows the sign-in card (email input + magic-link button)", pageHtml.includes("Email me a sign-in link") && pageHtml.includes('type="email"') && pageHtml.includes("magic-link-form"), "");
+  check("a2c: signed-out page shows NO connect buttons", !pageHtml.includes("oauth/install/start?link="), "");
+  // Signed-IN state (account cookie): connect buttons + signed-in line.
+  const pageIn = await (await fetch(`${BASE}/oauth/install`, { headers: { Cookie: ACC_COOKIE } })).text();
+  check("a3: test-mode connect button (railway base from env)", pageIn.includes("https://stripe-cc-production.up.railway.app/oauth/install/start?link=test"), "");
+  check("a4: live-mode connect button", pageIn.includes("https://stripe-cc-production.up.railway.app/oauth/install/start?link=live"), "");
+  check("a4b: signed-in line (email + sign out)", pageIn.includes("Signed in as") && pageIn.includes("installer@example.com") && pageIn.includes("sign out"), "");
+  check("a5: step instructions present", pageIn.includes("Click <strong>Connect with Stripe</strong>"), "");
   const auto = await get(`${BASE}/oauth/install?auto=1`);
   check("a6: ?auto=1 302s into authorize flow", auto.status === 302 && auto.headers.get("location") === "https://stripe-cc-production.up.railway.app/oauth/install/start?link=test", `loc=${auto.headers.get("location")}`);
 
-  // ── (b) install start → marketplace authorize ──
-  const start = await get(`${BASE}/oauth/install/start?link=test`);
+  // ── (b) install start → marketplace authorize (account-gated) ──
+  const startNoCookie = await get(`${BASE}/oauth/install/start?link=test`);
+  check("b0: install/start WITHOUT account cookie → 302 back to /oauth/install", startNoCookie.status === 302 && startNoCookie.headers.get("location") === "https://stripe-cc-production.up.railway.app/oauth/install", `status=${startNoCookie.status} loc=${startNoCookie.headers.get("location")}`);
+  const start = await get(`${BASE}/oauth/install/start?link=test`, ACC_COOKIE);
   check("b1: start 302s", start.status === 302, `status=${start.status}`);
   const loc = start.headers.get("location") || "";
   check("b2: marketplace authorize host", loc.startsWith("https://marketplace.stripe.com/oauth/v2/authorize?"), loc);
@@ -221,14 +258,15 @@ async function main(): Promise<void> {
   const stateTest = authUrl.searchParams.get("state") || "";
   check("b5: state is CSRF-safe (48 hex + :test)", /^[0-9a-f]{48}:test$/.test(stateTest), stateTest);
   const d1 = db();
-  const stateRow = d1.query("SELECT link_type FROM oauth_install_states WHERE state = ?").get(stateTest) as { link_type: string } | null;
+  const stateRow = d1.query("SELECT link_type, account_id FROM oauth_install_states WHERE state = ?").get(stateTest) as { link_type: string; account_id: number | null } | null;
   check("b6: state row stored with link type", stateRow?.link_type === "test", JSON.stringify(stateRow));
+  check("b6b: state row stamped with the signed-in account_id", stateRow?.account_id === ACC_ID, JSON.stringify(stateRow));
   d1.close();
 
-  const startLive = await get(`${BASE}/oauth/install/start?link=live`);
+  const startLive = await get(`${BASE}/oauth/install/start?link=live`, ACC_COOKIE);
   const stateLive = new URL(startLive.headers.get("location") || "").searchParams.get("state") || "";
   check("b7: live link encodes :live in state", /^[0-9a-f]{48}:live$/.test(stateLive), stateLive);
-  const startBogus = await get(`${BASE}/oauth/install/start?link=bogus`);
+  const startBogus = await get(`${BASE}/oauth/install/start?link=bogus`, ACC_COOKIE);
   const stateBogus = new URL(startBogus.headers.get("location") || "").searchParams.get("state") || "";
   check("b8: unknown link falls back to test", /^[0-9a-f]{48}:test$/.test(stateBogus), stateBogus);
 
@@ -260,8 +298,9 @@ async function main(): Promise<void> {
   check("c13: expires_at in the future", typeof tokRow?.expires_at === "string" && tokRow.expires_at > "2026-01-01", String(tokRow?.expires_at));
   const connRow = d2.query("SELECT id, merchant_id FROM stripe_connections WHERE id = 'acct_market_test'").get() as { id: string; merchant_id: number } | null;
   check("c14: stripe_connections mirror row", !!connRow, JSON.stringify(connRow));
-  const merchRow = d2.query("SELECT email, trust_mode FROM merchants WHERE stripe_account_id = 'acct_market_test'").get() as { email: string; trust_mode: string } | null;
+  const merchRow = d2.query("SELECT email, trust_mode, account_id FROM merchants WHERE stripe_account_id = 'acct_market_test'").get() as { email: string; trust_mode: string; account_id: number | null } | null;
   check("c15: merchant created with account email", merchRow?.email === "merchant@example.com", JSON.stringify(merchRow));
+  check("c15b: merchant LINKED to the platform account (account_id from the state row)", merchRow?.account_id === ACC_ID, JSON.stringify(merchRow));
   const sessRow = d2.query("SELECT merchant_id FROM sessions WHERE token = ?").get(sessionToken) as { merchant_id: number } | null;
   check("c16: session minted for the merchant", !!sessRow && sessRow.merchant_id === connRow?.merchant_id, JSON.stringify(sessRow));
   const stateAfter = d2.query("SELECT 1 AS ok FROM oauth_install_states WHERE state = ?").get(stateTest);
@@ -286,7 +325,7 @@ async function main(): Promise<void> {
 
   // ── (c3) backfill idempotency: a re-install (fresh state, same Stripe
   // account) must NOT duplicate invoice rows — upsertInvoice updates in place ──
-  const start2 = await get(`${BASE}/oauth/install/start?link=test`);
+  const start2 = await get(`${BASE}/oauth/install/start?link=test`, ACC_COOKIE);
   const state2 = new URL(start2.headers.get("location") || "").searchParams.get("state") || "";
   resetStub();
   const cb2 = await get(`${BASE}/oauth/callback?code=code_test&state=${encodeURIComponent(state2)}`);
@@ -297,7 +336,7 @@ async function main(): Promise<void> {
   d3.close();
 
   // ── (c4) backfill never fails the install when the invoices call errors ──
-  const start3 = await get(`${BASE}/oauth/install/start?link=test`);
+  const start3 = await get(`${BASE}/oauth/install/start?link=test`, ACC_COOKIE);
   const state3 = new URL(start3.headers.get("location") || "").searchParams.get("state") || "";
   resetStub();
   stub.failInvoices = true;
@@ -354,10 +393,15 @@ async function main(): Promise<void> {
   const u = db();
   const s1 = mod.createInstallState(u, "test");
   check("g1: created state matches shape", /^[0-9a-f]{48}:test$/.test(s1), s1);
-  check("g2: consume returns link type", mod.consumeInstallState(u, s1) === "test", "");
+  check("g2: consume returns link type", mod.consumeInstallState(u, s1)?.link_type === "test", "");
   check("g3: consume is one-time", mod.consumeInstallState(u, s1) === null, "");
   check("g4: unknown state → null", mod.consumeInstallState(u, "nope:test") === null, "");
   check("g5: empty state → null", mod.consumeInstallState(u, "") === null, "");
+  const s2 = mod.createInstallState(u, "live", 7);
+  const consumed2 = mod.consumeInstallState(u, s2);
+  check("g6: account_id roundtrips through create/consume", consumed2?.link_type === "live" && consumed2.account_id === 7, JSON.stringify(consumed2));
+  const s3 = mod.createInstallState(u, "test", null);
+  check("g7: legacy create (no account) → consumed account_id null", mod.consumeInstallState(u, s3)?.account_id === null, "");
 
   // ── (h) unit: developer key selection (graceful when unset) ──
   process.env.STRIPE_APP_TEST_KEY = "sk_test_unit";
@@ -509,10 +553,13 @@ async function main(): Promise<void> {
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
   u.close();
 
-  // ── (m) unit: install page per-mode configuration ──
+  // ── (m) unit: install page per-mode configuration + account gate ──
   // A mode's button appears only when BOTH its client id and its developer key
   // resolve; the "not configured" notice lists the missing env vars per mode.
+  // Since the account layer the page is GATED: connect buttons render only for
+  // a signed-in account ({email} passed here), otherwise the sign-in card.
   const pageBase = "https://stripe-cc-production.up.railway.app";
+  const ACCT = { email: "test@example.com" };
   const modesWith = (): ("test" | "live")[] => (["test", "live"] as const).filter((lt) => mod.appClientIdFor(lt) && mod.appDevKeyFor(lt));
   const missingMap = (): { test: string[]; live: string[] } => ({ test: mod.missingEnvFor("test"), live: mod.missingEnvFor("live") });
 
@@ -521,15 +568,16 @@ async function main(): Promise<void> {
   process.env.STRIPE_APP_TEST_KEY = "sk_test_page";
   process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_page";
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_page";
-  const pageAll = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  const pageAll = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
   check("m1: test button shown when test client id + test key both set", pageAll.includes(`${pageBase}/oauth/install/start?link=test`), "");
   check("m2: live button shown when live client id + live key both set", pageAll.includes(`${pageBase}/oauth/install/start?link=live`), "");
+  check("m2b: signed-in line rendered", pageAll.includes("Signed in as") && pageAll.includes("test@example.com") && pageAll.includes("sign out"), "");
 
   // Test client id missing (fallback removed too) → test button gone, live
   // button stays, per-mode notice names the missing client id var.
   delete process.env.STRIPE_APP_TEST_CLIENT_ID;
   delete process.env.STRIPE_CLIENT_ID;
-  const pageNoTest = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  const pageNoTest = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
   check("m3: test button hidden when test client id missing", !pageNoTest.includes(`${pageBase}/oauth/install/start?link=test`), "");
   check("m4: live button still shown", pageNoTest.includes(`${pageBase}/oauth/install/start?link=live`), "");
   check("m5: notice names STRIPE_APP_TEST_CLIENT_ID", pageNoTest.includes("STRIPE_APP_TEST_CLIENT_ID"), "");
@@ -541,7 +589,7 @@ async function main(): Promise<void> {
   delete process.env.STRIPE_APP_TEST_KEY;
   delete process.env.STRIPE_APP_LIVE_KEY;
   delete process.env.STRIPE_SECRET_KEY;
-  const pageNone = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  const pageNone = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
   check("m6: nothing configured → notice present", pageNone.includes("Installation is not configured yet."), "");
   check("m7: notice lists test-mode missing vars", pageNone.includes("Test mode: set") && pageNone.includes("STRIPE_APP_TEST_CLIENT_ID") && pageNone.includes("STRIPE_APP_TEST_KEY"), "");
   check("m8: notice lists live-mode missing vars", pageNone.includes("Live mode: set") && pageNone.includes("STRIPE_APP_LIVE_CLIENT_ID") && pageNone.includes("STRIPE_APP_LIVE_KEY") && pageNone.includes("STRIPE_SECRET_KEY"), "");
@@ -551,11 +599,19 @@ async function main(): Promise<void> {
   // developer key is still unset).
   process.env.STRIPE_CLIENT_ID = "ca_page_fallback";
   process.env.STRIPE_SECRET_KEY = "sk_live_fallback";
-  const pageLiveFallback = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  const pageLiveFallback = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
   check("m9: live button shows when STRIPE_SECRET_KEY satisfies live's key slot", pageLiveFallback.includes(`${pageBase}/oauth/install/start?link=live`), "");
   check("m10: test button still hidden (test key unset)", !pageLiveFallback.includes(`${pageBase}/oauth/install/start?link=test`), "");
   delete process.env.STRIPE_SECRET_KEY;
 
+  // ── (m2) unit: the account gate itself ──
+  const pageNoAcct = mod.installPageHtml(pageBase, modesWith(), missingMap());
+  check("m11: no account → sign-in card (email input + magic-link button), NO connect buttons", pageNoAcct.includes("Email me a sign-in link") && pageNoAcct.includes('type="email"') && !pageNoAcct.includes("oauth/install/start?link="), "");
+  const pageNoAcctNotice = mod.installPageHtml(pageBase, [], { test: ["STRIPE_APP_TEST_CLIENT_ID"], live: [] });
+  check("m12: no account → the 'not configured' branch still renders the sign-in card (never the connect UI)", pageNoAcctNotice.includes("Email me a sign-in link") && !pageNoAcctNotice.includes("Installation is not configured yet."), "");
+  const pageAcctDash = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT, "https://stripe-cc-production.up.railway.app/dashboard");
+  check("m13: signed-in with a connected merchant → dashboard shortcut shown", pageAcctDash.includes("You're connected") && pageAcctDash.includes("open your dashboard"), "");
+  check("m14: signed-in without a merchant → no dashboard shortcut", !pageAll.includes("open your dashboard"), "");
   // Restore env for any later sections.
   process.env.STRIPE_CLIENT_ID = "ca_unit_client";
   process.env.STRIPE_APP_TEST_CLIENT_ID = "ca_test_unit";
