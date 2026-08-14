@@ -173,7 +173,8 @@ function WaitlistForm() {
         id="waitlist"
         className="w-full max-w-md rounded-lg border border-indigo-200 bg-indigo-50 px-6 py-3 text-base font-medium text-indigo-900"
       >
-        You're on the list — we'll email you when CollectionsCopilot is live.
+        You're on the list! Founding members (first 50) lock in lifetime 50% off —
+        we'll email your claim link when we go live.
       </div>
     );
   }
@@ -250,6 +251,17 @@ function Home() {
           >
             How it works
           </a>
+        </div>
+        <div className="mt-10 mx-auto max-w-2xl rounded-2xl border border-indigo-200 bg-indigo-50 p-6 text-left">
+          <p className="text-sm font-bold uppercase tracking-wide text-indigo-700 mb-2">
+            Founding Member Offer — first 50 waitlist users only
+          </p>
+          <ul className="space-y-1.5 text-sm text-gray-700">
+            <li>✓ <span className="font-semibold text-indigo-900">Lifetime 50% off</span> both plans once we go live — Standard <span className="font-semibold">$7.50/mo</span>, Pro <span className="font-semibold">$14.50/mo</span>, forever.</li>
+            <li>✓ Priority support for your first 90 days.</li>
+            <li>✓ Your discount stays even if we raise prices later.</li>
+            <li>✓ Guaranteed to the first 50 people who join the waitlist — join now to lock in your spot.</li>
+          </ul>
         </div>
       </section>
 
@@ -718,10 +730,14 @@ function Home() {
           <h2 className="text-3xl font-bold text-white mb-4">
             Ready to stop chasing payments?
           </h2>
-          <p className="text-gray-400 max-w-lg mx-auto mb-8">
+          <p className="text-gray-400 max-w-lg mx-auto mb-4">
             Join the waitlist and we'll email you the moment CollectionsCopilot is
             live. Polite, personalized, and persistent — without you lifting a
             finger.
+          </p>
+          <p className="text-indigo-300 max-w-lg mx-auto mb-8">
+            Founding members (first 50) get lifetime 50% off both plans plus 90
+            days of priority support — guaranteed, even if we raise prices later.
           </p>
           <a
             href="#waitlist"
