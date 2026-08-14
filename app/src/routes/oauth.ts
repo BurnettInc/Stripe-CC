@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { ensureDefaultMerchant, resolveMerchant } from "../db";
-import { saveStripeConnection, getStripeConnection } from "../middleware/auth";
+import { saveStripeConnection, getStripeConnection, clearStripeConnection } from "../middleware/auth";
 import { readCookie } from "../middleware/session";
 import { notifyOwnerStripeConnect } from "../pipeline/owner-notify";
 import Stripe from "stripe";
@@ -181,6 +181,49 @@ export function handleOAuthSuccess(req: Request): Response {
 }
 
 /**
+ * Detect the Stripe failure class where the STORED Stripe account id has no
+ * usable connection to this platform — the "stale connection" case (account
+ * deleted, revoked, deauthorized, or created under a different key/mode than
+ * the currently active STRIPE_SECRET_KEY). On these the app must clear the
+ * stored id and send the merchant to a clean reconnect state instead of
+ * surfacing the raw Stripe error with no recovery.
+ *
+ * Matching is deliberately NARROW — only this failure class:
+ *   - machine code when present: account_invalid / account_has_no_valid_connection /
+ *     resource_missing ("no such account" — deleted) / more_permissions_required*;
+ *   - message fallback: the exact production error captured 2026-08-14
+ *     (accountLinks.create with a marketplace-install LIVE account under the
+ *     platform LIVE key) has NO `code` field — only
+ *     type=invalid_request_error + "…doesn't have a valid connection to your
+ *     platform." — plus the mode-mismatch sibling
+ *     ("…account that was created in live mode." / test mode).
+ * Everything else (rate_limit, api_connection_error, generic
+ * invalid_request_error for other params, auth errors) returns false and keeps
+ * the historical error surface.
+ */
+export function isStoredConnectionUnusableError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { type?: string; code?: string; message?: string };
+  const code = e.code ?? "";
+  if (
+    code === "account_invalid" ||
+    code === "account_has_no_valid_connection" ||
+    code === "resource_missing" ||
+    code === "more_permissions_required" ||
+    code === "more_permissions_required_for_application"
+  ) {
+    return true;
+  }
+  if (e.type !== "invalid_request_error") return false;
+  const msg = e.message ?? "";
+  return (
+    msg.includes("doesn't have a valid connection to your platform") ||
+    msg.includes("created in live mode") ||
+    msg.includes("created in test mode")
+  );
+}
+
+/**
  * GET /stripe/connect — Create (or resume) a Stripe Express connected account
  * and redirect the merchant into Stripe's hosted onboarding flow.
  * Replaces the deprecated Express OAuth flow.
@@ -209,8 +252,9 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
   const merchant = resolveMerchant(db);
   const merchantId = merchant?.id ?? 1;
 
+  let accountId: string | null | undefined;
   try {
-    let accountId = getStripeConnection(db, merchantId)?.id;
+    accountId = getStripeConnection(db, merchantId)?.id;
 
     if (!accountId) {
       const account = await stripe.accounts.create({
@@ -240,13 +284,61 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
 
     return new Response(null, { status: 302, headers: { Location: accountLink.url } });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[oauth] Failed to create account/account link: ${message}`);
+    return handleConnectFailure(db, merchantId, accountId, err, baseUrl);
+  }
+}
+
+/**
+ * Shared failure handler for the web-connect account-link path (and the OAuth
+ * callback's account-retrieve path via isStoredConnectionUnusableError).
+ *
+ * When the stored Stripe account id has no usable connection to this platform
+ * (deleted/revoked/deauthorized, or created under a different key/mode than
+ * the active STRIPE_SECRET_KEY — the 2026-08-14 owner incident), the stale id
+ * is cleared and the merchant is sent to a clean reconnect state
+ * (/dashboard?error=reconnect_required → friendly banner + Connect CTA).
+ * The raw Stripe error is NEVER surfaced for this class — there is no
+ * recovery in it, and the dashboard flips back to the Connect CTA once the id
+ * is cleared. All other error classes (rate_limit, transient network, generic
+ * validation) keep the historical error surface exactly as before.
+ *
+ * Exported for the endpoint suite: the full route goes through the real
+ * Stripe SDK, which the isolated test server cannot stub, so the suite drives
+ * this handler directly with synthetic Stripe error objects plus the HTTP
+ * /stats derivation.
+ */
+export function handleConnectFailure(
+  db: Database,
+  merchantId: number,
+  accountId: string | null | undefined,
+  err: unknown,
+  baseUrl: string,
+): Response {
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === "object" && err !== null && "message" in err && typeof (err as { message?: unknown }).message === "string"
+        ? (err as { message: string }).message
+        : String(err);
+  const type = typeof err === "object" && err !== null && "type" in err ? (err as { type?: string }).type : "?";
+  const code = typeof err === "object" && err !== null && "code" in err ? (err as { code?: string }).code : undefined;
+  console.error(`[oauth] Failed to create account/account link (type=${type} code=${code ?? "none"}): ${message}`);
+
+  if (accountId && isStoredConnectionUnusableError(err)) {
+    clearStripeConnection(db, merchantId);
+    console.error(
+      `[oauth] Stored Stripe account ${accountId} (merchant ${merchantId}) has no valid connection to the platform — cleared; sending to reconnect`,
+    );
     return new Response(null, {
       status: 302,
-      headers: { Location: `${baseUrl}/dashboard?error=account_link_failed&detail=${encodeURIComponent(message)}` },
+      headers: { Location: `${baseUrl}/dashboard?error=reconnect_required` },
     });
   }
+
+  return new Response(null, {
+    status: 302,
+    headers: { Location: `${baseUrl}/dashboard?error=account_link_failed&detail=${encodeURIComponent(message)}` },
+  });
 }
 
 /**
@@ -328,6 +420,21 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    // Real-customer complement to the account.application.deauthorized webhook:
+    // if the account was deleted/revoked between /stripe/connect and the
+    // callback, retrieve fails with resource_missing — clear the stale id and
+    // send the merchant to a clean reconnect state instead of the raw error.
+    if (accountId && isStoredConnectionUnusableError(err)) {
+      const m = resolveMerchant(db, accountId);
+      if (m) clearStripeConnection(db, m.id);
+      console.error(
+        `[oauth] Stored Stripe account ${accountId} invalid during callback (${message}) — cleared; sending to reconnect`,
+      );
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${baseUrl}/dashboard?error=reconnect_required` },
+      });
+    }
     return new Response(null, {
       status: 302,
       headers: { Location: `${baseUrl}/dashboard?error=verify_failed&detail=${encodeURIComponent(message)}` },
