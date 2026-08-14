@@ -53,6 +53,12 @@
  *   (c6) dashboard HTML carries the status banner markup + renderer covering
  *       all three states ("Not connected to Stripe" / "Connected to Stripe —
  *       subscription required" / "Active — Connected to Stripe")
+ *   (c7) EMAIL-GAP FIX: the merchant email comes from the signed-in PLATFORM
+ *       account (primary source — the app-scoped OAuth token 403s on
+ *       /v1/account in production, scope stripe_apps), and a re-install
+ *       REPAIRS an existing placeholder merchant email (user_…@install.local)
+ *   (c8) legacy state row (no account_id) → the developer-key + Stripe-Account
+ *       fetch supplies the merchant email (secondary source)
  *
  * Unit level (direct module imports in this process, own DB handle, env
  * mutated locally and restored):
@@ -81,6 +87,12 @@
  *       refresh_token, rolling refresh token stored), valid pair → no network
  *       call, missing refresh token / missing key / unknown user → clean
  *       errors; live refresh falls back to STRIPE_SECRET_KEY as Basic auth
+ *   (n) findOrCreateMerchant email handling: real email on create, .local
+ *       placeholder fallback, placeholder REPAIR on re-install, real email
+ *       never overwritten
+ *   (n2) fetchAccountDetailsViaDevKey: returns the connected account's email
+ *       via the developer key + Stripe-Account header; null when the key is
+ *       unset (no crash, no network)
  *
  * Run via: bash /tmp/run-suite.sh oauth-install
  */
@@ -131,7 +143,7 @@ const EXPECTED_BACKFILL_DATES = {
 };
 
 const stub: {
-  calls: { path: string; method: string; auth: string; body: string }[];
+  calls: { path: string; method: string; auth: string; body: string; stripeAccount: string }[];
   server: ReturnType<typeof Bun.serve>;
   failInvoices: boolean;
 } = {
@@ -152,19 +164,24 @@ function startStub(): void {
       const url = new URL(req.url);
       const auth = req.headers.get("authorization") || "";
       const bodyText = await req.text().catch(() => "");
-      stub.calls.push({ path: url.pathname, method: req.method, auth, body: bodyText });
+      stub.calls.push({ path: url.pathname, method: req.method, auth, body: bodyText, stripeAccount: req.headers.get("stripe-account") || "" });
 
       if (url.pathname === "/v1/oauth/token" && req.method === "POST") {
         const form = new URLSearchParams(bodyText);
         const grant = form.get("grant_type");
         if (grant === "authorization_code") {
+          // code_legacy drives the "legacy state row (no account)" callback
+          // test — it must mint tokens for a DIFFERENT Stripe user so the
+          // callback creates a fresh merchant instead of reusing the c-series
+          // one (whose email is already real).
+          const legacy = bodyText.includes("code=code_legacy");
           return Response.json({
             access_token: "acct_access_token",
             livemode: false,
             refresh_token: "rt_code",
             scope: "stripe_apps",
             stripe_publishable_key: "pk_test_abc",
-            stripe_user_id: "acct_market_test",
+            stripe_user_id: legacy ? "acct_legacy_test" : "acct_market_test",
             token_type: "bearer",
           });
         }
@@ -311,8 +328,15 @@ async function main(): Promise<void> {
   const tokenCall = stub.calls.find((c) => c.path === "/v1/oauth/token");
   check("c6: token exchange called with grant_type=authorization_code", !!tokenCall && tokenCall.body.includes("grant_type=authorization_code") && tokenCall.body.includes("code=code_test"), JSON.stringify(stub.calls));
   check("c7: exchange uses Basic auth with the TEST developer key", tokenCall?.auth === `Basic ${Buffer.from("sk_test_app_dev:").toString("base64")}`, tokenCall?.auth || "");
-  const acctCall = stub.calls.find((c) => c.path === "/v1/account");
-  check("c8: account fetched with Bearer access token", acctCall?.auth === "Bearer acct_access_token", acctCall?.auth || "");
+  const acctCall = stub.calls.find((c) => c.path === "/v1/account" && c.auth === "Bearer acct_access_token");
+  check("c8: account fetched with the app-scoped Bearer access token (tertiary source)", acctCall?.auth === "Bearer acct_access_token", acctCall?.auth || "");
+  // The email-gap fix: the callback ALSO tries the developer key + Stripe-Account
+  // header (the mechanism that works in production — the app-scoped token 403s
+  // on /v1/account with scope stripe_apps). The stub's /v1/account always
+  // answers "merchant@example.com", but the PLATFORM account email (primary)
+  // must win — asserted by c15.
+  const devAcctCall = stub.calls.find((c) => c.path === "/v1/account" && c.auth === "Bearer sk_test_app_dev");
+  check("c8b: account also fetched via developer key + Stripe-Account header", !!devAcctCall && devAcctCall.stripeAccount === "acct_market_test", JSON.stringify(stub.calls.filter((c) => c.path === "/v1/account")));
 
   const d2 = db();
   const tokRow = d2.query("SELECT * FROM oauth_tokens WHERE stripe_user_id = 'acct_market_test'").get() as Record<string, unknown> | null;
@@ -324,7 +348,11 @@ async function main(): Promise<void> {
   const connRow = d2.query("SELECT id, merchant_id FROM stripe_connections WHERE id = 'acct_market_test'").get() as { id: string; merchant_id: number } | null;
   check("c14: stripe_connections mirror row", !!connRow, JSON.stringify(connRow));
   const merchRow = d2.query("SELECT email, trust_mode, account_id FROM merchants WHERE stripe_account_id = 'acct_market_test'").get() as { email: string; trust_mode: string; account_id: number | null } | null;
-  check("c15: merchant created with account email", merchRow?.email === "merchant@example.com", JSON.stringify(merchRow));
+  // Email-gap fix: the merchant's email comes from the signed-in PLATFORM
+  // account (installer@example.com — the magic-link sign-in address), NOT the
+  // stub's merchant@example.com (the app-token fetch 403s in production) and
+  // NOT a .local placeholder.
+  check("c15: merchant created with the PLATFORM account's email (primary source)", merchRow?.email === "installer@example.com", JSON.stringify(merchRow));
   check("c15b: merchant LINKED to the platform account (account_id from the state row)", merchRow?.account_id === ACC_ID, JSON.stringify(merchRow));
   const sessRow = d2.query("SELECT merchant_id FROM sessions WHERE token = ?").get(sessionToken) as { merchant_id: number } | null;
   check("c16: session minted for the merchant", !!sessRow && sessRow.merchant_id === connRow?.merchant_id, JSON.stringify(sessRow));
@@ -387,6 +415,43 @@ async function main(): Promise<void> {
   check("c32: dashboard has the status banner markup", dash.includes('id="status-banner"') && dash.includes('id="status-banner-title"') && dash.includes('id="status-banner-actions"') && dash.includes('id="status-banner-dot"'), "");
   check("c33: dashboard banner renderer covers all three states (reviewer wording)", dash.includes("renderStatusBanner") && dash.includes("Connected to Stripe — subscription required") && dash.includes("Active — Connected to Stripe") && dash.includes("Subscribe Standard — $15/mo") && dash.includes("Subscribe Pro — $29/mo") && dash.includes("Not connected to Stripe"), "");
   d2.close();
+
+  // ── (c7) email-gap repair: a re-install fixes a placeholder merchant email ──
+  // Pre-fix installs (and any install where the app-scoped token 403s on
+  // /v1/account) leave the merchant with `user_…@install.local`. A re-install
+  // from the SAME platform account must REPAIR the row to the platform
+  // account's email — no reinstall-cleanup needed for the owner's existing
+  // test merchants.
+  const d7 = db();
+  d7.run("UPDATE merchants SET email = 'user_acct_market_test@install.local' WHERE stripe_account_id = 'acct_market_test'");
+  const startRepair = await get(`${BASE}/oauth/install/start?link=test`, ACC_COOKIE);
+  const stateRepair = new URL(startRepair.headers.get("location") || "").searchParams.get("state") || "";
+  resetStub();
+  const cbRepair = await get(`${BASE}/oauth/callback?code=code_test&state=${encodeURIComponent(stateRepair)}`);
+  check("c34: repair re-install still 302s through the handoff", cbRepair.status === 302 && (cbRepair.headers.get("location") || "").includes("/oauth/session"), `status=${cbRepair.status}`);
+  const merchRepaired = d7.query("SELECT email, account_id FROM merchants WHERE stripe_account_id = 'acct_market_test'").get() as { email: string; account_id: number | null } | null;
+  check("c35: placeholder email REPAIRED to the platform account's email on re-install", merchRepaired?.email === "installer@example.com", JSON.stringify(merchRepaired));
+  check("c35b: account link preserved on repair", merchRepaired?.account_id === ACC_ID, JSON.stringify(merchRepaired));
+  d7.close();
+
+  // ── (c8) legacy state row (no account_id) → the developer-key fetch supplies
+  // the merchant email (the secondary source; the primary requires a platform
+  // account). The state is written straight into the SERVER's DB (the test
+  // process and the server share the same SQLite file) with account_id NULL,
+  // exactly like a legacy/back-compat row.
+  const d8 = db();
+  const legacyState = mod.createInstallState(d8, "test", null);
+  d8.close();
+  resetStub();
+  const cbLegacy = await get(`${BASE}/oauth/callback?code=code_legacy&state=${encodeURIComponent(legacyState)}`);
+  check("c36: legacy install (state without account) still 302s", cbLegacy.status === 302 && (cbLegacy.headers.get("location") || "").includes("/oauth/session"), `status=${cbLegacy.status}`);
+  const d8b = db();
+  const merchLegacy = d8b.query("SELECT email, account_id FROM merchants WHERE stripe_account_id = 'acct_legacy_test'").get() as { email: string; account_id: number | null } | null;
+  check("c37: legacy install gets the merchant email from the dev-key account fetch", merchLegacy?.email === "merchant@example.com", JSON.stringify(merchLegacy));
+  check("c37b: legacy merchant not linked to any account", merchLegacy?.account_id === null, JSON.stringify(merchLegacy));
+  const devLegacyCall = stub.calls.find((c) => c.path === "/v1/account" && c.auth === "Bearer sk_test_app_dev");
+  check("c37c: dev-key account fetch carried the Stripe-Account header for the connected account", !!devLegacyCall && devLegacyCall.stripeAccount === "acct_legacy_test", JSON.stringify(stub.calls.filter((c) => c.path === "/v1/account")));
+  d8b.close();
 
   // ── (d) state replay fails cleanly ──
   resetStub();
@@ -720,6 +785,42 @@ async function main(): Promise<void> {
   process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_unit";
   process.env.STRIPE_APP_TEST_KEY = "sk_test_unit";
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_unit";
+
+  // ── (n) unit: findOrCreateMerchant email handling (the email-gap fix) ──
+  const u2 = db();
+  // Create with a real email → stored as-is.
+  const mCreate = mod.findOrCreateMerchant(u2, "acct_unit_email", "real@example.com", null);
+  const mCreateRow = u2.query("SELECT email FROM merchants WHERE id = ?").get(mCreate) as { email: string };
+  check("n1: create with real email stores it", mCreateRow.email === "real@example.com", JSON.stringify(mCreateRow));
+  // Create WITHOUT an email → .local placeholder (the guard stays safe).
+  const mNoEmail = mod.findOrCreateMerchant(u2, "acct_unit_noemail", null, null);
+  const mNoEmailRow = u2.query("SELECT email FROM merchants WHERE id = ?").get(mNoEmail) as { email: string };
+  check("n2: create without email falls back to the .local placeholder", mNoEmailRow.email === "user_acct_unit_noemail@install.local", JSON.stringify(mNoEmailRow));
+  // Existing placeholder + real email → REPAIRED (the fix: re-install repairs).
+  const mRepair = mod.findOrCreateMerchant(u2, "acct_unit_noemail", "nowreal@example.com", null);
+  const mRepairRow = u2.query("SELECT email FROM merchants WHERE id = ?").get(mRepair) as { email: string };
+  check("n3: existing placeholder merchant REPAIRED with the real email", mRepairRow.email === "nowreal@example.com", JSON.stringify(mRepairRow));
+  // Existing REAL email is never overwritten by another source.
+  const mKeep = mod.findOrCreateMerchant(u2, "acct_unit_email", "different@example.com", null);
+  const mKeepRow = u2.query("SELECT email FROM merchants WHERE id = ?").get(mKeep) as { email: string };
+  check("n4: existing real email never overwritten", mKeepRow.email === "real@example.com", JSON.stringify(mKeepRow));
+  // Invalid email (no @) → placeholder (the guard stays safe).
+  const mGarbage = mod.findOrCreateMerchant(u2, "acct_unit_garbage", "not-an-email", null);
+  const mGarbageRow = u2.query("SELECT email FROM merchants WHERE id = ?").get(mGarbage) as { email: string };
+  check("n5: invalid email (no @) → placeholder fallback", mGarbageRow.email === "user_acct_unit_garbage@install.local", JSON.stringify(mGarbageRow));
+  u2.close();
+
+  // ── (n2) unit: fetchAccountDetailsViaDevKey (the secondary email source) ──
+  resetStub();
+  process.env.STRIPE_APP_TEST_KEY = "sk_test_app_dev";
+  const devKeyInfo = await mod.fetchAccountDetailsViaDevKey("acct_market_test", "test");
+  check("n6: dev-key account fetch returns the connected account's email", devKeyInfo?.email === "merchant@example.com" && devKeyInfo?.display_name === "Merchant Co", JSON.stringify(devKeyInfo));
+  const devKeyCall = stub.calls.find((c) => c.path === "/v1/account");
+  check("n6b: dev-key fetch used the developer key + Stripe-Account header", devKeyCall?.auth === "Bearer sk_test_app_dev" && devKeyCall?.stripeAccount === "acct_market_test", JSON.stringify(stub.calls));
+  delete process.env.STRIPE_APP_TEST_KEY;
+  const devKeyNone = await mod.fetchAccountDetailsViaDevKey("acct_market_test", "test");
+  check("n7: dev-key fetch null when the key is unset (no crash, no network)", devKeyNone === null && stub.calls.length === 1, JSON.stringify(stub.calls));
+  process.env.STRIPE_APP_TEST_KEY = "sk_test_unit";
 
   console.log(failures === 0 ? "ALL PASS" : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);

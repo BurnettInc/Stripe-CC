@@ -641,7 +641,12 @@ export async function refreshAppAccessToken(
 // ── Account + merchant helpers ──
 
 /** Best-effort account fetch using the fresh access token (email/display name
- * for the merchant row). Never throws — null on any failure. */
+ * for the merchant row). Never throws — null on any failure. NOTE: for the
+ * marketplace install the app-scoped OAuth token's scope is `stripe_apps`,
+ * NOT `read_only`, so /v1/account returns 403 and this yields null in
+ * production — the merchant email therefore comes from the platform account
+ * (primary) or the developer-key fetch below (secondary); this remains as a
+ * final fallback for read-scope tokens (and test stubs). */
 async function fetchAccountDetails(accessToken: string): Promise<{ email?: string; display_name?: string } | null> {
   try {
     const res = await fetch(`${STRIPE_API}/account`, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -657,24 +662,70 @@ async function fetchAccountDetails(accessToken: string): Promise<{ email?: strin
   }
 }
 
+/** Best-effort fetch of the CONNECTED account's details using the app
+ * developer key + Stripe-Account header (email/display name for the merchant
+ * row). The developer key acting in the connected account's context CAN read
+ * it — the same mechanism proven with the live key in the 8/14 install E2E
+ * (it read the merchant's invoices) — unlike the app-scoped OAuth token,
+ * which 403s on /v1/account (scope `stripe_apps`, not `read_only`). Never
+ * throws; null on any failure (a non-OK response is silent — installs must
+ * not spam error logs for accounts the dev key cannot read). */
+export async function fetchAccountDetailsViaDevKey(
+  stripeUserId: string,
+  linkType: LinkType
+): Promise<{ email?: string; display_name?: string } | null> {
+  const key = appDevKeyFor(linkType);
+  if (!key) return null;
+  try {
+    const res = await fetch(`${STRIPE_API}/account`, {
+      headers: { Authorization: `Bearer ${key}`, "Stripe-Account": stripeUserId },
+    });
+    if (!res.ok) return null;
+    const acct = (await res.json()) as Record<string, unknown>;
+    return {
+      email: typeof acct.email === "string" && acct.email ? acct.email : undefined,
+      display_name: typeof acct.display_name === "string" && acct.display_name ? acct.display_name : undefined,
+    };
+  } catch (err) {
+    console.error(`[oauth-app] account fetch via developer key failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 /** Find the merchant owning a Stripe account, or create it (reusing the
  * merchants table; same shape ensureDefaultMerchant writes). Unknown emails
  * fall back to a .local placeholder so notification/summary code treats the
- * row as a placeholder until the real email is known. When the install was
- * started by a platform account (state row's account_id), the merchant is
- * LINKED to that account — account → merchant → subscription (billing
- * unchanged) — regardless of whether the row already existed, so a merchant
- * first created via web-connect gets attached when the marketplace install
- * completes. */
+ * row as a placeholder until the real email is known.
+ *
+ * When a REAL email is available it is applied on BOTH paths: on create it
+ * becomes the merchant's email, and on an existing merchant whose email is
+ * still the placeholder (`user_…@install.local` — the pre-fix install
+ * behavior, because the app-scoped OAuth token cannot read /v1/account) it
+ * REPAIRS the row, so a re-install fixes merchants created while the email
+ * gap existed. A real email never overwrites an existing real email.
+ * When the install was started by a platform account (state row's
+ * account_id), the merchant is LINKED to that account — account → merchant →
+ * subscription (billing unchanged) — regardless of whether the row already
+ * existed, so a merchant first created via web-connect gets attached when
+ * the marketplace install completes. */
 export function findOrCreateMerchant(
   db: Database,
   stripeUserId: string,
   email?: string | null,
   accountId?: number | null
 ): number {
-  const existing = db.query("SELECT id FROM merchants WHERE stripe_account_id = ?").get(stripeUserId) as { id: number } | null;
+  const existing = db
+    .query("SELECT id, email FROM merchants WHERE stripe_account_id = ?")
+    .get(stripeUserId) as { id: number; email: string | null } | null;
   if (existing) {
     if (accountId) db.run("UPDATE merchants SET account_id = ? WHERE id = ?", [accountId, existing.id]);
+    // Email-gap repair: a merchant created before a real email was known (the
+    // pre-fix install) carries the placeholder — stamp the real one now so
+    // notifications/summaries stop skipping the row. Never overwrite a real
+    // email that a later source already wrote.
+    if (email && email.includes("@") && (existing.email ?? "").endsWith("@install.local")) {
+      db.run("UPDATE merchants SET email = ? WHERE id = ?", [email, existing.id]);
+    }
     return existing.id;
   }
   const finalEmail = email && email.includes("@") ? email : `user_${stripeUserId}@install.local`;
@@ -960,15 +1011,35 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
     });
   }
 
-  // Best-effort account details for the merchant row's email (never fatal).
-  const account = await fetchAccountDetails(tokens.access_token);
+  // ── Merchant email resolution (the email-gap fix) ──
+  // The app-scoped OAuth access token CANNOT read /v1/account (its scope is
+  // `stripe_apps`, not `read_only`), so the app-token fetch below returns null
+  // in production and merchants used to get a placeholder
+  // (`user_…@install.local`) — the "no real email" gap that skipped weekly
+  // summaries. PRIMARY source: the signed-in platform account that started the
+  // install (accounts.email — the magic-link sign-in address, always real and
+  // deliverable; the install flow is account-gated and the state row records
+  // WHICH account started it). SECONDARY: the connected account's own email
+  // via the developer key + Stripe-Account header (works in production —
+  // proven with the live key in the 8/14 install E2E). TERTIARY: the app-token
+  // fetch (read-scope tokens only; kept for back-compat with test stubs). The
+  // placeholder fallback remains ONLY when all three yield nothing.
+  const platformAccount = installAccountId
+    ? (db.query("SELECT id, email FROM accounts WHERE id = ?").get(installAccountId) as { id: number; email: string } | null)
+    : null;
+  const devKeyDetails = await fetchAccountDetailsViaDevKey(tokens.stripe_user_id, linkType);
+  const appTokenDetails = await fetchAccountDetails(tokens.access_token);
+  const merchantEmail =
+    platformAccount?.email && platformAccount.email.includes("@")
+      ? platformAccount.email
+      : devKeyDetails?.email ?? appTokenDetails?.email ?? null;
 
   // Link the merchant to the platform account that started the install
   // (state row's account_id; null for legacy/back-compat state rows). This is
   // the account → merchant → subscription chain the reviewer asked for: the
   // purchased subscription (getSubscriptionByMerchantId) becomes reachable
   // from the account through the merchant. Billing itself is unchanged.
-  const merchantId = findOrCreateMerchant(db, tokens.stripe_user_id, account?.email, installAccountId);
+  const merchantId = findOrCreateMerchant(db, tokens.stripe_user_id, merchantEmail, installAccountId);
   saveAppOAuthTokens(db, {
     stripe_user_id: tokens.stripe_user_id,
     merchant_id: merchantId,
