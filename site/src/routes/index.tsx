@@ -235,7 +235,7 @@ function Home() {
           We never sell your data
         </span>
         <h1 className="text-4xl font-bold tracking-tight sm:text-6xl text-gray-900">
-          Recover invoices faster
+          Recover Stripe Invoices Faster with AI
         </h1>
         <p className="mt-6 max-w-xl mx-auto text-lg text-gray-600 leading-relaxed">
           The simplest AI collections assistant for solo Stripe users. Connect your
@@ -251,6 +251,7 @@ function Home() {
           >
             How it works
           </a>
+          <p className="text-sm font-medium text-gray-500">Built for solo Stripe users</p>
         </div>
         <div className="mt-10 mx-auto max-w-2xl rounded-2xl border border-indigo-200 bg-indigo-50 p-6 text-left">
           <p className="text-sm font-bold uppercase tracking-wide text-indigo-700 mb-2">
@@ -265,11 +266,28 @@ function Home() {
         </div>
       </section>
 
+      {/* Why we're different */}
+      <section className="bg-gray-50 py-20">
+        <div className="max-w-4xl mx-auto px-6 text-center">
+          <h2 className="text-3xl font-bold text-gray-900 mb-6">
+            Unlike other tools, we give you control from day one
+          </h2>
+          <p className="text-gray-600 max-w-xl mx-auto leading-relaxed">
+            That's a hard sell when it's your customers on the other end of the email.
+            So we built it differently — you start exactly as hands-on as you want, and
+            earn your way to hands-off.
+          </p>
+        </div>
+      </section>
+
       {/* How it works */}
       <section id="how-it-works" className="max-w-5xl mx-auto px-6 py-20">
-        <h2 className="text-3xl font-bold text-center text-gray-900 mb-16">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-4">
           Set it and forget it
         </h2>
+        <p className="text-center font-medium text-gray-500 mb-16">
+          Built for solo Stripe users
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
           {[
             {
@@ -306,15 +324,6 @@ function Home() {
       {/* Trust Mode */}
       <section className="bg-gray-50 py-20">
         <div className="max-w-5xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
-            Most AI collections tools give you one choice: full auto, or nothing.
-          </h2>
-          <p className="text-center text-gray-600 max-w-xl mx-auto mb-14">
-            That's a hard sell when it's your customers on the other end of the email.
-            So we built it differently — you start exactly as hands-on as you want, and
-            earn your way to hands-off.
-          </p>
-
           {/* Escalation ladder */}
           <h3 className="text-lg font-semibold text-gray-900 text-center mb-6">
             Every sequence escalates in three stages
