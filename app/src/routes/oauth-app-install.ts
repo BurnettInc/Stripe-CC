@@ -755,11 +755,16 @@ function unixToIsoDate(unixSeconds: number): string {
  *   - anything else (void / uncollectible / draft / …) → null = NOT active,
  *                     skipped entirely: nothing to chase, so the backfill
  *                     never surfaces a dead debt as actionable.
+ * With `includeInactive` (the scheduler's reconciliation sync) those inactive
+ * statuses map to status 'void' instead of null — the sync pass then stops
+ * open sequences for them (cancel tasks), so an invoice voided in Stripe
+ * after a missed webhook stops being chased locally.
  * Customer name/email fall back to "—" when the invoice carries none.
  */
 function mapBackfilledInvoice(
   inv: Record<string, unknown>,
-  merchantId: number
+  merchantId: number,
+  includeInactive = false
 ): {
   stripe_invoice_id: string;
   merchant_id: number;
@@ -789,7 +794,19 @@ function mapBackfilledInvoice(
       status: "paid",
     };
   }
-  if (status !== "open") return null; // void / uncollectible / draft: not active
+  if (status !== "open") {
+    if (!includeInactive) return null; // void / uncollectible / draft: not active
+    return {
+      stripe_invoice_id: inv.id,
+      merchant_id: merchantId,
+      customer_name: name,
+      customer_email: email,
+      amount_cents: typeof inv.amount_due === "number" ? inv.amount_due : 0,
+      currency,
+      due_date: unixToIsoDate(created),
+      status: "void",
+    };
+  }
 
   const dueDate = typeof inv.due_date === "number" ? inv.due_date : created;
   return {
@@ -818,7 +835,8 @@ function mapBackfilledInvoice(
 export async function backfillMerchantInvoices(
   db: Database,
   merchantId: number,
-  accessToken: string
+  accessToken: string,
+  opts: { includeInactive?: boolean } = {}
 ): Promise<{ inserted: number; error?: string }> {
   try {
     const res = await fetch(`${STRIPE_API}/invoices?limit=100`, {
@@ -833,7 +851,7 @@ export async function backfillMerchantInvoices(
     const list = Array.isArray(data?.data) ? data.data : [];
     let inserted = 0;
     for (const raw of list) {
-      const mapped = mapBackfilledInvoice((raw ?? {}) as Record<string, unknown>, merchantId);
+      const mapped = mapBackfilledInvoice((raw ?? {}) as Record<string, unknown>, merchantId, opts.includeInactive === true);
       if (!mapped) continue;
       upsertInvoice(db, mapped);
       inserted++;
@@ -873,7 +891,8 @@ export async function backfillMerchantInvoices(
  */
 export async function syncMerchantInvoices(
   db: Database,
-  merchantId: number
+  merchantId: number,
+  opts: { includeInactive?: boolean } = {}
 ): Promise<{ inserted: number; synced: boolean; reason?: string }> {
   try {
     if (isMerchantDisconnected(db, merchantId)) {
@@ -925,7 +944,7 @@ export async function syncMerchantInvoices(
         console.warn(`[oauth-app] invoice sync: token refresh failed for ${oauthRow.stripe_user_id} (${refreshed.error}) — falling back to stored access token`);
       }
     }
-    const result = await backfillMerchantInvoices(db, merchantId, accessToken);
+    const result = await backfillMerchantInvoices(db, merchantId, accessToken, opts);
     return {
       inserted: result.inserted,
       synced: true,

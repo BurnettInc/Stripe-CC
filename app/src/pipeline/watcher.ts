@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById, isMerchantPaused, isMerchantDisconnected, isActiveProSubscriber } from "../db";
+import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById, isMerchantPaused, isMerchantDisconnected, isActiveProSubscriber, isInvoiceSequenceStopped } from "../db";
 import type { Invoice } from "../db";
 import { getEscalationStage } from "./escalation";
 import { getStripeKey } from "../middleware/auth";
@@ -111,6 +111,173 @@ function matchInvoiceByAmountAndCustomer(
 }
 
 /**
+ * Create a reminder task for an overdue invoice with the watcher's FULL
+ * task-creation semantics, shared by the webhook handler (invoice.overdue /
+ * invoice.payment_failed) and the scheduler's invoice-sync + escalation-
+ * advance passes so every path behaves identically:
+ *
+ *   - Stage: days-overdue against the merchant's ladder timing (default
+ *     1–6 / 7–20 / 21+; Pro custom stage1_days / stage2_days).
+ *   - Free-tier gate: no active subscription + 0 drafts remaining → the task
+ *     is skipped (the invoice itself stays visible on the dashboard).
+ *   - Standard cap: an invoice with NO existing task is blocked only when the
+ *     overdue count was already at the limit (50). An already-tracked invoice
+ *     is never re-blocked (escalation advances pass `overdueBefore=0`).
+ *   - Stale guard: a stopped invoice (paid / disputed / refunded /
+ *     reply-paused / manually-paused / opt-out) is never given a new task.
+ *   - Auto-draft at creation (AI when OPENAI_API_KEY, template fallback) +
+ *     reviewer verdict, then Trust Mode auto-send with the tier-demotion,
+ *     pause/disconnect, and duplicate-send guards.
+ *
+ * `overdueBefore` defaults to watcher semantics when omitted: the overdue
+ * count as it was BEFORE this invoice entered the overdue set (for a
+ * sync-found invoice that is the current count minus this invoice when it
+ * has no task yet).
+ */
+export async function createTaskForOverdueInvoice(
+  db: Database,
+  invoice: Invoice,
+  opts: { overdueBefore?: number; now?: Date } = {},
+): Promise<{ action: string; invoiceId: number; taskId?: number; skipped?: string }> {
+  const merchantId = invoice.merchant_id;
+  const now = opts.now ?? new Date();
+
+  if (isInvoiceSequenceStopped(invoice)) {
+    console.log(`[watcher] task creation skipped for invoice ${invoice.stripe_invoice_id} — sequence stopped`);
+    return { action: `skipped task for invoice ${invoice.stripe_invoice_id}: sequence stopped`, invoiceId: invoice.id, skipped: "stopped" };
+  }
+
+  const daysOverdue = Math.floor(
+    (now.getTime() - new Date(invoice.due_date).getTime()) / (1000 * 60 * 60 * 24)
+  );
+  // Pro merchants can customize the ladder boundaries (PUT /settings
+  // stage1_days/stage2_days); fall back to the default 6/20 ladder.
+  const timing = db
+    .query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?")
+    .get(merchantId) as { stage1_days: number; stage2_days: number } | null;
+  const stage = getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+
+  const limit = invoiceLimitFor(db, merchantId);
+  let overdueBefore = opts.overdueBefore;
+  if (overdueBefore === undefined) {
+    const count = countOverdueInvoices(db, merchantId);
+    overdueBefore = getTaskForInvoice(db, invoice.id) ? count : Math.max(0, count - 1);
+  }
+
+  if (!hasActiveSubscription(db, merchantId) && freeDraftsRemaining(db, merchantId) <= 0) {
+    console.log(`Skipping task creation for merchant ${merchantId}: free draft limit reached, no subscription`);
+    return { action: `skipped reminder task for invoice ${invoice.stripe_invoice_id}: free draft limit reached`, invoiceId: invoice.id, skipped: "free-draft-limit" };
+  }
+  // Invoices that already have a task are never blocked: a re-fired event
+  // for an already-tracked invoice must not be skipped, and a
+  // previously-blocked invoice is automatically picked up once the
+  // merchant drops back under the limit.
+  if (limit !== null && overdueBefore >= limit && !getTaskForInvoice(db, invoice.id)) {
+    console.log(`[watcher] Merchant ${merchantId} at Standard 50-invoice limit — invoice ${invoice.stripe_invoice_id} not tracked. Upgrade to Pro for unlimited.`);
+    return { action: `skipped invoice ${invoice.stripe_invoice_id}: Standard 50-invoice limit reached (upgrade to Pro)`, invoiceId: invoice.id, skipped: "standard-limit" };
+  }
+  const taskId = createReminderTask(db, invoice.id, stage);
+
+  // Auto-draft at creation: tasks arrive with a visible draft (AI when
+  // OPENAI_API_KEY is set, template fallback otherwise) and a reviewer
+  // verdict — matching what the dashboard/runbook promise ("the task shows a
+  // drafted email at Stage 1"). Mirrors the pending→draft path in
+  // routes/tasks.ts (draft → persist → freemium count → review → persist).
+  // Safe by construction: if drafting throws for any reason, log and leave
+  // the task 'pending' — never fail the caller.
+  try {
+    const task = getTaskById(db, taskId);
+    if (task) {
+      const draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
+      db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
+        draft.subject, draft.body, taskId,
+      ]);
+      // The freemium allowance is derived from drafted tasks (see
+      // freeDraftsRemaining in db.ts) — no counter write needed here.
+      const review = reviewDraft(draft, invoice, {
+        lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
+      });
+      db.run("UPDATE reminder_tasks SET reviewer_notes=?, status='reviewed' WHERE id=?", [
+        JSON.stringify(review), taskId,
+      ]);
+      console.log(`[watcher] auto-drafted task ${taskId} for invoice ${invoice.stripe_invoice_id} (stage ${stage}, ${review.approved ? "reviewed-ok" : "review-issues:" + review.issues.length})`);
+
+      // ── Trust Mode auto-send (Full Auto / Semi-Auto stage 1) ──
+      // Executes the send server-side, applying the same gates /process
+      // does:
+      //   1. Reviewer approval — never send an unapproved draft.
+      //   2. Trust Mode — 'full' (Pro-only) or 'semi' at stage 1 → send;
+      //      'draft' / 'semi' stage 2+ stay 'reviewed' for the inbox.
+      //   3. Tier gate — a stored 'full' on a non-active-Pro merchant is
+      //      demoted to 'semi' (defense-in-depth; settings PUT + billing
+      //      enforcement normally prevent this state).
+      //   4. Pause / disconnect — skip, task kept 'reviewed' for resume.
+      //   5. Replay/escalation guard — never re-send when this invoice
+      //      already has a SENT task at this stage or higher (a replayed
+      //      webhook creates a fresh task via createReminderTask, which
+      //      would otherwise trigger a duplicate email).
+      // Remaining send-time guards live in sendEmailForReal (paid-invoice
+      // skip, opt-out skip, send logging, status='sent' on success).
+      if (review.approved) {
+        try {
+          const merchant = getMerchantById(db, invoice.merchant_id);
+          const merchantTrustMode = merchant?.trust_mode || "draft";
+          const trustMode = invoice.trust_mode_override ?? merchantTrustMode;
+          let effective = trustMode;
+          if (effective === "full" && !isActiveProSubscriber(db, invoice.merchant_id)) {
+            effective = "semi";
+            console.log(`[watcher] merchant ${invoice.merchant_id} trust_mode 'full' demoted to 'semi' (no active Pro subscription)`);
+          }
+          const autoSend = effective === "full" || (effective === "semi" && task.stage === 1);
+          if (autoSend) {
+            const paused = isMerchantPaused(db, invoice.merchant_id);
+            const disconnected = isMerchantDisconnected(db, invoice.merchant_id);
+            // Reply-pause defense-in-depth: the stale guard above skips
+            // re-fired events for reply-paused and manually-paused
+            // invoices entirely, and the pause handlers stop open tasks —
+            // so a send should never see one here. If it does (race),
+            // skip like paused.
+            const replyPaused = !!invoice.reply_paused_at;
+            const manuallyPaused = !!invoice.manually_paused_at;
+            if (paused || disconnected || replyPaused || manuallyPaused) {
+              const reason = disconnected
+                ? "stripe account disconnected"
+                : replyPaused
+                  ? "invoice reply-paused — skipped"
+                  : manuallyPaused
+                    ? "invoice manually paused — skipped"
+                    : "collections paused";
+              logSend(db, taskId, "skipped", `${reason} — automatic send skipped (task kept for resume)`);
+              console.log(`[watcher] task ${taskId} auto-send skipped: ${reason}`);
+            } else {
+              const prior = db.query(
+                "SELECT COALESCE(MAX(stage),0) AS s FROM reminder_tasks WHERE invoice_id=? AND sent_at IS NOT NULL"
+              ).get(invoice.id) as { s: number };
+              if (task.stage <= prior.s) {
+                logSend(db, taskId, "skipped", `duplicate event — invoice already has a sent reminder at stage ${prior.s}; auto-send skipped`);
+                console.log(`[watcher] task ${taskId} auto-send skipped: duplicate webhook (prior sent stage ${prior.s} >= ${task.stage})`);
+              } else {
+                const customerEmail = invoice.customer_email;
+                const sendResult = customerEmail && customerEmail !== ""
+                  ? await sendEmailForReal(db, task, draft, customerEmail)
+                  : sendEmail(db, task, draft);
+                console.log(`[watcher] task ${taskId} auto-sent (trust ${trustMode}, stage ${task.stage}) via ${sendResult.provider || "stub"}: ${sendResult.message}`);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`[watcher] auto-send failed for task ${taskId} (invoice ${invoice.stripe_invoice_id}): ${err instanceof Error ? err.message : String(err)} — task left reviewed`);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[watcher] auto-draft failed for task ${taskId} (invoice ${invoice.stripe_invoice_id}): ${err instanceof Error ? err.message : String(err)} — task left pending`);
+  }
+
+  return { action: `created reminder task for invoice ${invoice.stripe_invoice_id} at stage ${stage}`, invoiceId: invoice.id, taskId };
+}
+
+/**
  * Handle an incoming Stripe webhook event.
  * Returns a summary of what was done.
  */
@@ -183,139 +350,18 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
         due_date: dueDate,
         status: "overdue",
       });
-
-      const daysOverdue = Math.floor(
-        (Date.now() - new Date(dueDate).getTime()) / (1000 * 60 * 60 * 24)
-      );
-      // Pro merchants can customize the ladder boundaries (PUT /settings
-      // stage1_days/stage2_days); fall back to the default 6/20 ladder.
-      const timing = db
-        .query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?")
-        .get(merchantId) as { stage1_days: number; stage2_days: number } | null;
-      const stage = getEscalationStage(
-        daysOverdue,
-        timing?.stage1_days ?? 6,
-        timing?.stage2_days ?? 20,
-      );
-      if (!hasActiveSubscription(db, merchantId) && freeDraftsRemaining(db, merchantId) <= 0) {
-        console.log(`Skipping task creation for merchant ${merchantId}: free draft limit reached, no subscription`);
-        return { action: `skipped reminder task for invoice ${stripeInvoiceId}: free draft limit reached` , invoiceId };
-      }
-      // The invoice was still upserted above so it stays visible in the
-      // dashboard — only task creation (tracking / reminders) is blocked.
-      // Invoices that already have a task are never blocked: a re-fired event
-      // for an already-tracked invoice must not be skipped, and a
-      // previously-blocked invoice is automatically picked up once the
-      // merchant drops back under the limit.
-      if (limit !== null && overdueBefore >= limit && !getTaskForInvoice(db, invoiceId)) {
-        console.log(`[watcher] Merchant ${merchantId} at Standard 50-invoice limit — invoice ${stripeInvoiceId} not tracked. Upgrade to Pro for unlimited.`);
-        return { action: `skipped invoice ${stripeInvoiceId}: Standard 50-invoice limit reached (upgrade to Pro)`, invoiceId };
-      }
-      const taskId = createReminderTask(db, invoiceId, stage);
-
-      // Auto-draft at creation: webhook-created tasks arrive with a visible
-      // draft (AI when OPENAI_API_KEY is set, template fallback otherwise) and
-      // a reviewer verdict — matching what the dashboard/runbook promise
-      // ("the task shows a drafted email at Stage 1"). Mirrors the pending→
-      // draft path in routes/tasks.ts (draft → persist → freemium count →
-      // review → persist). Safe by construction: if drafting throws for any
-      // reason, log and leave the task 'pending' — never fail the webhook.
-      try {
-        const task = getTaskById(db, taskId);
-        const invoice = getInvoiceById(db, invoiceId);
-        if (task && invoice) {
-          const draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
-          db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
-            draft.subject, draft.body, taskId,
-          ]);
-          // The freemium allowance is derived from drafted tasks (see
-          // freeDraftsRemaining in db.ts) — no counter write needed here.
-          const review = reviewDraft(draft, invoice, {
-            lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
-          });
-          db.run("UPDATE reminder_tasks SET reviewer_notes=?, status='reviewed' WHERE id=?", [
-            JSON.stringify(review), taskId,
-          ]);
-          console.log(`[watcher] auto-drafted task ${taskId} for invoice ${stripeInvoiceId} (stage ${stage}, ${review.approved ? "reviewed-ok" : "review-issues:" + review.issues.length})`);
-
-          // ── Trust Mode auto-send (Full Auto / Semi-Auto stage 1) ──
-          // The dashboard's /process endpoint contains the Trust Mode
-          // enforcement (draft stops, semi stops at stage 2+, full sends) but
-          // NOTHING triggers /process automatically — a webhook-created task
-          // would sit 'reviewed' forever without a merchant click. That makes
-          // the Full Auto promise ("drafts auto-approved and auto-sent without
-          // manual approval") dead in production. So the watcher executes the
-          // send itself, server-side, applying the same gates /process does:
-          //   1. Reviewer approval — never send an unapproved draft.
-          //   2. Trust Mode — 'full' (Pro-only) or 'semi' at stage 1 → send;
-          //      'draft' / 'semi' stage 2+ stay 'reviewed' for the inbox.
-          //   3. Tier gate — a stored 'full' on a non-active-Pro merchant is
-          //      demoted to 'semi' (defense-in-depth; settings PUT + billing
-          //      enforcement normally prevent this state).
-          //   4. Pause / disconnect — skip, task kept 'reviewed' for resume.
-          //   5. Replay/escalation guard — never re-send when this invoice
-          //      already has a SENT task at this stage or higher (a replayed
-          //      webhook creates a fresh task via createReminderTask, which
-          //      would otherwise trigger a duplicate email).
-          // Remaining send-time guards live in sendEmailForReal (paid-invoice
-          // skip, opt-out skip, send logging, status='sent' on success).
-          if (review.approved) {
-            try {
-              const merchant = getMerchantById(db, invoice.merchant_id);
-              const merchantTrustMode = merchant?.trust_mode || "draft";
-              const trustMode = invoice.trust_mode_override ?? merchantTrustMode;
-              let effective = trustMode;
-              if (effective === "full" && !isActiveProSubscriber(db, invoice.merchant_id)) {
-                effective = "semi";
-                console.log(`[watcher] merchant ${invoice.merchant_id} trust_mode 'full' demoted to 'semi' (no active Pro subscription)`);
-              }
-              const autoSend = effective === "full" || (effective === "semi" && task.stage === 1);
-              if (autoSend) {
-                const paused = isMerchantPaused(db, invoice.merchant_id);
-                const disconnected = isMerchantDisconnected(db, invoice.merchant_id);
-                // Reply-pause defense-in-depth: the stale guard above skips
-                // re-fired events for reply-paused and manually-paused
-                // invoices entirely, and the pause handlers stop open tasks —
-                // so a send should never see one here. If it does (race),
-                // skip like paused.
-                const replyPaused = !!invoice.reply_paused_at;
-                const manuallyPaused = !!invoice.manually_paused_at;
-                if (paused || disconnected || replyPaused || manuallyPaused) {
-                  const reason = disconnected
-                    ? "stripe account disconnected"
-                    : replyPaused
-                      ? "invoice reply-paused — skipped"
-                      : manuallyPaused
-                        ? "invoice manually paused — skipped"
-                        : "collections paused";
-                  logSend(db, taskId, "skipped", `${reason} — automatic send skipped (task kept for resume)`);
-                  console.log(`[watcher] task ${taskId} auto-send skipped: ${reason}`);
-                } else {
-                  const prior = db.query(
-                    "SELECT COALESCE(MAX(stage),0) AS s FROM reminder_tasks WHERE invoice_id=? AND sent_at IS NOT NULL"
-                  ).get(invoiceId) as { s: number };
-                  if (task.stage <= prior.s) {
-                    logSend(db, taskId, "skipped", `duplicate event — invoice already has a sent reminder at stage ${prior.s}; auto-send skipped`);
-                    console.log(`[watcher] task ${taskId} auto-send skipped: duplicate webhook (prior sent stage ${prior.s} >= ${task.stage})`);
-                  } else {
-                    const customerEmail = invoice.customer_email;
-                    const sendResult = customerEmail && customerEmail !== ""
-                      ? await sendEmailForReal(db, task, draft, customerEmail)
-                      : sendEmail(db, task, draft);
-                    console.log(`[watcher] task ${taskId} auto-sent (trust ${trustMode}, stage ${task.stage}) via ${sendResult.provider || "stub"}: ${sendResult.message}`);
-                  }
-                }
-              }
-            } catch (err) {
-              console.warn(`[watcher] auto-send failed for task ${taskId} (invoice ${stripeInvoiceId}): ${err instanceof Error ? err.message : String(err)} — task left reviewed`);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn(`[watcher] auto-draft failed for task ${taskId} (invoice ${stripeInvoiceId}): ${err instanceof Error ? err.message : String(err)} — task left pending`);
+      const invoice = getInvoiceById(db, invoiceId);
+      if (!invoice) {
+        return { action: `invoice ${stripeInvoiceId} upserted but row read-back failed`, invoiceId };
       }
 
-      return { action: `created reminder task for invoice ${stripeInvoiceId} at stage ${stage}`, invoiceId, taskId };
+      // Shared task factory — the free-draft gate, Standard cap gate, stage
+      // computation, auto-draft + reviewer verdict and Trust Mode auto-send
+      // above all live in createTaskForOverdueInvoice so the scheduler's
+      // invoice-sync and escalation-advance passes produce byte-identical
+      // task semantics without duplicating any of this logic.
+      const result = await createTaskForOverdueInvoice(db, invoice, { overdueBefore: limit !== null ? overdueBefore : 0 });
+      return { action: result.action, invoiceId, taskId: result.taskId };
     }
 
     case "invoice.paid": {
