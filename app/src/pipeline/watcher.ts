@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById, isMerchantPaused, isMerchantDisconnected, isActiveProSubscriber, isInvoiceSequenceStopped } from "../db";
+import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById, isMerchantPaused, isMerchantDisconnected, isActiveProSubscriber, isInvoiceSequenceStopped, recordRecoveryEvent } from "../db";
 import type { Invoice } from "../db";
 import { getEscalationStage } from "./escalation";
 import { getStripeKey } from "../middleware/auth";
@@ -373,6 +373,28 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
         .get(stripeInvoiceId) as Invoice | null;
 
       if (existing) {
+        // Admin telemetry (migration 020): record the recovery event — this
+        // invoice was ever overdue and just got paid. Pure observation:
+        // wrapped in try/catch so a telemetry failure can NEVER change the
+        // payment notification / task-cancellation flow below, and idempotent
+        // per invoice_id (INSERT OR IGNORE) so replayed events are no-ops.
+        // Preferred paid timestamp: Stripe's status_transitions.paid_at (the
+        // real payment time); fall back to event-received time.
+        try {
+          const paidAtUnix = (inv as { status_transitions?: { paid_at?: unknown } }).status_transitions?.paid_at;
+          const paidAt =
+            typeof paidAtUnix === "number"
+              ? new Date(paidAtUnix * 1000).toISOString()
+              : new Date().toISOString();
+          const rec = recordRecoveryEvent(db, existing, { source: "webhook", paidAt });
+          if (rec.recorded) {
+            console.log(`[watcher] recovery event recorded for invoice ${stripeInvoiceId} (${rec.reason})`);
+          }
+        } catch (err) {
+          console.error(
+            `[watcher] recovery event record failed for ${stripeInvoiceId}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
         // Were we actually following up on this invoice? Only notify the
         // merchant when there was at least one reminder task in flight
         // (pending/drafted/reviewed/sent) — never notify for invoices we

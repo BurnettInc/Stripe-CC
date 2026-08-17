@@ -137,19 +137,116 @@ export function upsertInvoice(
     .get(params.stripe_invoice_id) as { id: number } | null;
 
   if (existing) {
+    // ever_overdue is the sticky "was ever in the overdue pipeline" flag
+    // (migration 020): set to 1 when the incoming status is 'overdue', and
+    // NEVER cleared — an invoice that was once overdue stays flagged for
+    // life, so its later payment records a recovery event even after the
+    // status column has moved on to 'paid'/'void'.
     db.run(
-      `UPDATE invoices SET customer_name=?, customer_email=?, amount_cents=?, currency=?, due_date=?, status=? WHERE id=?`,
-      [params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, existing.id]
+      `UPDATE invoices SET customer_name=?, customer_email=?, amount_cents=?, currency=?, due_date=?, status=?,
+       ever_overdue = CASE WHEN ? = 'overdue' THEN 1 ELSE ever_overdue END
+       WHERE id=?`,
+      [params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status, existing.id]
     );
     return existing.id;
   }
 
   const result = db.run(
-    `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [params.stripe_invoice_id, params.merchant_id, params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status]
+    `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, ever_overdue)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [params.stripe_invoice_id, params.merchant_id, params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status === "overdue" ? 1 : 0]
   );
   return Number(result.lastInsertRowid);
+}
+
+// ── Recovery-outcome helpers (admin telemetry, migration 020) ──
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The invoice facts recordRecoveryEvent needs — a subset of the full Invoice
+ * row so both call sites (watcher webhook handler, scheduler sync
+ * reconciliation) can pass what they already have without a full read-back. */
+export interface RecoveryInvoiceFacts {
+  id: number;
+  stripe_invoice_id: string;
+  merchant_id: number;
+  amount_cents: number;
+  currency: string;
+  due_date: string;
+  ever_overdue: number;
+}
+
+/**
+ * Record one recovery event: an invoice that was EVER overdue (ever_overdue
+ * flag, set by upsertInvoice whenever the invoice entered the overdue
+ * pipeline) just became PAID. Pure admin telemetry — never read by any
+ * merchant-facing flow and never modifies reminder/send behavior.
+ *
+ * Idempotent per invoice_id: the UNIQUE(invoice_id) constraint + INSERT OR
+ * IGNORE make webhook replays, double observation (webhook AND the sync pass
+ * both noticing the same payment), and scheduler re-runs all no-ops — the
+ * first writer wins, so the frozen outcome facts are never mutated.
+ *
+ * @param paidAt  ISO timestamp of when the payment was observed (webhook:
+ *                Stripe's status_transitions.paid_at when present, else
+ *                event-received time; sync: the sync run time).
+ */
+export function recordRecoveryEvent(
+  db: Database,
+  invoice: RecoveryInvoiceFacts,
+  opts: { source: "webhook" | "sync"; paidAt?: string }
+): { recorded: boolean; reason: string } {
+  if (!invoice || invoice.ever_overdue !== 1) {
+    return { recorded: false, reason: "invoice was never overdue locally" };
+  }
+  const paidAt = opts.paidAt ?? new Date().toISOString();
+  const reminderSent = (
+    db
+      .query(
+        `SELECT COUNT(*) AS n FROM send_logs sl
+         JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id
+         WHERE rt.invoice_id = ? AND sl.type = 'reminder' AND sl.status = 'success'`
+      )
+      .get(invoice.id) as { n: number }
+  ).n > 0
+    ? 1
+    : 0;
+  const stageRow = db
+    .query("SELECT MAX(stage) AS s FROM reminder_tasks WHERE invoice_id = ?")
+    .get(invoice.id) as { s: number | null } | null;
+  const stageReached = stageRow?.s ?? 0;
+  // days-to-payment = paid date − due date, in whole days (negative = paid
+  // before the due date — a same-window payment). NULL when the due date is
+  // missing/unparseable.
+  let daysToPayment: number | null = null;
+  if (invoice.due_date && /^\d{4}-\d{2}-\d{2}/.test(invoice.due_date)) {
+    const dueMs = Date.parse(invoice.due_date + (invoice.due_date.length === 10 ? "T00:00:00Z" : ""));
+    const paidMs = Date.parse(paidAt);
+    if (!Number.isNaN(dueMs) && !Number.isNaN(paidMs)) {
+      daysToPayment = Math.floor((paidMs - dueMs) / DAY_MS);
+    }
+  }
+  const result = db.run(
+    `INSERT OR IGNORE INTO recovery_events
+       (merchant_id, invoice_id, stripe_invoice_id, amount_cents, currency, due_date, paid_at, days_to_payment, reminder_sent, stage_reached, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      invoice.merchant_id,
+      invoice.id,
+      invoice.stripe_invoice_id,
+      invoice.amount_cents,
+      invoice.currency,
+      invoice.due_date,
+      paidAt,
+      daysToPayment,
+      reminderSent,
+      stageReached,
+      opts.source,
+    ]
+  );
+  if (result.changes === 0) {
+    return { recorded: false, reason: "recovery event already recorded for this invoice" };
+  }
+  return { recorded: true, reason: `recorded (source ${opts.source})` };
 }
 
 // ── Task helpers ──
@@ -813,6 +910,9 @@ export interface Invoice {
   due_date: string;
   status: string;
   trust_mode_override: string | null;
+  /** 1 once this invoice EVER entered the overdue pipeline (sticky — never
+   *  cleared; see migration 020 + upsertInvoice). Backs recovery_events. */
+  ever_overdue: number;
   /** Id of the most recent dispute handled for this invoice (idempotency guard). */
   dispute_id: string | null;
   /** Id of the most recent refund handled for this invoice (idempotency guard). */

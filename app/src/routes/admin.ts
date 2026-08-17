@@ -251,6 +251,116 @@ function visitRows(db: Database): VisitForAttribution[] {
 }
 
 /**
+ * Recovery + response-rate outcomes for the admin dashboard (owner direction
+ * 2026-08-17: measure real outcomes from the first real user — admin-side
+ * telemetry only, no merchant-facing UI reads it).
+ *
+ *   recovery   — all-time aggregates over recovery_events (one row per
+ *                invoice that was EVER overdue and later became PAID,
+ *                recorded by the webhook invoice.paid handler and the
+ *                scheduler's invoice-sync reconciliation; see migration 020):
+ *                count, dollars recovered (by currency — sums are per-currency
+ *                because we never assume an FX rate), avg/median
+ *                days-to-payment, how many had a reminder sent, stage
+ *                breakdown, webhook-vs-sync source breakdown.
+ *   response   — response rate from the existing send_logs ↔ inbound_replies
+ *                join: reminders_sent = successful reminder emails
+ *                (send_logs type 'reminder' status 'success'); replies =
+ *                inbound_replies rows for invoices that had ≥1 sent reminder
+ *                (a customer answer to a reminder we actually sent, not a
+ *                stray inbound message); response_rate = replies/sends.
+ *   per_merchant — top 10 merchants by recovered amount (cents summed per
+ *                merchant — a merchant's invoices are typically one currency).
+ */
+function outcomes(db: Database) {
+  // ── Recovery (recovery_events) ──
+  const recovered = db
+    .query("SELECT COUNT(*) AS n, SUM(amount_cents) AS cents FROM recovery_events")
+    .get() as { n: number; cents: number | null };
+  const byCurrency = db
+    .query(
+      "SELECT currency, COUNT(*) AS n, SUM(amount_cents) AS cents FROM recovery_events GROUP BY currency ORDER BY cents DESC"
+    )
+    .all() as Array<{ currency: string; n: number; cents: number }>;
+  const daysRows = db
+    .query("SELECT days_to_payment FROM recovery_events WHERE days_to_payment IS NOT NULL ORDER BY days_to_payment ASC")
+    .all() as Array<{ days_to_payment: number }>;
+  const days = daysRows.map(r => r.days_to_payment);
+  const sumDays = days.reduce((a, b) => a + b, 0);
+  const avgDays = days.length ? sumDays / days.length : null;
+  const medianDays = days.length ? days[Math.floor(days.length / 2)] : null;
+  const reminderSent = (db.query("SELECT COUNT(*) AS n FROM recovery_events WHERE reminder_sent = 1").get() as { n: number }).n;
+  const stageReached = db
+    .query("SELECT stage_reached AS s, COUNT(*) AS n FROM recovery_events GROUP BY stage_reached ORDER BY s ASC")
+    .all() as Array<{ s: number; n: number }>;
+  const bySource = db
+    .query("SELECT source, COUNT(*) AS n FROM recovery_events GROUP BY source ORDER BY source ASC")
+    .all() as Array<{ source: string; n: number }>;
+
+  // ── Response rate (send_logs ↔ inbound_replies) ──
+  const sends = (db
+    .query(
+      "SELECT COUNT(*) AS n FROM send_logs sl WHERE sl.type = 'reminder' AND sl.status = 'success' AND sl.reminder_task_id IS NOT NULL"
+    )
+    .get() as { n: number }).n;
+  const replies = (db
+    .query(
+      `SELECT COUNT(*) AS n FROM inbound_replies r
+       WHERE EXISTS (
+         SELECT 1 FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id
+         WHERE rt.invoice_id = r.invoice_id AND sl.type = 'reminder' AND sl.status = 'success'
+       )`
+    )
+    .get() as { n: number }).n;
+  const responseRate = sends > 0 ? replies / sends : null;
+
+  // ── Per-merchant top 10 by recovered amount ──
+  const perMerchant = db
+    .query(
+      `SELECT r.merchant_id AS merchant_id, m.email AS email, m.stripe_account_id AS stripe_account_id,
+              COUNT(*) AS recovered_count, SUM(r.amount_cents) AS recovered_cents,
+              AVG(r.days_to_payment) AS avg_days,
+              (SELECT r2.currency FROM recovery_events r2
+               WHERE r2.merchant_id = r.merchant_id
+               GROUP BY r2.currency ORDER BY SUM(r2.amount_cents) DESC LIMIT 1) AS currency
+       FROM recovery_events r JOIN merchants m ON m.id = r.merchant_id
+       GROUP BY r.merchant_id
+       ORDER BY recovered_cents DESC
+       LIMIT 10`
+    )
+    .all() as Array<{
+      merchant_id: number;
+      email: string;
+      stripe_account_id: string;
+      recovered_count: number;
+      recovered_cents: number;
+      avg_days: number | null;
+      currency: string;
+    }>;
+
+  return {
+    recovery: {
+      invoices_recovered: recovered.n,
+      total_recovered_cents: recovered.cents ?? 0,
+      by_currency: byCurrency,
+      avg_days_to_payment: avgDays === null ? null : Math.round(avgDays * 10) / 10,
+      median_days_to_payment: medianDays,
+      reminder_sent_count: reminderSent,
+      reminder_sent_rate: recovered.n > 0 ? Math.round((reminderSent / recovered.n) * 1000) / 1000 : null,
+      stage_reached: stageReached,
+      by_source: bySource,
+    },
+    response: {
+      reminders_sent: sends,
+      replies: replies,
+      response_rate: responseRate === null ? null : Math.round(responseRate * 1000) / 1000,
+      response_rate_pct: responseRate === null ? null : Math.round(responseRate * 10000) / 100,
+    },
+    per_merchant: perMerchant,
+  };
+}
+
+/**
  * GET /admin/data — the funnel + merchant + visit + subscription-event data
  * behind the admin page. Token-gated identically to GET /admin.
  */
@@ -272,6 +382,7 @@ export function handleAdminData(db: Database, req: Request): Response {
     visits_by_source: visitsBySource(db),
     utm_campaigns: utmCampaigns(db),
     subscription_events: subscriptionEvents,
+    outcomes: outcomes(db),
     waitlist: {
       total: countWaitlistSignups(db),
       entries: listWaitlistEntries(db).map(waitlistEntryWithSource),
