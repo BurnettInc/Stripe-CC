@@ -1,0 +1,17 @@
+-- Data-rights: 30-day deletion scheduling (PROMISES_AUDIT #42, owner
+-- direction 2026-08-17: "we need to do exactly what we said — if we say
+-- 30 days, it happens").
+--
+-- merchants.deletion_scheduled_at — ISO/SQLite timestamp set when the
+-- merchant's subscription is cancelled/deleted (billing webhook
+-- customer.subscription.deleted): the moment the 30-day deletion clock
+-- starts. The daily purge scheduler (separate build) purges any merchant
+-- whose deletion_scheduled_at has passed via purgeMerchantData (db.ts).
+-- NULL = no deletion scheduled. Set only when currently NULL (idempotent
+-- replays / multiple subscriptions keep the earliest deadline) and cleared
+-- when the merchant resubscribes (an active subscriber is never scheduled
+-- for deletion).
+--
+-- Data-preserving: plain additive column, applied at most once via the
+-- schema_migrations tracker (same pattern as 009/016/017).
+ALTER TABLE merchants ADD COLUMN deletion_scheduled_at TEXT DEFAULT NULL;

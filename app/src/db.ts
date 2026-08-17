@@ -299,6 +299,120 @@ export function enforceTierTrustMode(db: Database, merchantId: number): void {
   }
 }
 
+// ── Data rights (PROMISES_AUDIT #42) ──
+// The privacy page promises: "If you cancel your subscription, your data is
+// deleted within 30 days", "You can request immediate deletion", and "Request
+// a copy of your stored data". These helpers + purgeMerchantData make those
+// promises real. The daily purge scheduler (separate build) runs
+// purgeMerchantData on merchants whose deletion_scheduled_at has passed.
+
+/** Number of days between subscription cancellation and the purge deadline. */
+export const DELETION_GRACE_DAYS = 30;
+
+/**
+ * Start the 30-day deletion clock for a merchant. Only sets the flag when it
+ * is currently NULL — an idempotent webhook replay or a second cancellation
+ * never moves the deadline later. (A merchant who requested immediate
+ * deletion is already purged, so their row is gone and this is a no-op.)
+ */
+export function scheduleMerchantDeletion(db: Database, merchantId: number): void {
+  db.run(
+    `UPDATE merchants SET deletion_scheduled_at = datetime('now', '+${DELETION_GRACE_DAYS} days')
+     WHERE id = ? AND deletion_scheduled_at IS NULL`,
+    [merchantId],
+  );
+}
+
+/** Clear the deletion clock — used when a merchant resubscribes (an active
+ * subscriber is never scheduled for deletion). */
+export function clearMerchantDeletion(db: Database, merchantId: number): void {
+  db.run("UPDATE merchants SET deletion_scheduled_at = NULL WHERE id = ?", [merchantId]);
+}
+
+/**
+ * Delete EVERY row stored for a merchant, across every table that references
+ * them — the single purge primitive behind both immediate deletion
+ * (POST /account/delete) and the 30-day scheduler pass. Idempotent: after the
+ * first call the merchant row is gone and every DELETE is a no-op, so calling
+ * it again (or for an unknown merchant id) is safe and does nothing.
+ *
+ * Table coverage (verified against schema.sql + migrations 001–017):
+ *   send_logs          — via reminder_tasks of the merchant's invoices (FK chain)
+ *   reminder_tasks     — via the merchant's invoices
+ *   invoices           — merchant_id
+ *   inbound_replies    — merchant_id
+ *   subscriptions      — merchant_id
+ *   unsubscribes       — merchant_id
+ *   sessions           — merchant_id
+ *   stripe_connections — merchant_id
+ *   oauth_tokens       — merchant_id
+ *   subscription_events— merchant_id
+ *   merchants          — the row itself
+ * Plus the account layer (migration 017) when this merchant is the LAST
+ * merchant of its linked account: account_magic_links, account_sessions,
+ * oauth_install_states and the accounts row itself are deleted too, so a
+ * deleted merchant's sign-in account does not linger. An account that still
+ * owns OTHER merchants is kept (deleting it would orphan them).
+ *
+ * NOT touched (deliberately — not merchant-scoped data): page_visits /
+ * waitlist (anonymous landing-page visitor data, keyed by visitor_id/email),
+ * support_log (global support mailbox log keyed by email — may include
+ * customer emails, never merchant_ids).
+ *
+ * Runs in a single transaction: a failure mid-way rolls back to the pre-call
+ * state. Delete order respects the FK chain (foreign_keys=ON): child rows are
+ * removed before the rows they reference.
+ */
+export function purgeMerchantData(db: Database, merchantId: number): void {
+  db.exec("BEGIN");
+  try {
+    // send_logs → reminder_tasks → invoices (FK chain: send_logs references
+    // reminder_tasks, reminder_tasks references invoices). inbound_replies
+    // references BOTH invoices and merchants, so it goes before invoices.
+    db.run(
+      `DELETE FROM send_logs WHERE reminder_task_id IN
+        (SELECT id FROM reminder_tasks WHERE invoice_id IN
+          (SELECT id FROM invoices WHERE merchant_id = ?))`,
+      [merchantId],
+    );
+    db.run(
+      "DELETE FROM reminder_tasks WHERE invoice_id IN (SELECT id FROM invoices WHERE merchant_id = ?)",
+      [merchantId],
+    );
+    db.run("DELETE FROM inbound_replies WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM invoices WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM subscriptions WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM unsubscribes WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM sessions WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM stripe_connections WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM oauth_tokens WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM subscription_events WHERE merchant_id = ?", [merchantId]);
+
+    // Account layer: delete the linked account only when this is its last
+    // merchant (see the doc comment above).
+    const merchant = db.query("SELECT account_id FROM merchants WHERE id = ?").get(merchantId) as
+      | { account_id: number | null }
+      | null;
+    if (merchant?.account_id != null) {
+      const others = db
+        .query("SELECT COUNT(*) AS n FROM merchants WHERE account_id = ? AND id != ?")
+        .get(merchant.account_id, merchantId) as { n: number };
+      if (others.n === 0) {
+        db.run("DELETE FROM account_magic_links WHERE account_id = ?", [merchant.account_id]);
+        db.run("DELETE FROM account_sessions WHERE account_id = ?", [merchant.account_id]);
+        db.run("DELETE FROM oauth_install_states WHERE account_id = ?", [merchant.account_id]);
+        db.run("DELETE FROM accounts WHERE id = ?", [merchant.account_id]);
+      }
+    }
+
+    db.run("DELETE FROM merchants WHERE id = ?", [merchantId]);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
 const FREE_DRAFT_LIMIT = 5;
 
 /**
@@ -681,6 +795,10 @@ export interface Merchant {
   disconnected: number;
   /** Dev-only Pro flag: 1 = treat as active Pro subscriber with no real subscription (see isDevPro). */
   dev_pro: number;
+  /** The platform account that owns this merchant (migration 017; null for legacy/web-connect merchants). */
+  account_id: number | null;
+  /** Data-rights deletion clock: when a cancelled merchant is purged (null = none scheduled). */
+  deletion_scheduled_at: string | null;
   created_at: string;
 }
 
