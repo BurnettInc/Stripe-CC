@@ -8,7 +8,7 @@ import { handleReplies } from "./routes/replies";
 import { handleSettings } from "./routes/settings";
 import { handleBilling, billingSignInRequiredPage } from "./routes/billing";
 import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus, handleOAuthSession, handleOAuthHandoff, handleOAuthSuccess } from "./routes/oauth";
-import { handleAppInstallPage, handleAppInstallStart, handleAppInstallCallback } from "./routes/oauth-app-install";
+import { handleAppInstallPage, handleAppInstallStart, handleAppInstallCallback, syncMerchantInvoices } from "./routes/oauth-app-install";
 import { handleInvoices } from "./routes/invoices";
 import { handleSupport } from "./routes/support";
 import { handleAdminPage, handleAdminData, requireAdminToken } from "./routes/admin";
@@ -266,6 +266,13 @@ async function handleRequest(req: Request): Promise<Response> {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         const merchantId = auth.merchant_id;
+        // Best-effort invoice sync on dashboard load: re-runs the install
+        // backfill with the merchant's stored OAuth token so invoices created
+        // AFTER connect appear on the next page load (the Stripe reviewer's
+        // flow: connect an empty account → create a test invoice → reload →
+        // it shows). Never throws / never blocks the response on failure —
+        // syncMerchantInvoices is fully guarded and logs its own errors.
+        await syncMerchantInvoices(db, merchantId);
         // Stripe connection state for the dashboard's Stripe stat card:
         //   connected     — a stripe_connections row exists (OAuth completed)
         //                   and the account has not been deauthorized
@@ -424,6 +431,20 @@ async function handleRequest(req: Request): Promise<Response> {
         return response;
       }
 
+      // POST /invoices/sync — manual "Sync now" for a connected merchant's
+      // invoices (drawer / future dashboard affordance; also the deterministic
+      // E2E target). Re-runs the same idempotent backfill as the dashboard
+      // load and returns the count inserted. Placed BEFORE the /invoices/:id
+      // prefix branch so "sync" is never parsed as an invoice id.
+      if (path === "/invoices/sync" && req.method === "POST") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        const result = await syncMerchantInvoices(db, auth.merchant_id);
+        return new Response(JSON.stringify({ ok: true, ...result }), {
+          headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
+        });
+      }
+
       // GET/PUT /invoices/:id and /invoices/:id/trust-mode
       if (path.startsWith("/invoices/")) {
         const auth = requireSession(db, req);
@@ -476,6 +497,10 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/overdue/summary" && req.method === "GET") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
+        // Invoice sync on drawer load — same best-effort refresh as /stats, so
+        // invoices created in Stripe after the install show up in the drawer
+        // on the next open (never throws; guarded inside syncMerchantInvoices).
+        await syncMerchantInvoices(db, auth.merchant_id);
         const { handleOverdueSummary } = await import("./routes/overdue-summary");
         return handleOverdueSummary(db, auth.merchant_id, req);
       }
