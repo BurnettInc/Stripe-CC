@@ -242,6 +242,11 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
     mode: "subscription",
+    // Reviewers/merchants with a coupon code (e.g. REVIEWER100 — 100% off,
+    // created on the live billing account for Stripe app review) must be able
+    // to apply it at Checkout; without this flag the code field never renders
+    // and the discount is unusable.
+    allow_promotion_codes: "true",
     "metadata[merchant_id]": String(merchantId),
     "metadata[tier]": tier,
     success_url: successUrl,

@@ -6,6 +6,15 @@ import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import { BASE_URL } from '../api';
 
 type TrustMode = 'draft' | 'semi' | 'full';
+type Tier = 'standard' | 'pro';
+
+interface SubscriptionResponse {
+  tier: Tier | null;
+  status: 'active' | 'none';
+  dev_pro?: boolean;
+}
+interface SettingsResponse { trust_mode: TrustMode }
+interface ConnectionResponse { connected: boolean; account_name?: string }
 
 const modes: Array<{ value: TrustMode; label: string; description: string }> = [
   { value: 'draft', label: 'Draft', description: 'You approve every email before it is sent.' },
@@ -13,12 +22,25 @@ const modes: Array<{ value: TrustMode; label: string; description: string }> = [
   { value: 'full', label: 'Full Auto', description: 'Fully hands-off follow-ups across every escalation stage.' },
 ];
 
-interface SettingsResponse { trust_mode: TrustMode }
-interface ConnectionResponse { connected: boolean; account_name?: string }
+const planNames: Record<Tier, string> = { standard: 'Standard', pro: 'Pro' };
+const planPrices: Record<Tier, string> = { standard: '$15/month', pro: '$29/month' };
 
+/**
+ * App-level settings/console view (stripe.dashboard.fullpage) — the home for
+ * account-level configuration: plan & billing (subscribe / manage
+ * subscription), Trust Mode, and Stripe connection status.
+ *
+ * Billing lives HERE (reviewer blocker 3c, 2026-08-15): the Dashboard drawer is
+ * operational (overdue invoices), and plan/subscription management moved out of
+ * it into this settings surface, which is where merchants expect account-level
+ * config. (The reviewer's message named the viewport "stripe.dashboard.app.settings";
+ * that string is not accepted by the app schema/CLI — the valid app-level
+ * viewport is stripe.dashboard.fullpage, which this view is registered for.)
+ */
 export default function SettingsView(props?: { oauthContext?: ExtensionContextValue['oauthContext'] }) {
   const oauthContext = props?.oauthContext;
   const [trustMode, setTrustMode] = useState<TrustMode | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionResponse | null>(null);
   const [connection, setConnection] = useState<ConnectionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -29,16 +51,18 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
     setLoading(true);
     setError(null);
     try {
-      const [settingsRes, connRes] = await Promise.all([
+      const [settingsRes, subRes, connRes] = await Promise.all([
         fetch(`${BASE_URL}/settings`, { credentials: 'include' }),
+        fetch(`${BASE_URL}/subscription`, { credentials: 'include' }),
         fetch(`${BASE_URL}/stripe/connection`, { credentials: 'include' }),
       ]);
-      if (settingsRes.status === 401 || connRes.status === 401) {
+      if (settingsRes.status === 401 || subRes.status === 401 || connRes.status === 401) {
         setUnauthenticated(true);
         return;
       }
-      if (!settingsRes.ok || !connRes.ok) throw new Error('Unable to load Copilot settings.');
+      if (!settingsRes.ok || !subRes.ok || !connRes.ok) throw new Error('Unable to load Copilot settings.');
       setTrustMode(((await settingsRes.json()) as SettingsResponse).trust_mode);
+      setSubscription((await subRes.json()) as SubscriptionResponse);
       setConnection((await connRes.json()) as ConnectionResponse);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to load settings.');
@@ -83,6 +107,13 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
   };
 
   const accountName = connection?.account_name;
+  const active = subscription?.status === 'active' && (subscription.tier === 'standard' || subscription.tier === 'pro');
+  const activeTier = active ? subscription.tier! : null;
+  const planLabel = subscription?.dev_pro
+    ? 'Pro (developer preview)'
+    : activeTier
+      ? `${planNames[activeTier]} — ${planPrices[activeTier]}`
+      : 'Free plan';
 
   return (
     <ContextView title="Collections Copilot">
@@ -97,15 +128,32 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
           </Box>
         ) : null}
         {!unauthenticated && (<>
-        {/* Connection status */}
+        {/* Plan & billing — the settings viewport is the home for subscription
+            management (reviewer blocker 3c). Subscribe buttons open Checkout in
+            a new tab (GET /billing/checkout?tier=… 302s to Stripe); active
+            subscribers manage via the Customer Portal (GET /billing/portal). */}
         <Box css={{ stack: 'y', gap: 'xsmall' }}>
-          <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Stripe connection</Box>
+          <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Plan &amp; billing</Box>
           {loading ? (
             <Spinner />
-          ) : connection?.connected || oauthContext ? (
-            <Box css={{ color: 'primary' }}>Connected as {accountName || 'your Stripe account'}</Box>
           ) : (
-            <Box css={{ color: 'secondary' }}>Not connected — connect your Stripe account</Box>
+            <>
+              <Box css={{ color: 'secondary' }}>Current plan</Box>
+              <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>{planLabel}</Box>
+              {activeTier ? (
+                <Button type="secondary" href={`${BASE_URL}/billing/portal`} target="_blank">Manage subscription</Button>
+              ) : (
+                <>
+                  <Box css={{ stack: 'x', gap: 'small', wrap: 'wrap' }}>
+                    <Button type="primary" href={`${BASE_URL}/billing/checkout?tier=standard`} target="_blank">Subscribe to Standard — $15/mo</Button>
+                    <Button type="primary" href={`${BASE_URL}/billing/checkout?tier=pro`} target="_blank">Subscribe to Pro — $29/mo</Button>
+                  </Box>
+                  <Box css={{ color: 'secondary', font: 'caption' }}>
+                    Checkout opens in a new tab. Have a coupon? Apply it at checkout.
+                  </Box>
+                </>
+              )}
+            </>
           )}
         </Box>
 
@@ -136,6 +184,18 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
             <Box css={{ color: 'secondary', font: 'caption' }}>
               {modes.find((mode) => mode.value === trustMode)?.description}
             </Box>
+          )}
+        </Box>
+
+        {/* Connection status */}
+        <Box css={{ stack: 'y', gap: 'xsmall' }}>
+          <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Stripe connection</Box>
+          {loading ? (
+            <Spinner />
+          ) : connection?.connected || oauthContext ? (
+            <Box css={{ color: 'primary' }}>Connected as {accountName || 'your Stripe account'}</Box>
+          ) : (
+            <Box css={{ color: 'secondary' }}>Not connected — connect your Stripe account</Box>
           )}
         </Box>
 

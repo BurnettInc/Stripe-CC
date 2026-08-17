@@ -259,7 +259,20 @@ export function installPageHtml(
           e.preventDefault();
           var email = (document.getElementById('magic-email').value || '').trim();
           var btn = form.querySelector('button');
+          var input = document.getElementById('magic-email');
+          var original = btn.textContent;
+          // Visible loading state: spinner + button label swap + fields locked.
           btn.disabled = true;
+          btn.textContent = 'Sending…';
+          if (input) input.disabled = true;
+          status.innerHTML = '<span class="spinner"></span>Sending your sign-in link…';
+          status.style.color = '#6B7280';
+          var done = function (message, color) {
+            status.innerHTML = '';
+            status.textContent = message;
+            status.style.color = color;
+            btn.textContent = original;
+          };
           fetch('/api/account/request-magic-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -268,17 +281,16 @@ export function installPageHtml(
             return res.json().catch(function () { return {}; }).then(function (data) { return { res: res, data: data }; });
           }).then(function (r) {
             if (r.res.ok) {
-              status.textContent = 'Check your inbox — your sign-in link is on its way.';
-              status.style.color = '#047857';
+              done('Check your inbox — your sign-in link is on its way.', '#047857');
             } else {
-              status.textContent = (r.data && r.data.error) ? r.data.error : 'Something went wrong — please try again.';
-              status.style.color = '#B91C1C';
+              done((r.data && r.data.error) ? r.data.error : 'Something went wrong — please try again.', '#B91C1C');
               btn.disabled = false;
+              if (input) input.disabled = false;
             }
           }).catch(function () {
-            status.textContent = 'Something went wrong — please try again.';
-            status.style.color = '#B91C1C';
+            done('Something went wrong — please try again.', '#B91C1C');
             btn.disabled = false;
+            if (input) input.disabled = false;
           });
         });
       </script>`;
@@ -325,6 +337,8 @@ export function installPageHtml(
     .logo { font-size: 22px; font-weight: 700; color: #1F2937; margin-bottom: 6px; }
     .logo span { color: #635BFF; }
     h1 { font-size: 24px; margin: 14px 0 10px; color: #111827; }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #C7C7C7; border-top-color: #635BFF; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
