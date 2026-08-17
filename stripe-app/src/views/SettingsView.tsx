@@ -26,16 +26,20 @@ const planNames: Record<Tier, string> = { standard: 'Standard', pro: 'Pro' };
 const planPrices: Record<Tier, string> = { standard: '$15/month', pro: '$29/month' };
 
 /**
- * App-level settings/console view (stripe.dashboard.fullpage) — the home for
- * account-level configuration: plan & billing (subscribe / manage
- * subscription), Trust Mode, and Stripe connection status.
+ * App-level settings view (viewport "settings") — the home for account-level
+ * configuration: plan & billing (subscribe / manage subscription), Trust Mode,
+ * and Stripe connection status.
  *
  * Billing lives HERE (reviewer blocker 3c, 2026-08-15): the Dashboard drawer is
  * operational (overdue invoices), and plan/subscription management moved out of
  * it into this settings surface, which is where merchants expect account-level
- * config. (The reviewer's message named the viewport "stripe.dashboard.app.settings";
- * that string is not accepted by the app schema/CLI — the valid app-level
- * viewport is stripe.dashboard.fullpage, which this view is registered for.)
+ * config. The reviewer's message named the viewport "stripe.dashboard.app.settings";
+ * that string is not accepted by the app schema/CLI, and neither is the
+ * fullpage viewport for marketplace review (stripe.dashboard.fullpage is a
+ * public-preview surface — apps declaring it fail submit-for-review with
+ * "invalid request"). The stable, documented settings viewport is the bare
+ * string "settings" (see docs.stripe.com/stripe-apps/app-settings), which is
+ * what this view is registered for.
  */
 export default function SettingsView(props?: { oauthContext?: ExtensionContextValue['oauthContext'] }) {
   const oauthContext = props?.oauthContext;

@@ -2,7 +2,7 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "CollectionsCopilot",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "icon": "./icon.png",
   "ui_extension": {
     "views": [
@@ -15,7 +15,7 @@
         "component": "InvoiceDetailView"
       },
       {
-        "viewport": "stripe.dashboard.fullpage",
+        "viewport": "settings",
         "component": "SettingsView"
       }
     ],

@@ -11,7 +11,7 @@ interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none'; d
 /**
  * Gate for the drawer default viewport. The drawer is the OPERATIONAL surface:
  * the overdue-invoice summary + controls (OverviewView). Plan & billing live in
- * the app's settings/console view (stripe.dashboard.fullpage → SettingsView)
+ * the app's settings page (viewport "settings" → SettingsView)
  * per reviewer blocker 3c (2026-08-15), so the drawer deliberately has no
  * subscribe UI — free-plan merchants get a pointer to Settings instead.
  *
