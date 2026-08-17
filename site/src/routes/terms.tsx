@@ -49,9 +49,11 @@ function Terms() {
         <h2 className="text-xl font-semibold text-gray-900 mt-8">2. Free tier and subscriptions</h2>
         <p className="text-gray-700 leading-relaxed">
           The Service offers a free tier that lets you view AI-drafted reminders for up
-          to five real overdue invoices. No emails are sent on the free tier. To unlock
-          sending, you must subscribe to a paid plan (Standard at $15/month or Pro at
-          $29/month). Subscriptions are billed monthly in advance via Stripe and renew
+          to five real overdue invoices. On the free tier, emails are sent only when
+          you approve them, or automatically for Stage-1 reminders if you select
+          Semi-Auto (Full Auto is a Pro feature). To unlock more sending, you must
+          subscribe to a paid plan (Standard at $15/month or Pro at $29/month).
+          Subscriptions are billed monthly in advance via Stripe and renew
           automatically until cancelled. You can cancel at any time — cancellation
           takes effect at the end of the current billing period and you retain access
           until then. All payments are processed through Stripe; we do not store your
