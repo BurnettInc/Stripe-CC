@@ -102,16 +102,27 @@ if (stripeKey) {
   console.log(`   Stripe key: not set (webhooks & billing will fail)`);
 }
 
-// Stripe App OAuth client-id status (masked). Marketplace installs use
-// Stripe's PUBLIC OAuth install links (plain /oauth/v2/authorize — the
-// External-Testing chnlink format was removed 2026-08-15 per the reviewer);
-// the mode is selected by the client id (STRIPE_APP_TEST_CLIENT_ID /
-// STRIPE_APP_LIVE_CLIENT_ID, falling back to STRIPE_CLIENT_ID).
+// Stripe App OAuth client-id status (masked). The mode is selected by the
+// client id (STRIPE_APP_TEST_CLIENT_ID / STRIPE_APP_LIVE_CLIENT_ID, falling
+// back to STRIPE_CLIENT_ID).
 const appClientId = process.env.STRIPE_APP_LIVE_CLIENT_ID || process.env.STRIPE_CLIENT_ID || "";
 if (appClientId) {
   console.log(`   App client id: ${appClientId.slice(0, 6)}…${appClientId.slice(-4)} (live-mode install link configured)`);
 } else {
   console.log(`   App client id: NOT SET (live-mode marketplace installs will show a "not configured" notice)`);
+}
+// App channel-link token status (masked to the suffix — never log the full
+// token). OPTIONAL-but-recommended while the app is UNPUBLISHED: Stripe
+// rejects the plain public install link ("The provided OAuth link is
+// invalid") until the app is approved, so the chnlink path segment is the
+// ONLY working install path pre-approval. Once the app is published, drop
+// STRIPE_APP_CHNLINK — buildAuthorizeUrl then falls back to the public
+// format, which is what the published listing will serve.
+const chnlinkToken = process.env.STRIPE_APP_CHNLINK || "";
+if (chnlinkToken) {
+  console.log(`   App channel-link token: …${chnlinkToken.slice(-4)} (configured — chnlink install links while unpublished)`);
+} else {
+  console.log(`   App channel-link token: NOT SET (public install links — Stripe rejects them until the app is approved; set it now, drop after approval)`);
 }
 
 // Email provider status

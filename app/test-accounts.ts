@@ -280,7 +280,7 @@ async function main(): Promise<void> {
   const noCookie = await get(`${BASE}/oauth/install/start?link=test`);
   check("f1: install/start without cookie → 302 to /oauth/install", noCookie.status === 302 && noCookie.headers.get("location") === `${process.env.BASE_URL || "http://localhost:3002"}/oauth/install`, `status=${noCookie.status} loc=${noCookie.headers.get("location")}`);
   const withCookie = await get(`${BASE}/oauth/install/start?link=test`, instCookie);
-  check("f2: install/start with cookie → 302 to marketplace authorize (PUBLIC format, no chnlink + state)", withCookie.status === 302 && (withCookie.headers.get("location") || "").startsWith("https://marketplace.stripe.com/oauth/v2/authorize?") && /state=[0-9a-f]{48}%3Atest/.test(withCookie.headers.get("location") || ""), `status=${withCookie.status} loc=${withCookie.headers.get("location")}`);
+  check("f2: install/start with cookie → 302 to marketplace authorize (chnlink path + state)", withCookie.status === 302 && (withCookie.headers.get("location") || "").startsWith("https://marketplace.stripe.com/oauth/v2/chnlink_test/authorize?") && /state=[0-9a-f]{48}%3Atest/.test(withCookie.headers.get("location") || ""), `status=${withCookie.status} loc=${withCookie.headers.get("location")}`);
   const stateVal = new URL(withCookie.headers.get("location") || "").searchParams.get("state") || "";
   const d2 = db();
   const instAcct = d2.query("SELECT id FROM accounts WHERE email = 'installer@example.com'").get() as { id: number };

@@ -14,9 +14,12 @@
  *   2. GET /oauth/install/start      — generate a CSRF-safe state row (link
  *                                      type test|live encoded inside the state
  *                                      per the docs), 302 → marketplace.stripe
- *                                      .com/oauth/v2/authorize?client_id=…
- *                                      &redirect_uri=…&state=… (the PUBLIC
- *                                      OAuth install link format — see below)
+ *                                      .com/oauth/v2/chnlink_{TOKEN}/authorize
+ *                                      ?client_id=…&redirect_uri=…&state=…
+ *                                      (chnlink path while STRIPE_APP_CHNLINK
+ *                                      is set — the pre-approval format; the
+ *                                      public /oauth/v2/authorize format when
+ *                                      unset — see the NOTE below)
  *   3. GET /oauth/callback?code=…&state=…
  *                                    — Stripe redirects back with a one-time
  *                                      code (valid 5 min). Verify+consume the
@@ -39,20 +42,27 @@
  *
  * Env: STRIPE_APP_TEST_CLIENT_ID / STRIPE_APP_LIVE_CLIENT_ID (per-mode app
  * client ids, ca_…; STRIPE_CLIENT_ID is the legacy default fallback),
- * STRIPE_APP_TEST_KEY / STRIPE_APP_LIVE_KEY (app developer API keys).
- * The authorize URL uses Stripe's PUBLIC OAuth install link format —
- * https://marketplace.stripe.com/oauth/v2/authorize?client_id=…&redirect_uri=
- * …&state=… (docs.stripe.com/stripe-apps/api-authentication/oauth#publish-app).
+ * STRIPE_APP_TEST_KEY / STRIPE_APP_LIVE_KEY (app developer API keys), and
+ * STRIPE_APP_CHNLINK — the app's channel-link token (chnlink_…), the switch
+ * between the two authorize formats (see the NOTE below).
+ * The authorize URL is built in buildAuthorizeUrl. While the app is
+ * UNPUBLISHED it carries the chnlink path segment:
+ * https://marketplace.stripe.com/oauth/v2/chnlink_{TOKEN}/authorize
+ * ?client_id=…&redirect_uri=…&state=…
  * Stripe generates separate links for live and test modes; the mode is
  * selected by the client_id + the link type carried inside `state` (the same
- * URL shape serves both modes, and the App Review team installs through it).
- * NOTE (2026-08-15, reviewer round): PR #91 previously injected a chnlink_
- * path segment (…/oauth/v2/chnlink_{TOKEN}/authorize) because the app was in
- * External Testing and Stripe rejected the plain link ("The provided OAuth
- * link is invalid"). The chnlink URL is the EXTERNAL-TESTING channel link
- * (25-install cap); the reviewer requires the LIVE/public link for the
- * marketplace install URL, so the chnlink injection is REMOVED and
- * STRIPE_APP_CHNLINK is no longer read (the env var may be dropped).
+ * URL shape serves both modes).
+ * NOTE (2026-08-17): Stripe's dashboard-generated install links carry the
+ * chnlink token IN THE PATH; the public OAuth docs omit it, and while the app
+ * is UNPUBLISHED (live_mode_version empty — this app is still in review)
+ * Stripe REJECTS the plain public link ("The provided OAuth link is invalid",
+ * re-proven on the live install 8/17). The chnlink URL is the
+ * External-Testing channel link and is the ONLY working install path
+ * pre-approval, for BOTH modes (one token per app; mode via client_id +
+ * state). The reviewer's public-format requirement (round 2026-08-15) is
+ * about the POST-APPROVAL listing: once the app is published, drop
+ * STRIPE_APP_CHNLINK and buildAuthorizeUrl falls back to the public format
+ * (…/oauth/v2/authorize?…), which is what the published listing will serve.
  * For LIVE links the developer key falls back to STRIPE_SECRET_KEY when
  * STRIPE_APP_LIVE_KEY is unset — per Stripe's OAuth docs the app developer
  * key for a live-mode install IS the developer account's own live secret key
@@ -70,11 +80,13 @@ import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
 import { accountFromCookie } from "./accounts";
 
 // ── Constants ──
-// The marketplace authorize endpoint is the PUBLIC OAuth install link —
-// https://marketplace.stripe.com/oauth/v2/authorize?client_id=…&redirect_uri=
-// …&state=… (built in buildAuthorizeUrl — see the note there). No chnlink
-// token in the path (the External-Testing channel-link format was removed
-// 2026-08-15 per the reviewer).
+// The marketplace authorize endpoint carries the app's chnlink token in the
+// path while the app is unpublished:
+// https://marketplace.stripe.com/oauth/v2/chnlink_{TOKEN}/authorize
+// ?client_id=…&redirect_uri=…&state=… (built in buildAuthorizeUrl — see the
+// IMPORTANT note there). When STRIPE_APP_CHNLINK is unset the builder falls
+// back to the PUBLIC format (…/oauth/v2/authorize?…) — the post-approval
+// shape, correct once the app is published.
 // Same env-override convention as routes/billing.ts: endpoint tests point
 // STRIPE_API_BASE at a local stub (e.g. http://localhost:3199/v1).
 const STRIPE_API = (process.env.STRIPE_API_BASE || "https://api.stripe.com/v1").replace(/\/+$/, "");
@@ -117,13 +129,32 @@ export function appClientIdFor(linkType: LinkType): string | null {
   return modeClientId ?? process.env.STRIPE_CLIENT_ID ?? null;
 }
 
+/** The app's channel-link token (chnlink_…). Stripe's dashboard-generated
+ * install links carry it IN THE URL PATH (marketplace.stripe.com/oauth/v2/
+ * chnlink_{TOKEN}/authorize); the public OAuth docs omit it. While the app is
+ * UNPUBLISHED (live_mode_version empty), Stripe rejects authorize requests
+ * without it ("The provided OAuth link is invalid") — so it is the ONLY
+ * working install path pre-approval, for BOTH modes (one token per app; the
+ * mode is selected by the client_id). OPTIONAL-but-recommended: once the app
+ * is published the public format works, and the var should be DROPPED (the
+ * env var is the switch between the two formats in buildAuthorizeUrl). */
+export function appChnlink(): string | null {
+  return process.env.STRIPE_APP_CHNLINK ?? null;
+}
+
 /** Env vars still missing for a link type to be installable (client id slot,
  * then developer key). The install page's per-mode notices render this; when
  * appClientIdFor resolves through the STRIPE_CLIENT_ID fallback the mode
  * var is not reported. For LIVE mode, STRIPE_SECRET_KEY satisfies the
  * developer-key slot (the appDevKeyFor fallback), so the key entry appears
  * only when BOTH STRIPE_APP_LIVE_KEY and STRIPE_SECRET_KEY are unset, and it
- * reads "set STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY". */
+ * reads "set STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY".
+ * STRIPE_APP_CHNLINK is deliberately NOT listed here: it is optional — the
+ * page renders a mode's button whether or not it is set, and buildAuthorizeUrl
+ * falls back to the public format when unset. While the app is unpublished
+ * that public link will be REJECTED by Stripe, so the var is recommended
+ * pre-approval (the install page shows an advisory when it is unset); after
+ * approval it should be dropped. See appChnlink() + buildAuthorizeUrl. */
 export function missingEnvFor(linkType: LinkType): string[] {
   const missing: string[] = [];
   if (!appClientIdFor(linkType)) {
@@ -172,22 +203,30 @@ export function consumeInstallState(
 
 // ── Authorize URL ──
 // Matches the Stripe Apps OAuth v2 flow (docs.stripe.com/
-// stripe-apps/api-authentication/oauth#publish-app): the PUBLIC marketplace
-// authorize URL takes client_id + redirect_uri + state. There is NO `scope`
-// query parameter in the docs' flow — the scope is implied by the app (the
-// token response returns `scope: "stripe_apps"`), so adding one would be
-// wrong. `state` doubles as the link-type carrier (docs: "pass the relevant
-// link type within the state parameter") and is echoed back by Stripe on the
-// callback.
-// REVIEWER ROUND (2026-08-15): PR #91 injected a chnlink_ path segment
-// (…/oauth/v2/chnlink_{TOKEN}/authorize) because the app was in External
-// Testing, where Stripe rejects the plain link ("The provided OAuth link is
-// invalid"). The chnlink URL is the EXTERNAL-TESTING channel link (25-install
-// cap). Per the reviewer + the publish docs, the marketplace install URL must
-// use the PUBLIC/LIVE link format — plain /oauth/v2/authorize — which the App
-// Review team itself installs through. The chnlink injection is REMOVED:
-// the URL is always the public format for BOTH modes (the mode is selected
-// by client_id + state). STRIPE_APP_CHNLINK is no longer read anywhere.
+// stripe-apps/api-authentication/oauth): the marketplace authorize URL takes
+// client_id + redirect_uri + state. There is NO `scope` query parameter in
+// the docs' flow — the scope is implied by the app (the token response
+// returns `scope: "stripe_apps"`), so adding one would be wrong. `state`
+// doubles as the link-type carrier (docs: "pass the relevant link type within
+// the state parameter") and is echoed back by Stripe on the callback.
+// REVIEWER ROUND (2026-08-17): the app is STILL UNPUBLISHED (live_mode_version
+// empty), and Stripe rejects the plain public authorize format for unpublished
+// apps ("The provided OAuth link is invalid" — re-proven on the live install
+// 8/17). PR #96 (8/15) removed the chnlink_ path segment because the reviewer's
+// CHANGES REQUESTED said the marketplace install URL must use the public
+// format — but the reviewer's own installs in earlier rounds succeeded THROUGH
+// the chnlink URL, and the public format is the POST-APPROVAL listing shape.
+// So the chnlink injection is restored: when STRIPE_APP_CHNLINK is set, the
+// URL is …/oauth/v2/chnlink_{TOKEN}/authorize (the External-Testing channel
+// link — the ONLY working install path pre-approval); when unset, the public
+// format …/oauth/v2/authorize is emitted (correct once the app is published —
+// drop the env var then). The mode is selected by client_id + state in both
+// cases. IMPORTANT — the docs omit the chnlink path segment, but Stripe's own
+// dashboard-generated install links carry it; a leading "chnlink_" prefix on
+// the env value (the exact path token from App Settings) is tolerated and
+// normalized, so the produced URL always carries exactly one "chnlink_…"
+// segment. Never a malformed link: when the client id is missing a clear
+// error is returned (the chnlink fallback keeps the public format valid).
 export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: string } | { error: string } {
   const clientId = appClientIdFor(linkType);
   const baseUrl = baseUrlFor();
@@ -197,6 +236,19 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
     return { error: `Neither ${modeEnv} nor the default STRIPE_CLIENT_ID is set — the ${linkType}-mode app install link cannot be built. Set the app's ${linkType}-mode client id (ca_…) in the Stripe dashboard.` };
   }
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state });
+  const chnlink = appChnlink();
+  if (chnlink) {
+    // Pre-approval: the chnlink (External-Testing) path segment is required —
+    // Stripe rejects the plain link for unpublished apps. Normalize: tolerate
+    // the env value carrying the "chnlink_" prefix (as it appears in App
+    // Settings) so we never emit a doubled prefix.
+    const token = chnlink.replace(/^chnlink_/, "");
+    return { url: `https://marketplace.stripe.com/oauth/v2/chnlink_${token}/authorize?${params.toString()}` };
+  }
+  // STRIPE_APP_CHNLINK unset → the PUBLIC format (docs.stripe.com/stripe-apps/
+  // api-authentication/oauth#publish-app). Correct once the app is published;
+  // while unpublished Stripe rejects it — the install page's advisory covers
+  // that when the var is unset.
   return { url: `https://marketplace.stripe.com/oauth/v2/authorize?${params.toString()}` };
 }
 
@@ -208,15 +260,18 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
 // cookie it renders the "sign in / create account" card (email input → POST
 // /api/account/request-magic-link → one-time link); with one it renders the
 // "Connect with Stripe" buttons per configured mode (a mode is installable
-// only when BOTH its client id and its developer key resolve), plus "Signed
-// in as {email} · sign out" and — when the account already owns a connected
-// merchant — an "open your dashboard" link.
+// when its client id and developer key resolve — STRIPE_APP_CHNLINK is
+// OPTIONAL for button rendering: when it is unset an amber advisory explains
+// that Stripe rejects the public link while the app is unpublished), plus
+// "Signed in as {email} · sign out" and — when the account already owns a
+// connected merchant — an "open your dashboard" link.
 export function installPageHtml(
   baseUrl: string,
   configuredModes: LinkType[],
   missingEnv: Record<LinkType, string[]>,
   account?: { email: string } | null,
-  dashboardUrl?: string | null
+  dashboardUrl?: string | null,
+  chnlinkNotice?: string
 ): string {
   const buttonFor = (linkType: LinkType, label: string) =>
     `<a href="${baseUrl}/oauth/install/start?link=${linkType}" style="display:block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;margin:10px 0;text-align:center;">${label}</a>`;
@@ -324,7 +379,11 @@ export function installPageHtml(
         if (envs.length === 0) return "";
         return `<br>${lt === "test" ? "Test" : "Live"} mode: set ${missingTextFor(lt)}`;
       }).join("");
-      body = `${accountLine}${connectedLine}<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong>${perMode} Once set, this page will show a "Connect with Stripe" button. No action is needed on your side.</p>`;
+      body = `${accountLine}${connectedLine}<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong>${perMode} Once set, this page will show a "Connect with Stripe" button. No action is needed on your side.</p>${
+        chnlinkNotice
+          ? `<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 14px;font-size:13px;">${chnlinkNotice}</p>`
+          : ""
+      }`;
     } else {
       body = `${accountLine}${connectedLine}<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Connect your Stripe account to let CollectionsCopilot watch for overdue invoices and send your customers friendly, automatic payment reminders.</p>
         <ol style="color:#4B5563;font-size:14px;line-height:1.8;margin:0 0 22px;padding-left:20px;text-align:left;">
@@ -338,6 +397,11 @@ export function installPageHtml(
           LINK_TYPES.filter((lt) => !configuredModes.includes(lt) && missingEnv[lt].length > 0)
             .map((lt) => `<p style="color:#9CA3AF;font-size:12px;margin:12px 0 0;">${lt === "test" ? "Test" : "Live"} mode is not available yet — set ${missingTextFor(lt)}.</p>`)
             .join("")
+        }
+        ${
+          chnlinkNotice
+            ? `<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 14px;font-size:13px;margin:14px 0 0;">${chnlinkNotice}</p>`
+            : ""
         }
         <p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>`;
     }
@@ -381,9 +445,18 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
   // A mode is installable only when NOTHING is missing for it: its client id
   // (mode var, or the STRIPE_CLIENT_ID fallback) and its developer key (live
   // falls back to STRIPE_SECRET_KEY). missingEnvFor encodes both, so a mode
-  // is configured iff its missing list is empty.
+  // is configured iff its missing list is empty. STRIPE_APP_CHNLINK is NOT a
+  // gate: it is optional-but-recommended while the app is unpublished — when
+  // unset the Connect buttons still render and an advisory explains that
+  // Stripe rejects the public install link until the app is approved.
   const configuredModes: LinkType[] = LINK_TYPES.filter((lt) => missingEnvFor(lt).length === 0);
   const missingEnv: Record<LinkType, string[]> = { test: missingEnvFor("test"), live: missingEnvFor("live") };
+  // Advisory shown when the channel-link token is unset (optional-but-
+  // recommended pre-approval — the fallback public format is the post-approval
+  // shape and Stripe rejects it while the app is unpublished).
+  const chnlinkNotice = appChnlink()
+    ? ""
+    : "STRIPE_APP_CHNLINK is not set. While the app is unpublished, Stripe rejects the public install link (“The provided OAuth link is invalid”) — set it to make the Connect buttons installable. After the app is approved the public format works and the var can be dropped.";
 
   const url = new URL(req.url);
   if (url.searchParams.get("auto") === "1") {
@@ -402,7 +475,7 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
       : null
     : null;
 
-  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl), {
+  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl, chnlinkNotice), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
@@ -443,9 +516,10 @@ export function installStartResponse(db: Database, linkType: LinkType, accountId
   }
   // Log the authorize URL so Railway logs show exactly what Stripe is asked
   // to authorize (client_id, redirect_uri, state) — the redirect_uri here must
-  // match Stripe App Settings byte-for-byte. No secrets appear in the URL
-  // (client_id is public; state is a one-time random token).
-  console.log(`[oauth-app] install start: account=${accountId ?? "legacy"} link=${linkType} → ${built.url}`);
+  // match Stripe App Settings byte-for-byte. The chnlink token is masked to
+  // its suffix (it is app-level, but never log the full token).
+  const maskedUrl = built.url.replace(/chnlink_[^/]+/, (m) => `chnlink_…${m.slice(-4)}`);
+  console.log(`[oauth-app] install start: account=${accountId ?? "legacy"} link=${linkType} → ${maskedUrl}`);
   return new Response(null, { status: 302, headers: { Location: built.url } });
 }
 
