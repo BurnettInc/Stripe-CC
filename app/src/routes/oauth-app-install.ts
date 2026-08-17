@@ -887,7 +887,45 @@ export async function syncMerchantInvoices(
       console.log(`[oauth-app] invoice sync skipped for merchant ${merchantId} — no stored connection token`);
       return { inserted: 0, synced: false, reason: "no-connection" };
     }
-    const result = await backfillMerchantInvoices(db, merchantId, conn.access_token);
+    // Token refresh before backfill. Stripe OAuth access tokens (rk_live_…)
+    // EXPIRE ~1 hour after exchange; the stored stripe_connections mirror
+    // holds whatever was last written at install/refresh time, so a sync after
+    // expiry hits the API with a dead key (HTTP 401 platform_api_key_expired
+    // — reproduced live 2026-08-17: every stored merchant token 401'd and
+    // /invoices/sync returned backfill-error:HTTP 401). The marketplace
+    // install path keeps the refresh_token in oauth_tokens (refresh tokens
+    // roll and live ~1 year): refresh first when the pair exists, so sync
+    // keeps working indefinitely without a re-install. refreshAppAccessToken
+    // only makes a network call when the stored access token is expired
+    // (expires_at) — a fresh token is used as-is. On refresh success the
+    // fresh pair is ALSO mirrored into stripe_connections so every other
+    // consumer of getStripeConnection (watcher, /stripe/connection status)
+    // sees the current token, not the stale mirror.
+    let accessToken = conn.access_token;
+    const oauthRow = db
+      .query("SELECT stripe_user_id FROM oauth_tokens WHERE merchant_id = ? ORDER BY updated_at DESC LIMIT 1")
+      .get(merchantId) as { stripe_user_id: string } | null;
+    if (oauthRow?.stripe_user_id) {
+      const refreshed = await refreshAppAccessToken(db, oauthRow.stripe_user_id);
+      if (refreshed.ok) {
+        if (refreshed.refreshed) {
+          console.log(`[oauth-app] invoice sync: refreshed expired access token for ${oauthRow.stripe_user_id} (merchant ${merchantId})`);
+          // Mirror the fresh pair into stripe_connections so getStripeConnection
+          // callers don't keep reading the pre-refresh (expired) token.
+          const fresh = getAppOAuthTokens(db, oauthRow.stripe_user_id);
+          if (fresh?.access_token) {
+            db.run(
+              `UPDATE stripe_connections SET access_token=?, refresh_token=?, updated_at=? WHERE id=?`,
+              [fresh.access_token, fresh.refresh_token, new Date().toISOString(), conn.id]
+            );
+          }
+        }
+        accessToken = refreshed.access_token;
+      } else {
+        console.warn(`[oauth-app] invoice sync: token refresh failed for ${oauthRow.stripe_user_id} (${refreshed.error}) — falling back to stored access token`);
+      }
+    }
+    const result = await backfillMerchantInvoices(db, merchantId, accessToken);
     return {
       inserted: result.inserted,
       synced: true,
