@@ -177,7 +177,7 @@ async function run(): Promise<void> {
     check("A1 GET ?promo=REVIEWER100 → 302 to Stripe Checkout", res.status === 302, `status=${res.status}`);
     check("A1 GET ?promo=REVIEWER100 → Location is the stub checkout URL", res.headers.get("location") === "https://checkout.stripe.com/c/pay/cs_test_reviewer", String(res.headers.get("location")));
     check("A1 GET ?promo=REVIEWER100 → session carries discounts[0][promotion_code]", p.get("discounts[0][promotion_code]") === REVIEWER_PROMO_CODE_ID, String(p.get("discounts[0][promotion_code]")));
-    check("A1 GET ?promo=REVIEWER100 → allow_promotion_codes turned OFF", p.get("allow_promotion_codes") === "false", String(p.get("allow_promotion_codes")));
+    check("A1 GET ?promo=REVIEWER100 → allow_promotion_codes ABSENT (param dropped when discount pre-attached)", !p.has("allow_promotion_codes"), String(p.get("allow_promotion_codes")));
   }
 
   // 2. GET without promo (no test-mode install) → real-customer path unchanged.
@@ -200,7 +200,7 @@ async function run(): Promise<void> {
     const p = lastCheckoutParams();
     check("A3 POST test-mode install → 200 {url}", res.status === 200 && typeof body.url === "string", `status=${res.status} body=${JSON.stringify(body).slice(0, 120)}`);
     check("A3 POST test-mode install → session carries discounts[0][promotion_code]", p.get("discounts[0][promotion_code]") === REVIEWER_PROMO_CODE_ID, String(p.get("discounts[0][promotion_code]")));
-    check("A3 POST test-mode install → allow_promotion_codes turned OFF", p.get("allow_promotion_codes") === "false", String(p.get("allow_promotion_codes")));
+    check("A3 POST test-mode install → allow_promotion_codes ABSENT (param dropped when discount pre-attached)", !p.has("allow_promotion_codes"), String(p.get("allow_promotion_codes")));
   }
 
   // 4. POST explicit promo param → discount pre-attached.
@@ -210,7 +210,7 @@ async function run(): Promise<void> {
     const p = lastCheckoutParams();
     check("A4 POST {promo:REVIEWER100} → 200 {url}", res.status === 200 && typeof body.url === "string", `status=${res.status}`);
     check("A4 POST {promo:REVIEWER100} → session carries discounts[0][promotion_code]", p.get("discounts[0][promotion_code]") === REVIEWER_PROMO_CODE_ID, String(p.get("discounts[0][promotion_code]")));
-    check("A4 POST {promo:REVIEWER100} → allow_promotion_codes turned OFF", p.get("allow_promotion_codes") === "false", String(p.get("allow_promotion_codes")));
+    check("A4 POST {promo:REVIEWER100} → allow_promotion_codes ABSENT (param dropped when discount pre-attached)", !p.has("allow_promotion_codes"), String(p.get("allow_promotion_codes")));
   }
 
   // 5. GET without a session → branded sign-in page (fail-closed stays intact).
