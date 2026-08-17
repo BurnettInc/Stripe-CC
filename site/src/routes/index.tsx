@@ -591,8 +591,9 @@ function Home() {
           Simple pricing
         </h2>
         <p className="text-center text-gray-600 max-w-lg mx-auto mb-14">
-          Draft up to 5 real overdue invoices for free. Subscribe when you're ready to
-          unlock sending — no contracts, cancel in one click.
+          Draft up to 5 real overdue invoices for free — approve every send yourself,
+          or let Semi-Auto handle friendly Stage-1 reminders. Subscribe when you want
+          more — no contracts, cancel in one click.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
@@ -600,7 +601,7 @@ function Home() {
               name: "Free — Draft Mode",
               price: "Free forever, no card required",
               period: "",
-              body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Nothing sends until you subscribe.",
+              body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
               features: [],
               cta: "Join the waitlist",
               highlight: false,
@@ -709,7 +710,7 @@ function Home() {
             },
             {
               q: "Can I try it before paying?",
-              a: "Yes — Free Draft Mode is free forever, no card required. Connect your Stripe account and see real AI-drafted reminders for up to 5 of your overdue invoices. Nothing sends until you subscribe.",
+              a: "Yes — Free Draft Mode is free forever, no card required. Connect your Stripe account and see real AI-drafted reminders for up to 5 of your overdue invoices. You approve every send yourself, or switch to Semi-Auto and let friendly Stage-1 reminders go out on their own.",
             },
             {
               q: "How is this different from Stripe's built-in reminders?",
