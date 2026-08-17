@@ -70,6 +70,7 @@ import {
   isActivePaidSubscriber,
   isInvoiceSequenceStopped,
   getTaskForInvoice,
+  recordRecoveryEvent,
 } from "../db";
 import type { Invoice, Merchant, ReminderTask } from "../db";
 
@@ -183,7 +184,7 @@ function reconcileInvoiceStatuses(
 ): void {
   const after = db
     .query(
-      "SELECT id, stripe_invoice_id, status, paid_notified, customer_name, amount_cents, currency FROM invoices WHERE merchant_id=?"
+      "SELECT id, stripe_invoice_id, status, paid_notified, customer_name, amount_cents, currency, due_date, ever_overdue FROM invoices WHERE merchant_id=?"
     )
     .all(merchantId) as Array<{
       id: number;
@@ -193,12 +194,30 @@ function reconcileInvoiceStatuses(
       customer_name: string;
       amount_cents: number;
       currency: string;
+      due_date: string;
+      ever_overdue: number;
     }>;
   for (const row of after) {
     const prev = before.get(row.stripe_invoice_id);
     if (!prev || prev.status === row.status) continue;
 
     if (row.status === "paid") {
+      // Admin telemetry (migration 020): the sync observed this invoice
+      // becoming paid — record the recovery event when it was ever overdue.
+      // Pure observation, idempotent per invoice_id (INSERT OR IGNORE), and
+      // try/catch-guarded so a telemetry failure can never break the close/
+      // stop logic below. The paid_at timestamp is the sync run time (we
+      // don't know the exact payment moment from the list API).
+      try {
+        const rec = recordRecoveryEvent(db, { ...row, merchant_id: merchantId }, { source: "sync", paidAt: new Date().toISOString() });
+        if (rec.recorded) {
+          log(`[scheduler] invoice-sync: recovery event recorded for invoice ${row.stripe_invoice_id} (${rec.reason})`);
+        }
+      } catch (err) {
+        console.error(
+          `[scheduler] invoice-sync: recovery event record failed for ${row.stripe_invoice_id}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
       // Mirror watcher's invoice.paid handler: only notify when the invoice
       // was actually followed up (a task existed in flight), once per invoice
       // (paid_notified guard).

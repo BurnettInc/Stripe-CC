@@ -85,6 +85,15 @@
       <button id="skipToggle" type="button" style="background:var(--card-2); border:1px solid var(--border); color:var(--text); padding:8px 14px; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;">Stop counting my visits</button>
     </div>
     <div class="cards" id="funnel"></div>
+    <div class="panel" id="outcomesPanel" style="display:none;">
+      <h2>Outcomes <span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0;">— recovery &amp; response rate (all-time)</span></h2>
+      <div class="cards" id="outcomeCards"></div>
+      <div class="muted" style="font-size:12px; line-height:1.6; padding:0 2px 10px;" id="outcomeNote"></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Merchant</th><th>Email</th><th>Stripe acct</th><th>Recovered</th><th>Invoices</th><th>Avg days to payment</th></tr></thead>
+        <tbody id="outcomeMerchants"></tbody>
+      </table></div>
+    </div>
     <div class="panel">
       <h2>Visits by source</h2>
       <div class="scroll"><table>
@@ -207,6 +216,54 @@
             "std " + f.paid_active.standard + " · pro " + f.paid_active.pro + " · devPro " + f.dev_pro) +
           card("Subs cancelled", f.subs_cancelled) + card("Subs past due", f.subs_past_due) +
           card("Waitlist signups", d.waitlist.total);
+        // ── Outcomes: recovery & response rate (migration 020) ──
+        var o = d.outcomes;
+        if (o) {
+          var recStr = o.recovery.by_currency.length
+            ? o.recovery.by_currency.map(function (b) { return fmtMoney(b.cents, b.currency); }).join(" + ")
+            : "$0";
+          var rateStr = o.response.response_rate_pct === null ? "—" : o.response.response_rate_pct + "%";
+          var reminderStr = o.recovery.reminder_sent_rate === null
+            ? "—"
+            : o.recovery.reminder_sent_count + " of " + o.recovery.invoices_recovered +
+              " (" + Math.round(o.recovery.reminder_sent_rate * 100) + "%)";
+          if (o.recovery.invoices_recovered > 0 || o.response.reminders_sent > 0) {
+            document.getElementById("outcomesPanel").style.display = "";
+          }
+          document.getElementById("outcomeCards").innerHTML =
+            card("Dollars recovered", recStr) +
+            card("Recovered invoices", o.recovery.invoices_recovered) +
+            card("Avg days to payment", o.recovery.avg_days_to_payment === null ? "—" : o.recovery.avg_days_to_payment) +
+            card("Median days to payment", o.recovery.median_days_to_payment === null ? "—" : o.recovery.median_days_to_payment) +
+            card("Response rate", rateStr, o.response.replies + " replies / " + o.response.reminders_sent + " reminders sent") +
+            card("Reminder sent before payment", reminderStr);
+          var stageNote = o.recovery.stage_reached
+            .map(function (s) { return "stage " + s.s + ": " + s.n; })
+            .join(" · ");
+          var srcNote = o.recovery.by_source
+            .map(function (s) { return s.source + ": " + s.n; })
+            .join(" · ");
+          document.getElementById("outcomeNote").textContent =
+            "Recovery events: recorded automatically when an invoice that was ever overdue becomes paid (source: " +
+            (srcNote || "none yet") + "). Stage reached: " + (stageNote || "—") + ". " +
+            "A merchant's recovered amount is summed in its own currency; no FX conversion is ever assumed.";
+        }
+        var oT = document.getElementById("outcomeMerchants");
+        if (o && !o.per_merchant.length) {
+          oT.innerHTML = '<tr><td colspan="6" class="empty">No recovery events yet — recorded automatically when an overdue invoice is paid</td></tr>';
+        } else if (o) {
+          o.per_merchant.forEach(function (m) {
+            var row = document.createElement("tr");
+            row.innerHTML =
+              "<td><code>" + esc(m.merchant_id) + "</code></td>" +
+              "<td>" + esc(m.email) + "</td>" +
+              "<td><code>" + esc(m.stripe_account_id) + "</code></td>" +
+              "<td>" + fmtMoney(m.recovered_cents, m.currency) + "</td>" +
+              "<td>" + esc(m.recovered_count) + "</td>" +
+              "<td>" + (m.avg_days === null ? '<span class="muted">—</span>' : esc(Math.round(m.avg_days * 10) / 10)) + "</td>";
+            oT.appendChild(row);
+          });
+        }
         var sT = document.getElementById("sourceBuckets");
         if (!d.visits_by_source || !d.visits_by_source.length) {
           sT.innerHTML = '<tr><td colspan="6" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>';
@@ -321,6 +378,14 @@
     function card(label, value, hint) {
       return '<div class="card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(value) +
         (hint ? " <small>" + esc(hint) + "</small>" : "") + "</div></div>";
+    }
+    function fmtMoney(cents, currency) {
+      try {
+        return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "usd" })
+          .format((cents || 0) / 100);
+      } catch (e) {
+        return ((cents || 0) / 100) + " " + (currency || "usd");
+      }
     }
   </script>
 </body>
