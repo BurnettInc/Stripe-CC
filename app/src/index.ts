@@ -880,6 +880,38 @@ async function handleRequest(req: Request): Promise<Response> {
         return handleAccountLogout(db, req);
       }
 
+      // GET /api/account/export (also /account/export) — data-rights export
+      // (privacy-page promise "Request a copy of your stored data"): JSON
+      // download of EVERYTHING stored for the merchant (attachment
+      // collectionscopilot-data-<merchant_id>.json). Session-authed like the
+      // rest of the dashboard — the data is the MERCHANT's, and only the
+      // merchant session identifies it (the cc_account cookie is the platform
+      // sign-in cookie and does NOT authorize these endpoints).
+      if ((path === "/api/account/export" || path === "/account/export") && req.method === "GET") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        const { handleAccountExport } = await import("./routes/data-rights");
+        const response = handleAccountExport(db, auth.merchant_id);
+        for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
+        return response;
+      }
+
+      // POST /api/account/delete (also /account/delete) — data-rights
+      // immediate deletion (privacy-page promise "You can request immediate
+      // deletion"): cancels any ACTIVE Stripe subscription first (best-effort —
+      // still purges if the cancel fails, logging the failure) and purges every
+      // row for the merchant via purgeMerchantData. The session row is gone
+      // after the purge, so the {ok:true, deleted:true} response is produced
+      // first and the dashboard UI redirects to the landing page.
+      if ((path === "/api/account/delete" || path === "/account/delete") && req.method === "POST") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        const { handleAccountDelete } = await import("./routes/data-rights");
+        const response = await handleAccountDelete(db, auth.merchant_id);
+        for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
+        return response;
+      }
+
       // ── Marketing site fallback ──
       // Everything not handled by a backend route is served by the built
       // TanStack Start site: static assets from dist/client first (GET only),

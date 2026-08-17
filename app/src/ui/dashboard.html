@@ -1013,6 +1013,26 @@
         <button id="save-settings-btn" onclick="saveMerchantSettings()">Save Settings</button>
         <span id="save-settings-status"></span>
       </div>
+
+      <!-- Account data — data-rights (privacy-page promises: export a copy of
+           stored data, request immediate deletion; cancelled subscriptions are
+           deleted within 30 days). Export is a plain download link; delete
+           goes through a confirm dialog and POST /account/delete, which also
+           cancels any active Stripe subscription so a deleted account is never
+           billed. -->
+      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
+        <strong style="font-size:0.95rem;">Account data</strong>
+        <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 10px;">
+          Export a copy of everything we store for your account, or delete your account and all data.
+          Deletion is immediate and permanent, and any active subscription is cancelled.
+          If you cancel your subscription instead, your data is deleted within 30 days.
+        </p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <a class="btn-outline" href="/account/export" style="font-size:0.85rem;padding:8px 16px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border-radius:8px;">&#11015;&#65039; Export my data</a>
+          <button id="delete-account-btn" style="font-size:0.85rem;padding:8px 16px;background:#fff;color:#dc2626;border:1.5px solid #dc2626;" onclick="deleteAccount()">&#128465;&#65039; Delete my account and all data</button>
+        </div>
+        <div id="account-data-status" style="margin-top:8px;font-size:0.85rem;color:var(--muted);min-height:0;"></div>
+      </div>
     </div>
 
     <!-- Weekly recovery report — on-demand summary email (not a billing control) -->
@@ -2129,6 +2149,36 @@
         window.history.replaceState({}, '', url);
       }
     })();
+    // Data rights: delete the account and ALL stored data immediately
+    // (privacy-page promise "You can request immediate deletion"). Confirm
+    // dialog first; POST /account/delete also cancels any active Stripe
+    // subscription server-side so a deleted account is never billed. On
+    // success the session is gone — redirect to the landing page.
+    async function deleteAccount() {
+      if (!window.confirm(
+        'Delete your account and ALL data?\n\nThis is immediate and permanent: ' +
+        'every stored invoice, task, email log and subscription is erased, and ' +
+        'your CollectionsCopilot subscription is cancelled. There is no undo.'
+      )) return;
+      var statusEl = document.getElementById('account-data-status');
+      var btn = document.getElementById('delete-account-btn');
+      if (statusEl) statusEl.textContent = 'Deleting your account…';
+      if (btn) btn.disabled = true;
+      try {
+        var res = await fetch('/account/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        if (res.ok) {
+          window.location.href = '/'; // landing page — session is gone
+        } else {
+          var data = await res.json().catch(function () { return {}; });
+          if (statusEl) statusEl.textContent = 'Delete failed: ' + (data.error || 'please try again');
+          if (btn) btn.disabled = false;
+        }
+      } catch (e) {
+        if (statusEl) statusEl.textContent = 'Delete failed — please try again';
+        if (btn) btn.disabled = false;
+      }
+    }
+
     loadSubscription();
     loadSettings();
     loadInbox();

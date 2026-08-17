@@ -9,6 +9,8 @@ import {
   enforceTierTrustMode,
   recordSubscriptionEvent,
   isDevPro,
+  scheduleMerchantDeletion,
+  clearMerchantDeletion,
 } from "../db";
 import { notifyOwnerPaidSubscription, notifyOwnerCancelledSubscription } from "../pipeline/owner-notify";
 
@@ -709,6 +711,11 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
             console.error(`[billing] owner paid-subscription notification error: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
+        // Data-rights (PROMISES_AUDIT #42): a merchant who subscribes is not
+        // cancelling — clear any pending 30-day deletion clock from an earlier
+        // cancellation (an active subscriber must never be purged by the
+        // scheduler). Runs for both new and replayed sessions (idempotent).
+        clearMerchantDeletion(db, merchantId);
 
         return new Response(JSON.stringify({ received: true, action: "subscription_created" }), { status: 200, headers });
       }
@@ -733,6 +740,13 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           }
           // Full Auto is Pro-only: demote trust_mode if this merchant lost Pro.
           enforceTierTrustMode(db, existing.merchant_id);
+          // Data-rights (PROMISES_AUDIT #42): cancelling starts the 30-day
+          // deletion clock — the privacy page promises data is deleted within
+          // 30 days of cancellation. Set only when not already set (idempotent
+          // replays / a second subscription keep the earliest deadline); the
+          // daily purge scheduler (separate build) runs purgeMerchantData on
+          // merchants whose deletion_scheduled_at has passed.
+          scheduleMerchantDeletion(db, existing.merchant_id);
         }
 
         return new Response(JSON.stringify({ received: true, action: "subscription_cancelled" }), { status: 200, headers });
@@ -765,6 +779,10 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           // Full Auto is Pro-only: demote trust_mode if this merchant lost Pro
           // (downgrade to Standard, lapse to past_due, etc.).
           enforceTierTrustMode(db, existing.merchant_id);
+          // Data-rights: a subscription returning to active (reactivation,
+          // payment recovered) cancels any pending deletion clock — an active
+          // subscriber is never scheduled for deletion.
+          if (status === "active") clearMerchantDeletion(db, existing.merchant_id);
         }
 
         return new Response(JSON.stringify({ received: true, action: "subscription_updated" }), { status: 200, headers });
