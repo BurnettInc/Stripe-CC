@@ -5,6 +5,23 @@ import type { EmailDraft } from "./drafter";
 import { appendCanspamFooter } from "./canspam";
 import { notifyMerchant } from "./notify";
 
+/**
+ * Timeout for outbound email-provider calls. A stalled provider fetch must
+ * fail fast instead of hanging the request forever (this is how a hung
+ * magic-link request would manifest once it reaches the server).
+ * Verified under Bun 1.3: AbortSignal.timeout() aborts fetch with a
+ * TimeoutError ("The operation timed out.") after the given ms.
+ */
+const EMAIL_FETCH_TIMEOUT_MS = 15000;
+
+/** Describe a provider fetch failure, with a clear message for timeouts. */
+function providerErrorMessage(provider: string, err: unknown): string {
+  if (err instanceof Error && err.name === "TimeoutError") {
+    return `${provider} send timed out after ${EMAIL_FETCH_TIMEOUT_MS}ms`;
+  }
+  return `${provider} send error: ${err instanceof Error ? err.message : String(err)}`;
+}
+
 export interface SendResult {
   success: boolean;
   message: string;
@@ -178,6 +195,7 @@ export async function sendEmailForReal(
           Authorization: `Bearer ${sendgridKey}`,
           "Content-Type": "application/json",
         },
+        signal: AbortSignal.timeout(EMAIL_FETCH_TIMEOUT_MS),
         body: JSON.stringify({
           personalizations: [{ to: [{ email: toEmail }] }],
           from: { email: baseFrom, ...(branding.senderName ? { name: branding.senderName } : {}) },
@@ -203,7 +221,7 @@ export async function sendEmailForReal(
         return { success: false, message: msg, logId: 0, provider: "sendgrid" };
       }
     } catch (err: unknown) {
-      const msg = `SendGrid send error: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = providerErrorMessage("SendGrid", err);
       if (task) logSend(db, task.id, "failed", msg);
       return { success: false, message: msg, logId: 0, provider: "sendgrid" };
     }
@@ -218,6 +236,7 @@ export async function sendEmailForReal(
           Authorization: `Bearer ${resendKey}`,
           "Content-Type": "application/json",
         },
+        signal: AbortSignal.timeout(EMAIL_FETCH_TIMEOUT_MS),
         body: JSON.stringify({
           from,
           to: toEmail,
@@ -243,7 +262,7 @@ export async function sendEmailForReal(
         return { success: false, message: msg, logId: 0, provider: "resend" };
       }
     } catch (err: unknown) {
-      const msg = `Resend send error: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = providerErrorMessage("Resend", err);
       if (task) logSend(db, task.id, "failed", msg);
       return { success: false, message: msg, logId: 0, provider: "resend" };
     }

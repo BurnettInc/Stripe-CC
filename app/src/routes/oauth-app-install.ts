@@ -273,6 +273,28 @@ export function installPageHtml(
             status.style.color = color;
             btn.textContent = original;
           };
+          // First completion wins — a 15s timeout, a response, or an error.
+          // Without the timeout, a fetch that never resolves or rejects (e.g.
+          // the server was mid-restart when the form was submitted) would leave
+          // the button stuck on "Sending…" and the spinner running forever.
+          var settled = false;
+          var timeoutId = setTimeout(function () {
+            if (settled) return;
+            settled = true;
+            btn.disabled = false;
+            if (input) input.disabled = false;
+            done('This is taking longer than usual — check your inbox, or try again.', '#B45309');
+          }, 15000);
+          var finish = function (message, color, reenable) {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutId);
+            done(message, color);
+            if (reenable) {
+              btn.disabled = false;
+              if (input) input.disabled = false;
+            }
+          };
           fetch('/api/account/request-magic-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -281,16 +303,12 @@ export function installPageHtml(
             return res.json().catch(function () { return {}; }).then(function (data) { return { res: res, data: data }; });
           }).then(function (r) {
             if (r.res.ok) {
-              done('Check your inbox — your sign-in link is on its way.', '#047857');
+              finish('Check your inbox — your sign-in link is on its way.', '#047857', false);
             } else {
-              done((r.data && r.data.error) ? r.data.error : 'Something went wrong — please try again.', '#B91C1C');
-              btn.disabled = false;
-              if (input) input.disabled = false;
+              finish((r.data && r.data.error) ? r.data.error : 'Something went wrong — please try again.', '#B91C1C', true);
             }
           }).catch(function () {
-            done('Something went wrong — please try again.', '#B91C1C');
-            btn.disabled = false;
-            if (input) input.disabled = false;
+            finish('Something went wrong — please try again.', '#B91C1C', true);
           });
         });
       </script>`;
