@@ -6,7 +6,7 @@ import { handleTasks } from "./routes/tasks";
 import { handleInboundReply } from "./routes/inbound";
 import { handleReplies } from "./routes/replies";
 import { handleSettings } from "./routes/settings";
-import { handleBilling } from "./routes/billing";
+import { handleBilling, billingSignInRequiredPage } from "./routes/billing";
 import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus, handleOAuthSession, handleOAuthHandoff, handleOAuthSuccess } from "./routes/oauth";
 import { handleAppInstallPage, handleAppInstallStart, handleAppInstallCallback } from "./routes/oauth-app-install";
 import { handleInvoices } from "./routes/invoices";
@@ -101,14 +101,16 @@ if (stripeKey) {
   console.log(`   Stripe key: not set (webhooks & billing will fail)`);
 }
 
-// App channel-link token status (masked to the suffix — never log the full
-// token). Required for marketplace installs: Stripe rejects authorize links
-// without the chnlink path segment ("The provided OAuth link is invalid").
-const chnlinkToken = process.env.STRIPE_APP_CHNLINK || "";
-if (chnlinkToken) {
-  console.log(`   App channel-link token: …${chnlinkToken.slice(-4)} (configured)`);
+// Stripe App OAuth client-id status (masked). Marketplace installs use
+// Stripe's PUBLIC OAuth install links (plain /oauth/v2/authorize — the
+// External-Testing chnlink format was removed 2026-08-15 per the reviewer);
+// the mode is selected by the client id (STRIPE_APP_TEST_CLIENT_ID /
+// STRIPE_APP_LIVE_CLIENT_ID, falling back to STRIPE_CLIENT_ID).
+const appClientId = process.env.STRIPE_APP_LIVE_CLIENT_ID || process.env.STRIPE_CLIENT_ID || "";
+if (appClientId) {
+  console.log(`   App client id: ${appClientId.slice(0, 6)}…${appClientId.slice(-4)} (live-mode install link configured)`);
 } else {
-  console.log(`   App channel-link token: NOT SET (marketplace installs will be rejected by Stripe)`);
+  console.log(`   App client id: NOT SET (live-mode marketplace installs will show a "not configured" notice)`);
 }
 
 // Email provider status
@@ -486,9 +488,18 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/billing/checkout" && (req.method === "POST" || req.method === "GET")) {
         const auth = requireSession(db, req);
         if (auth instanceof Response) {
-          // GET is a browser navigation (dashboard stat-card link): never show
-          // a raw JSON auth error — bounce back to the dashboard gracefully.
-          if (req.method === "GET") return new Response(null, { status: 302, headers: { Location: "/dashboard?billing=error" } });
+          // GET without a session is a browser navigation (the Stripe App
+          // drawer's Subscribe button, the dashboard stat-card link, or a bare
+          // URL hit). Reviewer blocker (2026-08-15): this used to bounce
+          // silently to /dashboard?billing=error, which renders as a blank
+          // shell for a user with no session. A Checkout Session can only be
+          // created for an authenticated merchant, so render a clear branded
+          // sign-in page instead — never a raw JSON error, never a silent
+          // redirect, always logged.
+          if (req.method === "GET") {
+            console.warn(`[billing] GET /billing/checkout without a session (${req.url}) — rendering the sign-in page (anonymous checkout is not possible; subscriptions must attach to a merchant)`);
+            return billingSignInRequiredPage();
+          }
           return auth;
         }
         const response = await handleBilling(db, req, "checkout", auth.merchant_id);
@@ -502,9 +513,14 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/billing/portal" && (req.method === "POST" || req.method === "GET")) {
         const auth = requireSession(db, req);
         if (auth instanceof Response) {
-          // GET is a browser navigation (dashboard stat-card link): never show
-          // a raw JSON auth error — bounce back to the dashboard gracefully.
-          if (req.method === "GET") return new Response(null, { status: 302, headers: { Location: "/dashboard?billing=error" } });
+          // Same no-blank-page rule as /billing/checkout: an anonymous GET
+          // cannot create a portal session (it needs the merchant's customer
+          // id), so show the branded sign-in page instead of the silent
+          // dashboard bounce.
+          if (req.method === "GET") {
+            console.warn(`[billing] GET /billing/portal without a session (${req.url}) — rendering the sign-in page (anonymous portal sessions are not possible)`);
+            return billingSignInRequiredPage();
+          }
           return auth;
         }
         const response = await handleBilling(db, req, "portal", auth.merchant_id);

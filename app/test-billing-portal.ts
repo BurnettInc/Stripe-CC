@@ -176,6 +176,22 @@ async function main(): Promise<void> {
   check("(warm) server up", warm.status === 200, `status=${warm.status}`);
   seedSession();
 
+  // ── (a0) Reviewer blocker (2026-08-15): anonymous GETs to /billing/checkout
+  // and /billing/portal must NOT silently bounce to /dashboard?billing=error
+  // (the blank-page bug) — they render the branded sign-in page (200 HTML)
+  // with a path forward. POST callers without a session keep the JSON 401.
+  {
+    const anon = await fetch(`${BASE}/billing/checkout?tier=standard`, { redirect: "manual" });
+    const html = await anon.clone().text();
+    check("(a0) anonymous GET checkout → 200 HTML sign-in page (no 302 bounce)", anon.status === 200 && String(anon.headers.get("Content-Type")).includes("text/html") && anon.headers.get("location") === null, `status=${anon.status} loc=${anon.headers.get("location")}`);
+    check("(a0) sign-in page explains + links to the entry points", html.includes("Sign in to continue") && html.includes("/oauth/install") && html.includes("/dashboard"), "");
+    const anonPost = await fetch(`${BASE}/billing/checkout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tier: "standard" }) });
+    check("(a0) anonymous POST checkout → 401 JSON (unchanged API contract)", anonPost.status === 401 && String(anonPost.headers.get("Content-Type")).includes("application/json"), `status=${anonPost.status} ct=${anonPost.headers.get("Content-Type")}`);
+    const anonPortal = await fetch(`${BASE}/billing/portal`, { redirect: "manual" });
+    const portalHtml = await anonPortal.clone().text();
+    check("(a0) anonymous GET portal → 200 HTML sign-in page (no 302 bounce)", anonPortal.status === 200 && String(anonPortal.headers.get("Content-Type")).includes("text/html") && portalHtml.includes("Sign in to continue"), `status=${anonPortal.status}`);
+  }
+
   // ── (a) Happy path: valid stored customer id ──
   resetStub();
   seedSubscriptions([{ subId: "sub_ok", customerId: "cus_ok" }]);
