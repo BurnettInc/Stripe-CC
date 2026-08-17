@@ -5,10 +5,10 @@
  * all|overdue|paid|refunded|disputed (default overdue). /reminders is a
  * SINGLE list, newest first — every successful reminder send (real + test
  * rows together); test (stub) rows are labeled with a muted "Test send" pill
- * next to the customer name and carry a row-test marker class, so the
- * client-side "Hide test sends" checkbox (off by default) can hide them
- * without a reload. The old two-tab split (?type=all|real) is gone — ?type=
- * is a no-op now. This suite proves:
+ * next to the customer name and carry a row-test marker class, and the
+ * shared list-page CSS hides row-test rows unconditionally (no toggle — test
+ * sends are never visible to merchants). The old two-tab split
+ * (?type=all|real) is gone — ?type= is a no-op now. This suite proves:
  *   - /past-due default shows only overdue rows, with the Overdue chip marked
  *     selected and all five tabs rendered with correct counts
  *   - ?status=paid / refunded / disputed / all return exactly the rows for
@@ -16,7 +16,8 @@
  *   - /reminders renders ONE list (no tab chips at all), newest first, with
  *     both real and stub rows; the stub row has the muted "Test send" pill +
  *     row-test marker class, real rows have no pill
- *   - /reminders renders the "Hide test sends" checkbox, unchecked by default
+ *   - /reminders no longer renders a "Hide test sends" toggle; stub rows are
+ *     hidden unconditionally by the shared list-page CSS rule tr.row-test
  *   - ?type=real / ?type=bogus are no-ops (same single list, no tabs)
  *   - rows carry data-sort attributes and the table has sortable headers
  *     (the client-side sort input, verified by the served markup)
@@ -130,7 +131,8 @@ async function main(): Promise<void> {
   check("reminders stub row carries row-test marker class", remAll.includes('class="row-test"'), "");
   check("reminders real rows have no Test send pill", (remAll.match(/class="pill pill-muted"/g) || []).length === 1 && (remAll.match(/class="row-test"/g) || []).length === 1, `pills=${(remAll.match(/class="pill pill-muted"/g) || []).length}`);
   check("reminders stub send still labeled in Result column", remAll.includes('chip-stub">Test send') && remAll.includes('chip-sent">Sent'), "");
-  check("reminders renders Hide test sends toggle, unchecked by default", remAll.includes('<input type="checkbox" id="hide-test-sends" />') && remAll.includes("Hide test sends"), "");
+  check("reminders no longer renders a Hide test sends toggle", !remAll.includes('id="hide-test-sends"') && !remAll.includes("Hide test sends") && !remAll.includes("hide-tests-toggle"), "");
+  check("reminders stub rows hidden unconditionally by list-page CSS", /tr\.row-test\s*\{\s*display:\s*none/.test(remAll), "");
   check("reminders ?type=real is a no-op (single view)", rows(remReal).join(",") === rows(remAll).join(",") && (remReal.match(/<a class="summary-chip/g) || []).length === 0, rows(remReal).join(","));
   check("reminders ?type=bogus is a no-op (single view)", rows(remBogus).join(",") === rows(remAll).join(","), rows(remBogus).join(","));
   check("reminders has sortable headers + data-sort cells", (remAll.match(/data-sort-key=/g) || []).length === 4 && (remAll.match(/data-sort="/g) || []).length >= 8, `keys=${(remAll.match(/data-sort-key=/g) || []).length}`);

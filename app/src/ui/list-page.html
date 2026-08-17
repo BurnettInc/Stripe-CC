@@ -88,7 +88,6 @@
       background: var(--primary); border-color: var(--primary); color: #fff;
     }
     .summary-chip.selected:hover { background: var(--primary-hover); border-color: var(--primary-hover); color: #fff; }
-    .summary-note { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
 
     /* ── Table card ── */
     .card {
@@ -139,15 +138,10 @@
     }
     .pill-muted { background: #F3F4F6; color: var(--muted); }
 
-    /* ── "Hide test sends" checkbox (reminders page) ── */
-    .hide-tests-toggle {
-      display: inline-flex; align-items: center; gap: 7px;
-      font-size: 0.8rem; font-weight: 600; color: var(--body);
-      cursor: pointer; user-select: none;
-    }
-    .hide-tests-toggle input {
-      width: 15px; height: 15px; cursor: pointer; accent-color: var(--primary);
-    }
+    /* ── Test-send (stub) rows on /reminders are always hidden — the team's
+       internal test sends must never be visible to merchants. The row-test
+       marker class stays in the markup so the rows remain identifiable. ── */
+    tr.row-test { display: none; }
 
     /* ── Empty state ── */
     .empty {
@@ -259,21 +253,10 @@
         sortTable(table, key, state.dir);
       });
 
-      // "Hide test sends" toggle (reminders page only — the checkbox is not
-      // rendered on /past-due). Test (stub) rows carry class "row-test" and a
-      // muted "Test send" pill; checking the box hides them client-side with
-      // no reload. The hidden state survives the client-side table sort above
-      // because display:none stays on the elements as rows are re-ordered.
-      var hideToggle = document.getElementById("hide-test-sends");
-      if (hideToggle) {
-        hideToggle.addEventListener("change", function () {
-          var hidden = hideToggle.checked;
-          var testRows = document.querySelectorAll("tr.row-test");
-          for (var i = 0; i < testRows.length; i++) {
-            testRows[i].style.display = hidden ? "none" : "";
-          }
-        });
-      }
+      // Test-send (stub) rows on /reminders are hidden unconditionally by the
+      // CSS rule `tr.row-test { display: none; }` above — there is no toggle,
+      // and the hidden state survives the client-side sort because the rule
+      // re-applies to the re-ordered rows.
     })();
   </script>
 </body>
