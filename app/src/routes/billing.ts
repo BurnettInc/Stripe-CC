@@ -70,6 +70,57 @@ function verifyStripeSignature(payload: string, signatureHeader: string, secret:
 }
 
 /**
+ * Branded "sign in required" page for anonymous GET navigations to
+ * /billing/checkout and /billing/portal (reviewer blocker 2026-08-15: the
+ * bare checkout URL returned a blank page because the session-required bounce
+ * silently redirected to /dashboard?billing=error, which renders as an empty
+ * shell for a user with no session).
+ *
+ * A Checkout/Portal session can only be created for an authenticated merchant
+ * (subscriptions must attach to a merchant id), so an anonymous GET cannot
+ * proceed to Stripe — but it must NEVER land on a blank page or a silent
+ * redirect. This page states exactly that, explains why, and points at the
+ * two real entry points (install/connect → dashboard, or the dashboard
+ * directly). Callers log a warning on every render so the anonymous-hit path
+ * stays visible in Railway logs.
+ */
+export function billingSignInRequiredPage(): Response {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in required — CollectionsCopilot</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F3F4F6; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 36px 40px; max-width: 440px; width: 100%; box-sizing: border-box; text-align: center; }
+    .logo { font-size: 20px; font-weight: 700; color: #1F2937; margin-bottom: 10px; }
+    .logo span { color: #635BFF; }
+    h1 { font-size: 20px; margin: 0 0 12px; color: #111827; }
+    p { font-size: 14px; line-height: 1.6; color: #4B5563; margin: 0 0 18px; }
+    a.btn { display: inline-block; background: #635BFF; color: #fff; text-decoration: none; font-weight: 600; padding: 11px 22px; border-radius: 8px; font-size: 14px; margin: 0 4px 8px; }
+    a.alt { display: inline-block; color: #635BFF; text-decoration: none; font-weight: 600; padding: 11px 22px; border-radius: 8px; font-size: 14px; margin: 0 4px 8px; }
+    .small { color: #9CA3AF; font-size: 12px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">Collections<span>Copilot</span></div>
+    <h1>Sign in to continue</h1>
+    <p>Plans and billing are tied to your CollectionsCopilot account, so you need to be signed in to subscribe or manage your plan. If you haven't connected your Stripe account yet, the dashboard will walk you through it — it only takes a minute.</p>
+    <a class="btn" href="/oauth/install">Install &amp; connect Stripe</a><br>
+    <a class="alt" href="/dashboard">Open the dashboard</a>
+    <p class="small">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>
+  </div>
+</body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8", "X-Billing-Fallback": "sign-in-required" },
+  });
+}
+
+/**
  * Handle billing routes:
  *   "checkout" → POST /billing/checkout — create a Stripe Checkout Session
  *   "portal"   → POST /billing/portal   — create a Stripe Customer Portal session
