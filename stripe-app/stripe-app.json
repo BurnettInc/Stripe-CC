@@ -2,7 +2,7 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "CollectionsCopilot",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "icon": "./icon.png",
   "ui_extension": {
     "views": [
@@ -48,5 +48,6 @@
     "https://stripe-cc-production.up.railway.app/oauth/callback"
   ],
   "distribution_type": "public",
-  "stripe_api_access_type": "oauth"
+  "stripe_api_access_type": "oauth",
+  "sandbox_install_compatible": true
 }
