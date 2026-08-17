@@ -301,7 +301,7 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     // created on the live billing account for Stripe app review) must be able
     // to apply it at Checkout; without this flag the code field never renders
     // and the discount is unusable.
-    allow_promotion_codes: reviewerPromoAttach ? "false" : "true",
+    allow_promotion_codes: "true",
     "metadata[merchant_id]": String(merchantId),
     "metadata[tier]": tier,
     success_url: successUrl,
@@ -311,6 +311,14 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     // Server-side attach is the ONLY promotion path that works in live mode on
     // this account (manual entry rejects every code with "This code is
     // invalid" — dahlia-era behavior, reproduced live; test mode works).
+    // Stripe REJECTS a session that sets BOTH allow_promotion_codes and
+    // discounts ("You may only specify one of these parameters: allow_promotion_codes,
+    // discounts." — reproduced live 2026-08-17 E2E), so when the reviewer
+    // discount is pre-attached we DROP allow_promotion_codes entirely: the
+    // discount is already applied server-side and the manual code field (which
+    // live Checkout rejects for every code on this account) would only confuse
+    // the reviewer. Real customers (no attach) keep allow_promotion_codes=true.
+    params.delete("allow_promotion_codes");
     params.set("discounts[0][promotion_code]", REVIEWER_PROMO_CODE_ID);
   }
 
