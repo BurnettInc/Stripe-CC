@@ -264,9 +264,13 @@ async function run(): Promise<void> {
     `status=${portalBroken.status} location=${portalBroken.headers.get("location")} fallback=${portalBroken.headers.get("x-billing-fallback")}`);
   db().run("DELETE FROM subscriptions WHERE stripe_subscription_id='sub_fake_no_customer'");
   // No session cookie → GET navigation still graceful (never a raw 401 JSON).
+  // PR #96 changed the anonymous GET contract from a 302 bounce to the
+  // branded 200 sign-in page (test-billing-portal.ts a0 asserts the same).
   const portalNoAuth = await fetch(`${BASE}/billing/portal`, { redirect: "manual" });
-  record("18. GET /billing/portal without a session → 302 /dashboard?billing=error (graceful)",
-    portalNoAuth.status === 302 && portalNoAuth.headers.get("location") === "/dashboard?billing=error",
+  const portalNoAuthText = await portalNoAuth.clone().text();
+  record("18. GET /billing/portal without a session → 200 branded sign-in page (no 302 bounce)",
+    portalNoAuth.status === 200 && (portalNoAuth.headers.get("content-type") || "").includes("text/html") &&
+      portalNoAuth.headers.get("location") === null && portalNoAuthText.includes("Sign in to continue"),
     `status=${portalNoAuth.status} location=${portalNoAuth.headers.get("location")}`);
   // POST /billing/portal keeps JSON behavior for the JS manageBilling() helper:
   // no subscription → clean 404 JSON with a checkout_url, no Stripe internals.

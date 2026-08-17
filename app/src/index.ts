@@ -15,6 +15,7 @@ import { handleAdminPage, handleAdminData, requireAdminToken } from "./routes/ad
 import { handleTrack } from "./routes/track";
 import { handleWaitlist } from "./routes/waitlist";
 import { handleAccountRequestMagicLink, handleAccountVerify, handleAccountMe, handleAccountLogout } from "./routes/accounts";
+import { startScheduler } from "./pipeline/scheduler";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { requireSession } from "./middleware/session";
@@ -978,4 +979,23 @@ console.log(`   Health:    http://0.0.0.0:${PORT}/health`);
 console.log(`   Stats:     http://0.0.0.0:${PORT}/stats`);
 console.log(`   Webhook:   POST http://0.0.0.0:${PORT}/webhook`);
 console.log(`   Tasks:     GET  http://0.0.0.0:${PORT}/tasks`);
+
+// ── In-process scheduler (continuous sync + escalation + summaries + purge) ──
+// The core "automatic escalating chase" engine: pulls invoices for connected
+// merchants every ~15 min (creating tasks for newly-overdue one-off invoices),
+// advances the escalation ladder daily, sends weekly recovery reports on a
+// 7-day per-merchant cadence, and runs the data-rights 30-day purge. All four
+// passes are single-flight and self-guarding — a failing tick logs and never
+// crashes the server. Disable entirely with SCHEDULER_ENABLED=0 (endpoint
+// test servers do this; the suite driver sets it in /tmp/run-suite.sh).
+if (process.env.SCHEDULER_ENABLED !== "0") {
+  try {
+    startScheduler(getDb());
+    console.log("   Scheduler: ENABLED (invoice-sync + escalation-advance + weekly-summary + purge)");
+  } catch (err) {
+    console.error(`   Scheduler: FAILED TO START — ${err instanceof Error ? err.message : String(err)} (server continues without it)`);
+  }
+} else {
+  console.log("   Scheduler: disabled (SCHEDULER_ENABLED=0)");
+}
 console.log(`   Settings:  GET  http://0.0.0.0:${PORT}/settings`);
