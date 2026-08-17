@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { getEscalationStage } from "../pipeline/escalation";
 
 const jsonHeaders = { "Content-Type": "application/json" };
 const modes = ["draft", "semi", "full"];
@@ -33,7 +34,25 @@ export async function handleInvoices(db: Database, req: Request, rawPath: string
     const invoicePaused = !!invoice.reply_paused_at || !!invoice.manually_paused_at;
     const taskPaused = task?.status === "paused";
     const sequenceStatus = task ? { emails_sent: sent.count, last_send_date: sent.last_send_date, next_scheduled: null, active: !["cancelled", "paused"].includes(String(task.status)) && !invoicePaused, paused: taskPaused || invoicePaused, stage: task.stage, status: task.status } : null;
-    return new Response(JSON.stringify({ ...invoice, sequence_status: sequenceStatus }), { headers: jsonHeaders });
+    // Alias keys the Stripe App InvoiceDetailView reads (DASHBOARD_AUDIT #40).
+    // The view renders "Amount unavailable" / "Unknown" / "Not available"
+    // without them, and displays id as the invoice number. Original keys stay
+    // untouched so the response remains backward-compatible.
+    const amountCents = invoice.amount_cents as number;
+    const dueDate = String(invoice.due_date ?? "");
+    const daysOverdue = dueDate
+      ? Math.max(0, Math.floor((Date.now() - new Date(dueDate).getTime()) / (1000 * 60 * 60 * 24)))
+      : null;
+    const timing = db.query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?").get(merchantId) as { stage1_days: number; stage2_days: number } | null;
+    const escalationStage = sequenceStatus?.stage ?? (daysOverdue === null ? null : getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20));
+    return new Response(JSON.stringify({
+      ...invoice,
+      sequence_status: sequenceStatus,
+      amount_due: amountCents,
+      days_overdue: daysOverdue,
+      escalation_stage: escalationStage,
+      invoice_number: (invoice.stripe_invoice_id as string) || `invoice-${id}`,
+    }), { headers: jsonHeaders });
   }
 
   if (isTrustMode && req.method === "GET") {

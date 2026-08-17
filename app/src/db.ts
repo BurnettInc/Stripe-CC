@@ -584,7 +584,7 @@ export function getTaskById(db: Database, id: number) {
 export function getAllTasks(db: Database, merchantId: number, includeAll = false): Array<Record<string, unknown>> {
   const rows = db.query(`
     SELECT rt.*, i.stripe_invoice_id, i.customer_name, i.customer_email, i.amount_cents, i.currency, i.due_date, i.status as invoice_status,
-           i.reply_paused_at, i.manually_paused_at, i.reply_opt_out_at,
+           i.reply_paused_at, i.manually_paused_at, i.reply_opt_out_at, i.dispute_id, i.refund_id,
            (SELECT reply_status FROM inbound_replies WHERE invoice_id = i.id ORDER BY id DESC LIMIT 1) AS reply_status
     FROM reminder_tasks rt
     JOIN invoices i ON rt.invoice_id = i.id

@@ -275,6 +275,55 @@ async function run(): Promise<void> {
     check("B5 GET /stats → sync still never creates reminder_tasks", countTasks() === 0, `tasks=${countTasks()}`);
   }
 
+  // ── Invoice detail alias keys (drawer InvoiceDetailView contract) ───────
+  // 11. GET /invoices/:id must return the alias keys the Stripe App drawer
+  // view reads (DASHBOARD_AUDIT #40): amount_due (= amount_cents),
+  // days_overdue (computed from due_date), escalation_stage (the running
+  // task's stage, else computed from days overdue via the merchant's custom
+  // timing), invoice_number (= stripe_invoice_id). Original keys stay present
+  // (backward-compatible response).
+  {
+    // Seed a clearly-overdue invoice (25 days past due) + a stage-2 task so
+    // the escalation_stage-from-sequence_status path is exercised too.
+    const d = db();
+    const due = new Date(Date.now() - 25 * 86400000).toISOString();
+    d.run(
+      "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES (?, 1, 'Alias Test Co', 'alias@example.com', 12345, 'usd', ?, 'overdue')",
+      ["in_alias_drawer", due]
+    );
+    const inv = d.query("SELECT id FROM invoices WHERE stripe_invoice_id=?").get("in_alias_drawer") as { id: number };
+    d.run("INSERT INTO reminder_tasks (invoice_id, stage, status) VALUES (?, 2, 'pending')", [inv.id]);
+    d.close();
+
+    // (a) by internal DB id
+    const resById = await get(`/invoices/${inv.id}`, authHeaders);
+    const body = await resById.json().catch(() => ({})) as Record<string, unknown>;
+    check("C1 GET /invoices/:id (internal id) → 200", resById.status === 200, `status=${resById.status}`);
+    check("C1 amount_due alias === amount_cents (cents)", body.amount_due === 12345 && body.amount_cents === 12345, JSON.stringify({ amount_due: body.amount_due, amount_cents: body.amount_cents }));
+    check("C1 days_overdue computed from due_date (25 days)", body.days_overdue === 25, `days_overdue=${body.days_overdue}`);
+    check("C1 escalation_stage from sequence_status.stage (task stage 2)", body.escalation_stage === 2, `escalation_stage=${body.escalation_stage}`);
+    check("C1 invoice_number === stripe_invoice_id", body.invoice_number === "in_alias_drawer", `invoice_number=${body.invoice_number}`);
+    check("C1 backward compat: id + sequence_status.stage still present", typeof body.id === "number" && (body.sequence_status as { stage?: number } | null)?.stage === 2, JSON.stringify(body.sequence_status));
+
+    // (b) by Stripe invoice id — the drawer's actual request path
+    const resByStripe = await get("/invoices/in_alias_drawer", authHeaders);
+    const body2 = await resByStripe.json().catch(() => ({})) as Record<string, unknown>;
+    check("C2 GET /invoices/:id (stripe_invoice_id) → 200", resByStripe.status === 200, `status=${resByStripe.status}`);
+    check("C2 alias keys match (amount/days/stage/number)", body2.amount_due === 12345 && body2.days_overdue === 25 && body2.escalation_stage === 2 && body2.invoice_number === "in_alias_drawer", JSON.stringify(body2));
+
+    // (c) no task → escalation_stage falls back to days-overdue computation
+    const d2 = db();
+    d2.run(
+      "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES (?, 1, 'No Task Co', 'notask@example.com', 5000, 'usd', ?, 'overdue')",
+      ["in_alias_no_task", new Date(Date.now() - 3 * 86400000).toISOString()]
+    );
+    d2.close();
+    const resNoTask = await get("/invoices/in_alias_no_task", authHeaders);
+    const body3 = await resNoTask.json().catch(() => ({})) as Record<string, unknown>;
+    check("C3 no task → escalation_stage computed from days overdue (stage 1 @ 3 days)", body3.escalation_stage === 1, `escalation_stage=${body3.escalation_stage}`);
+    check("C3 no task → sequence_status null, days_overdue 3", body3.sequence_status === null && body3.days_overdue === 3, JSON.stringify({ sequence_status: body3.sequence_status, days_overdue: body3.days_overdue }));
+  }
+
   console.log(`\nRESULTS: ${passed} passed, ${failures} failed`);
   stub.server.stop(true);
   if (failures > 0) process.exit(1);

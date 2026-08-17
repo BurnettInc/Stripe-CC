@@ -47,11 +47,36 @@ function Privacy() {
         </p>
 
         <p className="text-gray-700 leading-relaxed mt-4">
-          The app sets a single session cookie (<code>session</code>) when you sign in
-          via Stripe. It is HttpOnly, Secure, and SameSite=Lax, and expires after 30
-          days. We set no other cookies and we do not use analytics scripts, tracking
-          pixels, localStorage, or sessionStorage anywhere in the app or on our
-          marketing site.
+          We set a small number of first-party cookies and browser storage values,
+          each with a narrow purpose:
+        </p>
+        <ul className="list-disc pl-6 text-gray-700 space-y-1">
+          <li>
+            <code>session</code> — a session cookie set when you sign in via
+            Stripe. It is HttpOnly, Secure, and SameSite=Lax, and expires after
+            30 days.
+          </li>
+          <li>
+            <code>cc_account</code> — a session cookie for the account layer that
+            authenticates the marketplace install flow. It has the same
+            attributes (HttpOnly, Secure, SameSite=Lax) and also expires after 30
+            days.
+          </li>
+          <li>
+            <code>cc_vid</code> / <code>cc_skip</code> — small localStorage
+            values used only for first-visit attribution: a randomly generated,
+            per-browser visitor id so we can see which pages and referring sites
+            brought people to our site. No personal information is stored in
+            them.
+          </li>
+        </ul>
+        <p className="text-gray-700 leading-relaxed">
+          Our marketing site runs a small first-party analytics beacon that
+          reports the pages you visit to our own server. It is privacy-respecting:
+          it sends no personally identifying information, uses no third-party
+          tracking pixels, and connects to no advertising or cross-site
+          trackers. We do not sell your data, and we never share it with
+          advertisers.
         </p>
 
         <h2 className="text-xl font-semibold text-gray-900 mt-8">2. How we use your data</h2>
