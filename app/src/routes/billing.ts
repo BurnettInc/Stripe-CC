@@ -28,6 +28,43 @@ const PRICE_IDS: Record<string, string> = {
   pro: "price_1U4LUtAD4cJGS9Cr6Gd2824F",
 };
 
+// ── Stripe App review access discount ──
+// The Stripe reviewer must be able to subscribe without paying. Manual coupon
+// entry at Checkout FAILS in live mode on this billing account for EVERY
+// promotion code ("This code is invalid" — reproduced live for 10%/50%/100%
+// codes created via the dahlia-era API, while the SAME codes work in test
+// mode; the live-account Checkout redemption path rejects them regardless of
+// code). Server-side attach (discounts[0][promotion_code]) DOES work in live
+// mode, so the reviewer discount is PRE-ATTACHED when creating the Checkout
+// Session instead of relying on the customer-facing code field.
+//
+// Two scoped triggers, both funneling into the same attach:
+//   1. explicit opt-in: the checkout URL carries promo=REVIEWER100
+//      (/billing/checkout?tier=standard&promo=REVIEWER100) — the documented
+//      reviewer path in the marketplace listing's Test credentials note.
+//      Real customers' URLs never carry it, so the default flow is unchanged.
+//   2. test-mode marketplace install: the merchant installed the app through
+//      Stripe's TEST-mode install link (oauth_tokens.livemode=0). That link is
+//      only reachable by Stripe's review harness / the app developer's test
+//      tab — the PUBLIC marketplace listing installs live — so a test-mode
+//      install is a strong reviewer signal, and it makes the reviewer's
+//      actual Settings → Subscribe flow produce a $0 checkout with zero extra
+//      steps. Real customers (live installs) never match.
+// Only these two conditions attach; any other checkout keeps
+// allow_promotion_codes=true and no pre-attached discount.
+const REVIEWER_PROMO_CODE = "REVIEWER100";
+const REVIEWER_PROMO_CODE_ID = "promo_1U5PYjAD4cJGS9Cro4A2TdbI";
+
+/** True when the merchant installed the app through a TEST-mode marketplace
+ * install link (oauth_tokens.livemode=0). Web-connect merchants and live
+ * marketplace installs have no such row (or livemode=1) and return false. */
+function isTestModeMarketplaceInstall(db: Database, merchantId: number): boolean {
+  const row = db
+    .query("SELECT livemode FROM oauth_tokens WHERE merchant_id=? ORDER BY updated_at DESC LIMIT 1")
+    .get(merchantId) as { livemode: number } | null;
+  return !!row && row.livemode === 0;
+}
+
 /**
  * Verify a Stripe webhook signature using HMAC-SHA256.
  */
@@ -185,13 +222,15 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
   let tier: string | undefined;
   let successUrlOpt: string | undefined;
   let cancelUrlOpt: string | undefined;
+  let promoOpt: string | undefined;
   if (req.method === "GET") {
     const url = new URL(req.url);
     tier = url.searchParams.get("tier") ?? undefined;
     successUrlOpt = url.searchParams.get("success_url") ?? undefined;
     cancelUrlOpt = url.searchParams.get("cancel_url") ?? undefined;
+    promoOpt = url.searchParams.get("promo") ?? undefined;
   } else {
-    let body: { tier?: string; merchantId?: number; successUrl?: string; cancelUrl?: string };
+    let body: { tier?: string; merchantId?: number; successUrl?: string; cancelUrl?: string; promo?: string };
     try {
       body = await req.json();
     } catch {
@@ -200,6 +239,7 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     tier = body.tier;
     successUrlOpt = body.successUrl;
     cancelUrlOpt = body.cancelUrl;
+    promoOpt = body.promo;
   }
   const merchantId = sessionMerchantId;
   if (!tier || !["standard", "pro"].includes(tier)) {
@@ -238,6 +278,21 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     ? cancelUrlOpt
     : `${baseUrl}/dashboard?cancelled=true`;
 
+  // Reviewer-discount pre-attach (see the REVIEWER_* constants above). Only
+  // two scoped triggers attach the 100%-off promo:
+  //   1. the explicit promo=REVIEWER100 opt-in param (the documented reviewer
+  //      path — real customers' URLs never carry it);
+  //   2. a TEST-mode marketplace install (oauth_tokens.livemode=0) — only the
+  //      Stripe review harness / the developer test tab can produce those.
+  // When attached, allow_promotion_codes is turned OFF: the discount is
+  // already applied server-side and the manual code field (which live Checkout
+  // rejects for every code on this account) would only confuse the reviewer.
+  const explicitReviewerPromo = (promoOpt ?? "").trim().toUpperCase() === REVIEWER_PROMO_CODE;
+  const reviewerPromoAttach = explicitReviewerPromo || isTestModeMarketplaceInstall(db, merchantId);
+  if (reviewerPromoAttach) {
+    console.log(`[billing] Reviewer discount pre-attached for merchant ${merchantId} tier=${tier} (${explicitReviewerPromo ? "explicit promo param" : "test-mode install"})`);
+  }
+
   const params = new URLSearchParams({
     "line_items[0][price]": priceId,
     "line_items[0][quantity]": "1",
@@ -246,12 +301,18 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     // created on the live billing account for Stripe app review) must be able
     // to apply it at Checkout; without this flag the code field never renders
     // and the discount is unusable.
-    allow_promotion_codes: "true",
+    allow_promotion_codes: reviewerPromoAttach ? "false" : "true",
     "metadata[merchant_id]": String(merchantId),
     "metadata[tier]": tier,
     success_url: successUrl,
     cancel_url: cancelUrl,
   });
+  if (reviewerPromoAttach) {
+    // Server-side attach is the ONLY promotion path that works in live mode on
+    // this account (manual entry rejects every code with "This code is
+    // invalid" — dahlia-era behavior, reproduced live; test mode works).
+    params.set("discounts[0][promotion_code]", REVIEWER_PROMO_CODE_ID);
+  }
 
   try {
     const res = await fetch(`${STRIPE_API}/checkout/sessions`, {
