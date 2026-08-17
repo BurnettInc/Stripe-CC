@@ -2,25 +2,23 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-sdk/ui';
-import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import OverviewView from './OverviewView';
-import SettingsView from './SettingsView';
-import OnboardingView from './OnboardingView';
 import { BASE_URL, DASHBOARD_URL } from '../api';
 
 type Tier = 'standard' | 'pro';
-interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none' }
+interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none'; dev_pro?: boolean }
 
 /**
- * Gate for the drawer default viewport. Checks subscription status and routes
- * merchants to OnboardingView (plan selection) when they have no active
- * subscription, or SettingsView (Trust Mode) when they do.
+ * Gate for the drawer default viewport. The drawer is the OPERATIONAL surface:
+ * the overdue-invoice summary + controls (OverviewView). Plan & billing live in
+ * the app's settings/console view (stripe.dashboard.fullpage → SettingsView)
+ * per reviewer blocker 3c (2026-08-15), so the drawer deliberately has no
+ * subscribe UI — free-plan merchants get a pointer to Settings instead.
  *
- * Unauthenticated merchants (no session cookie yet) are routed to SettingsView,
- * which already renders the "Connect your Stripe account" UI — OnboardingView
- * does not handle the no-OAuth state.
+ * Unauthenticated merchants (no session cookie yet) get an inline "Connect your
+ * Stripe account" card (the web onboarding flow lives on the dashboard).
  */
-export default function DrawerRootView(props?: { oauthContext?: ExtensionContextValue['oauthContext'] }) {
+export default function DrawerRootView() {
   const [subscription, setSubscription] = useState<SubscriptionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [unauthenticated, setUnauthenticated] = useState(false);
@@ -58,17 +56,19 @@ export default function DrawerRootView(props?: { oauthContext?: ExtensionContext
   }
 
   if (unauthenticated) {
-    // SettingsView renders the "Connect your Stripe account" UI for the
-    // no-OAuth state, so it is the right fallback before onboarding. The
-    // dashboard link stays available as an escape hatch for merchants who
-    // aren't logged into the web app.
     return (
-      <Box css={{ stack: 'y', gap: 'small' }}>
-        <SettingsView {...props} />
-        <Button href={DASHBOARD_URL} target="_blank" type="secondary">
-          Open full dashboard
-        </Button>
-      </Box>
+      <ContextView
+        title="Collections Copilot"
+        externalLink={{ label: 'Open full dashboard', href: DASHBOARD_URL }}
+      >
+        <Box css={{ stack: 'y', gap: 'small' }}>
+          <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
+          <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to start Collections Copilot.</Box>
+          <Button type="primary" href={`${BASE_URL}/stripe/connect?return=stripe`} target="_blank">Connect Stripe</Button>
+          <Box css={{ color: 'secondary', font: 'caption' }}>Connecting opens a new tab. When you've finished onboarding there, come back and check your status.</Box>
+          <Button type="secondary" onPress={() => { void loadSubscription(); }}>Check status</Button>
+        </Box>
+      </ContextView>
     );
   }
 
@@ -90,19 +90,22 @@ export default function DrawerRootView(props?: { oauthContext?: ExtensionContext
     );
   }
 
-  if (subscription?.status === 'active') {
-    // The substantive drawer: overdue-invoice summary + controls first, then
-    // Trust Mode / connection status, then the web-dashboard escape hatch.
-    return (
-      <Box css={{ stack: 'y', gap: 'small' }}>
-        <OverviewView />
-        <SettingsView {...props} />
-        <Button href={DASHBOARD_URL} target="_blank" type="secondary">
-          Open full dashboard
-        </Button>
-      </Box>
-    );
-  }
-
-  return <OnboardingView />;
+  // Operational drawer: overdue-invoice summary + controls, then the web
+  // dashboard escape hatch. Free-plan merchants get a de-emphasized pointer to
+  // the Settings viewport for billing — no subscribe UI in the drawer.
+  return (
+    <Box css={{ stack: 'y', gap: 'small' }}>
+      <OverviewView />
+      {subscription?.status !== 'active' && (
+        <Banner
+          type="default"
+          title="Free plan"
+          description="Manage your plan and billing in the app's Settings view — open the app from the Apps menu, or use the web dashboard."
+        />
+      )}
+      <Button href={DASHBOARD_URL} target="_blank" type="secondary">
+        Open full dashboard
+      </Button>
+    </Box>
+  );
 }

@@ -2,7 +2,7 @@
   "$schema": "https://stripe.com/stripe-app.schema.json",
   "id": "com.stripecollectionscopilot.app",
   "name": "CollectionsCopilot",
-  "version": "0.1.17",
+  "version": "0.1.19",
   "icon": "./icon.png",
   "ui_extension": {
     "views": [
@@ -13,6 +13,10 @@
       {
         "viewport": "stripe.dashboard.invoice.detail",
         "component": "InvoiceDetailView"
+      },
+      {
+        "viewport": "stripe.dashboard.fullpage",
+        "component": "SettingsView"
       }
     ],
     "content_security_policy": {
@@ -21,6 +25,7 @@
         "https://stripe-cc-production.up.railway.app/settings",
         "https://stripe-cc-production.up.railway.app/stripe/connection",
         "https://stripe-cc-production.up.railway.app/billing/checkout",
+        "https://stripe-cc-production.up.railway.app/billing/portal",
         "https://stripe-cc-production.up.railway.app/invoices/",
         "https://stripe-cc-production.up.railway.app/overdue/summary",
         "https://stripe-cc-production.up.railway.app/tasks/"
