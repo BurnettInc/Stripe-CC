@@ -63,8 +63,8 @@
  */
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
-import { ensureDefaultMerchant, upsertInvoice } from "../db";
-import { encryptValue, decryptValue, getEncryptionKey } from "../middleware/auth";
+import { ensureDefaultMerchant, isMerchantDisconnected, upsertInvoice } from "../db";
+import { encryptValue, decryptValue, getEncryptionKey, getStripeConnection } from "../middleware/auth";
 import { saveStripeConnection } from "../middleware/auth";
 import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
 import { accountFromCookie } from "./accounts";
@@ -844,6 +844,59 @@ export async function backfillMerchantInvoices(
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[oauth-app] invoice backfill failed (${msg}) — install continues with an empty dashboard`);
     return { inserted: 0, error: msg };
+  }
+}
+
+/**
+ * Ongoing invoice sync for a connected merchant: re-runs the same idempotent
+ * install backfill (backfillMerchantInvoices — upsert on stripe_invoice_id)
+ * using the merchant's STORED (decrypted) OAuth access token. This is the
+ * post-install counterpart to the one-time backfill: invoices created AFTER
+ * the install never entered the pipeline (no cron, no per-merchant webhook
+ * registration), so the dashboard/drawer stayed stale forever.
+ *
+ * Wired into dashboard loads (see index.ts): when /stats or /overdue/summary
+ * is requested for a merchant with a stored connection, this best-effort
+ * refresh runs FIRST so the response reflects invoices created since the last
+ * sync — the reviewer flow (connect → land on dashboard → create a test
+ * invoice in Stripe → reload → it appears) works with zero extra steps.
+ *
+ * Guard rails:
+ *   - NO fetch when the merchant has no stored connection/token, or is
+ *     disconnected (application.deauthorized sets merchants.disconnected=1
+ *     while the token row may still exist) — log + skip.
+ *   - NEVER throws into the caller: every failure is caught and logged, and
+ *     the page still renders (sync is a refresh, never a gate).
+ *   - Sync only refreshes the INVOICES table — it never creates or cancels
+ *     reminder_tasks. Task creation stays webhook-only, so a sync can never
+ *     resurrect a sequence the pipeline stopped.
+ */
+export async function syncMerchantInvoices(
+  db: Database,
+  merchantId: number
+): Promise<{ inserted: number; synced: boolean; reason?: string }> {
+  try {
+    if (isMerchantDisconnected(db, merchantId)) {
+      console.log(`[oauth-app] invoice sync skipped for merchant ${merchantId} — stripe account disconnected/deauthorized`);
+      return { inserted: 0, synced: false, reason: "disconnected" };
+    }
+    const conn = getStripeConnection(db, merchantId);
+    if (!conn || !conn.access_token) {
+      // No OAuth connection (web-connect merchant without one, or cleared):
+      // nothing to fetch with — skip silently (log-only).
+      console.log(`[oauth-app] invoice sync skipped for merchant ${merchantId} — no stored connection token`);
+      return { inserted: 0, synced: false, reason: "no-connection" };
+    }
+    const result = await backfillMerchantInvoices(db, merchantId, conn.access_token);
+    return {
+      inserted: result.inserted,
+      synced: true,
+      reason: result.error ? `backfill-error:${result.error}` : undefined,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[oauth-app] invoice sync failed for merchant ${merchantId} (${msg}) — dashboard renders from the stored snapshot`);
+    return { inserted: 0, synced: false, reason: "error" };
   }
 }
 
