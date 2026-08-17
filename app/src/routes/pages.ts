@@ -16,9 +16,9 @@ import { join } from "node:path";
 //   /reminders — single list, newest first: every successful reminder send
 //                (real + test rows together). Test (stub) rows are labeled
 //                with a muted "Test send" pill next to the customer name and
-//                can be hidden client-side by the "Hide test sends" checkbox
-//                (off by default; ?type= is deliberately a no-op — there is
-//                one dataset, not two views).
+//                are always hidden from merchants (see the shared list-page
+//                CSS; ?type= is deliberately a no-op — there is one dataset,
+//                not two views).
 // The past-due summary chips are real <a> tabs (work without JS — server-side
 // filtering); the table headers are client-side sorted by vanilla JS in
 // list-page.html (graceful no-op without JS). Lists stay capped at 200 rows.
@@ -219,30 +219,21 @@ const LOG_COLUMNS = `
   JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id
   JOIN invoices i ON rt.invoice_id = i.id
   WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=?`;
-// Matches GET /stats emailsSent: a "real send" is any successful reminder
-// send whose provider_message is not a test-mode [STUB SEND]. A stub can
-// never count as a real send (the no-fake-sends rule); stubs still appear in
-// the list, labeled with a muted "Test send" pill (see handleRemindersPage),
-// and can be hidden with the client-side "Hide test sends" toggle.
-const REAL_ONLY_FILTER = " AND sl.provider_message NOT LIKE '%[STUB SEND]%'";
+// A "real send" is any successful reminder send whose provider_message is
+// not a test-mode [STUB SEND] (matches GET /stats emailsSent; the no-fake-
+// sends rule). Stubs still appear in the list — labeled with a muted
+// "Test send" pill and a row-test marker class (see handleRemindersPage) —
+// and the shared list-page CSS hides row-test rows unconditionally, so
+// merchants never see the team's internal test sends.
 
 export function handleRemindersPage(db: Database, merchantId: number): Response {
   // One list, newest first — every successful reminder send, real and test
   // (stub) alike. There is no ?type= split anymore: test rows are labeled
-  // per-row with a muted "Test send" pill and a row-test marker class, so the
-  // client-side "Hide test sends" checkbox can hide them without a reload.
+  // per-row with a muted "Test send" pill and a row-test marker class, and
+  // the shared list-page CSS hides row-test rows unconditionally (no toggle —
+  // merchants never see internal test sends).
   // ORDER BY sl.created_at DESC, sl.id DESC = newest first (matches the
   // subtitle copy; id DESC breaks ties deterministically for same-second rows).
-
-  const countAll = (db.query(`SELECT COUNT(*) AS n FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id JOIN invoices i ON rt.invoice_id = i.id WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=?`).get(merchantId) as { n: number }).n;
-  const countReal = (db.query(`SELECT COUNT(*) AS n FROM send_logs sl JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id JOIN invoices i ON rt.invoice_id = i.id WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=?${REAL_ONLY_FILTER}`).get(merchantId) as { n: number }).n;
-  const countTest = countAll - countReal;
-
-  const summary =
-    `<label class="hide-tests-toggle"><input type="checkbox" id="hide-test-sends" /> Hide test sends</label>` +
-    `<span class="summary-note">${esc(`${countAll} send${countAll === 1 ? "" : "s"}`)}` +
-    (countTest > 0 ? ` · ${esc(`${countTest} test send${countTest === 1 ? "" : "s"} in list`)}` : "") +
-    "</span>";
 
   const logs = db.query(
     `${LOG_COLUMNS} ORDER BY sl.created_at DESC, sl.id DESC LIMIT 200`
@@ -283,7 +274,7 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
   return renderPage(
     "Sent reminders",
     "Reminder emails sent to your customers, newest first. Test sends are labeled “Test send”.",
-    summary,
+    "",
     rows
   );
 }

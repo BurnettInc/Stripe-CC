@@ -394,7 +394,7 @@ async function handleRequest(req: Request): Promise<Response> {
       // is a send_logs 'success' entry; test-mode stub sends are labeled with
       // a muted "Test send" pill next to the customer name (and carry a
       // row-test marker class) so a stub can never be mistaken for a real
-      // delivery, and can be hidden with the "Hide test sends" checkbox.
+      // delivery; row-test rows are hidden by the shared list-page CSS.
       if (path === "/reminders" && req.method === "GET") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
