@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { requestLivemode } from "../middleware/mode";
 import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, freeDraftsRemaining, isMerchantPaused, isMerchantDisconnected, logSend, createReminderTask, FREE_ALLOWANCE_MESSAGE } from "../db";
 import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
@@ -16,11 +17,11 @@ const json404 = () => new Response(JSON.stringify({ error: "Task not found" }), 
  * Returns null when the task is missing OR owned by another merchant
  * (both 404 — don't leak existence).
  */
-function resolveOwnedTask(db: Database, taskId: number, merchantId: number): ReturnType<typeof getTaskById> {
+function resolveOwnedTask(db: Database, taskId: number, merchantId: number, livemode = 1): ReturnType<typeof getTaskById> {
   const task = getTaskById(db, taskId);
   if (!task) return null;
-  const owner = db.query("SELECT merchant_id FROM invoices WHERE id=?").get(task.invoice_id) as { merchant_id: number } | null;
-  if (!owner || owner.merchant_id !== merchantId) return null;
+  const owner = db.query("SELECT merchant_id, livemode FROM invoices WHERE id=?").get(task.invoice_id) as { merchant_id: number; livemode: number } | null;
+  if (!owner || owner.merchant_id !== merchantId || owner.livemode !== livemode) return null;
   return task;
 }
 
@@ -63,7 +64,7 @@ async function handlePause(db: Database, req: Request, merchantId: number): Prom
   }
 
   const invoice = getInvoiceById(db, invoiceId);
-  if (!invoice || invoice.merchant_id !== merchantId) {
+  if (!invoice || invoice.merchant_id !== merchantId || invoice.livemode !== requestLivemode(req)) {
     return new Response(JSON.stringify({ error: "Invoice not found" }), { status: 404, headers });
   }
 
@@ -217,6 +218,7 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
 }
 
 export async function handleTasks(db: Database, req: Request, pathSuffix: string, merchantId: number): Promise<Response> {
+  const livemode = requestLivemode(req);
   // POST /tasks/pause — manual pause (drawer Pause button; see handlePause).
   if (req.method === "POST" && pathSuffix === "/pause") {
     return handlePause(db, req, merchantId);
@@ -233,7 +235,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
   if (req.method === "GET" && pathSuffix === "") {
     const url = new URL(req.url);
     const includeAll = url.searchParams.get("status") === "all";
-    const tasks = getAllTasks(db, merchantId, includeAll);
+    const tasks = getAllTasks(db, merchantId, includeAll, livemode);
     return new Response(JSON.stringify(tasks), { status: 200, headers });
   }
 
@@ -244,7 +246,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
   if (req.method === "POST" && approveMatch) {
     const taskId = parseInt(approveMatch[1], 10);
     console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> start`);
-    const task = resolveOwnedTask(db, taskId, merchantId);
+    const task = resolveOwnedTask(db, taskId, merchantId, livemode);
     if (!task) {
       console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 404 not_found`);
       return json404();
@@ -271,7 +273,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     // NEW draft and no allowance remains.
     const subscribed = hasActiveSubscription(db, merchantId);
     const invoice = getInvoiceById(db, task.invoice_id);
-    if (!invoice) {
+    if (!invoice || invoice.livemode !== livemode) {
       console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 404 invoice_not_found`);
       return json404();
     }
@@ -358,7 +360,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
   const rejectMatch = pathSuffix.match(/^\/(\d+)\/reject$/);
   if (req.method === "POST" && rejectMatch) {
     const taskId = parseInt(rejectMatch[1], 10);
-    const task = resolveOwnedTask(db, taskId, merchantId);
+    const task = resolveOwnedTask(db, taskId, merchantId, livemode);
     if (!task) return json404();
 
     if (task.status === "sent") {
@@ -388,7 +390,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
   const draftMatch = pathSuffix.match(/^\/(\d+)\/draft$/);
   if (req.method === "PUT" && draftMatch) {
     const taskId = parseInt(draftMatch[1], 10);
-    const task = resolveOwnedTask(db, taskId, merchantId);
+    const task = resolveOwnedTask(db, taskId, merchantId, livemode);
     if (!task) return json404();
 
     if (task.status === "sent" || task.status === "cancelled") {

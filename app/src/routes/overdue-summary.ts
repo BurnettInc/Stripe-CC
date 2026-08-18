@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { corsHeadersFor } from "../middleware/cors";
+import { requestLivemode } from "../middleware/mode";
 import { getEscalationStage } from "../pipeline/escalation";
 
 /**
@@ -56,6 +57,7 @@ type InvoiceStatus = "active" | "paused" | "awaiting_approval";
 type PauseReason = "manual" | "reply" | null;
 
 export function handleOverdueSummary(db: Database, merchantId: number, req: Request): Response {
+  const livemode = requestLivemode(req);
   const respond = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), {
       status,
@@ -67,9 +69,9 @@ export function handleOverdueSummary(db: Database, merchantId: number, req: Requ
            due_date, status, manually_paused_at, reply_paused_at, reply_opt_out_at,
            dispute_id, refund_id
     FROM invoices
-    WHERE merchant_id=? AND status='overdue' AND dispute_id IS NULL
-      AND refund_id IS NULL AND reply_opt_out_at IS NULL
-  `).all(merchantId) as InvoiceRow[];
+    WHERE merchant_id=? AND status='overdue' AND livemode=?
+      AND dispute_id IS NULL AND refund_id IS NULL AND reply_opt_out_at IS NULL
+  `).all(merchantId, livemode) as InvoiceRow[];
 
   const timing = db.query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?")
     .get(merchantId) as { stage1_days: number; stage2_days: number } | null;
@@ -77,9 +79,9 @@ export function handleOverdueSummary(db: Database, merchantId: number, req: Requ
   // Most recent task per invoice (mirrors getTaskForInvoice's ordering).
   const taskRows = db.query(`
     SELECT invoice_id, stage, status FROM reminder_tasks
-    WHERE invoice_id IN (SELECT id FROM invoices WHERE merchant_id=?)
+    WHERE invoice_id IN (SELECT id FROM invoices WHERE merchant_id=? AND livemode=?)
     ORDER BY created_at DESC, id DESC
-  `).all(merchantId) as Array<{ invoice_id: number; stage: number; status: string }>;
+  `).all(merchantId, livemode) as Array<{ invoice_id: number; stage: number; status: string }>;
   const latestTaskByInvoice = new Map<number, { stage: number; status: string }>();
   for (const t of taskRows) {
     if (!latestTaskByInvoice.has(t.invoice_id)) latestTaskByInvoice.set(t.invoice_id, t);
@@ -143,7 +145,7 @@ export function handleOverdueSummary(db: Database, merchantId: number, req: Requ
     FROM send_logs sl
     JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id
     JOIN invoices i ON rt.invoice_id = i.id
-    WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=?
+    WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=? AND i.livemode=?
     ORDER BY sl.id DESC
     LIMIT 5
   `).all(merchantId) as Array<{

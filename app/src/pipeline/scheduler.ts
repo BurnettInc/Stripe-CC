@@ -101,10 +101,12 @@ export interface SchedulerDeps {
   /** Injectable logger (structured [scheduler] lines). Defaults to console.log. */
   log?: (msg: string) => void;
   /** Injectable invoice pull — defaults to syncMerchantInvoices. Tests stub the
-   * 401 path here instead of hitting the network. */
+   * 401 path here instead of hitting the network. `opts.livemode` selects the
+   * mode (1 = live default, 0 = test) — the pass runs the pull once per mode. */
   syncInvoices?: (
     db: Database,
     merchantId: number,
+    opts?: { livemode?: number },
   ) => Promise<{ inserted: number; synced: boolean; reason?: string }>;
 }
 
@@ -143,14 +145,14 @@ export function singleFlightPass(
 
 // ── Shared helpers ──
 
-function countTrackedOverdue(db: Database, merchantId: number): number {
+function countTrackedOverdue(db: Database, merchantId: number, livemode = 1): number {
   const row = db
     .query(
       `SELECT COUNT(DISTINCT i.id) AS n FROM invoices i
        JOIN reminder_tasks rt ON rt.invoice_id = i.id
-       WHERE i.merchant_id = ? AND i.status = 'overdue'`
+       WHERE i.merchant_id = ? AND i.status = 'overdue' AND i.livemode = ?`
     )
-    .get(merchantId) as { n: number };
+    .get(merchantId, livemode === 0 ? 0 : 1) as { n: number };
   return row.n;
 }
 
@@ -181,13 +183,14 @@ function reconcileInvoiceStatuses(
   db: Database,
   merchantId: number,
   before: Map<string, { status: string; id: number }>,
+  livemode: number,
   log: (m: string) => void,
 ): void {
   const after = db
     .query(
-      "SELECT id, stripe_invoice_id, status, paid_notified, customer_name, amount_cents, currency, due_date, ever_overdue FROM invoices WHERE merchant_id=?"
+      "SELECT id, stripe_invoice_id, status, paid_notified, customer_name, amount_cents, currency, due_date, ever_overdue FROM invoices WHERE merchant_id=? AND livemode=?"
     )
-    .all(merchantId) as Array<{
+    .all(merchantId, livemode === 0 ? 0 : 1) as Array<{
       id: number;
       stripe_invoice_id: string;
       status: string;
@@ -280,11 +283,21 @@ export interface InvoiceSyncPassResult {
  * upsert (idempotent), propagate paid/void transitions, and create tasks for
  * newly-overdue invoices (Standard cap + blocked-resume, free-draft allowance,
  * Trust Mode via the shared watcher factory). HTTP 401 → mark disconnected.
+ *
+ * MODE-AWARE since reviewer fix #5: the pass runs ONCE PER MODE for every
+ * merchant — live (livemode=1, always: web-connect merchants have only the
+ * live mirror) and test (livemode=0, only when the merchant has a marketplace
+ * TEST install — oauth_tokens row with livemode=0). Each mode pulls with its
+ * own token (getStripeConnectionFor), tags its own rows, and reconciles its
+ * own state; the Standard cap counts per mode (test overdue rows never count
+ * against the live cap). A dead token 401 marks the merchant disconnected ONLY
+ * in live mode (a dead test token must not stop live collections); a test-mode
+ * 401 is logged as an error and the merchant keeps running.
  */
 export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {}): Promise<InvoiceSyncPassResult> {
   const log = deps.log ?? console.log;
   const now = deps.now?.() ?? new Date();
-  const syncInvoices = deps.syncInvoices ?? ((db: Database, merchantId: number) =>
+  const syncInvoices = deps.syncInvoices ?? ((db: Database, merchantId: number, opts?: { livemode?: number }) =>
     // The periodic sync MUST include inactive statuses: void / uncollectible
     // invoices in Stripe carry no webhook (only payment_failed/overdue do),
     // so the ONLY way to detect a void/uncollectible transition after a
@@ -292,7 +305,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
     // the reconcile pass then cancels the open sequence). The install
     // backfill path keeps includeInactive=false (never surface dead debts as
     // actionable on first connect); the draft status stays excluded either way.
-    syncMerchantInvoices(db, merchantId, { includeInactive: true }));
+    syncMerchantInvoices(db, merchantId, { includeInactive: true, ...opts }));
   const result: InvoiceSyncPassResult = {
     merchants: 0,
     invoicesUpserted: 0,
@@ -318,37 +331,55 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
 
   for (const { id: merchantId } of merchants) {
     result.merchants++;
-    // Pre-sync snapshot for paid/void transition detection.
-    const before = new Map<string, { status: string; id: number }>();
-    for (const row of db.query("SELECT id, stripe_invoice_id, status FROM invoices WHERE merchant_id=?").all(merchantId) as {
-      id: number;
-      stripe_invoice_id: string;
-      status: string;
-    }[]) {
-      before.set(row.stripe_invoice_id, row);
-    }
-
-    const sync = await syncInvoices(db, merchantId);
-    result.invoicesUpserted += sync.inserted || 0;
-
-    if (!sync.synced && sync.reason === "disconnected") continue;
-
-    // Dead token pair (HTTP 401 — platform_api_key_expired): mirror
-    // application.deauthorized semantics — mark disconnected + stop sequences.
-    if (!sync.synced || (sync.reason ?? "").includes("HTTP 401")) {
-      if ((sync.reason ?? "").includes("HTTP 401")) {
-        markDisconnected(db, merchantId);
-        result.disconnected.push(String(merchantId));
-        log(`[scheduler] invoice-sync: merchant ${merchantId} token rejected (HTTP 401) — marked disconnected, sequences stopped`);
-      } else if (sync.reason) {
-        result.errors.push(`merchant ${merchantId}: ${sync.reason}`);
+    // ── Mode loop (reviewer fix #5) ──
+    // Live always; test only when the merchant has a marketplace TEST install.
+    // Each iteration is a fully independent pipeline run for that mode: its
+    // own token pull (syncInvoices → getStripeConnectionFor), its own
+    // snapshot/reconcile, its own cap accounting, its own task creation.
+    for (const livemode of [1, 0] as const) {
+      if (livemode === 0) {
+        // Test mode exists only for merchants with a marketplace TEST install.
+        // Web-connect merchants (no oauth_tokens at all) have no test
+        // connection; merchants with a live-only install must not have their
+        // live rows re-tagged as test (the upsert key is mode-scoped, so a
+        // test pull WOULD write parallel test copies). Skip test unless a
+        // test token row is actually present.
+        const hasTest = db
+          .query("SELECT 1 FROM oauth_tokens WHERE merchant_id = ? AND livemode = 0 LIMIT 1")
+          .get(merchantId);
+        if (!hasTest) continue;
       }
-      continue;
-    }
+      // Pre-sync snapshot for paid/void transition detection — mode-scoped.
+      const before = new Map<string, { status: string; id: number }>();
+      for (const row of db.query(
+        "SELECT id, stripe_invoice_id, status FROM invoices WHERE merchant_id=? AND livemode=?"
+      ).all(merchantId, livemode) as {
+        id: number;
+        stripe_invoice_id: string;
+        status: string;
+      }[]) {
+        before.set(row.stripe_invoice_id, row);
+      }
+      const sync = await syncInvoices(db, merchantId, { livemode });
+      result.invoicesUpserted += sync.inserted || 0;
+      if (!sync.synced && sync.reason === "disconnected") continue;
+      // Dead token pair (HTTP 401 — platform_api_key_expired): mirror
+      // application.deauthorized semantics — mark disconnected + stop
+      // sequences. LIVE mode only: a dead TEST token must never stop a
+      // merchant's live collections — log it as an error instead.
+      if (!sync.synced || (sync.reason ?? "").includes("HTTP 401")) {
+        if ((sync.reason ?? "").includes("HTTP 401") && livemode === 1) {
+          markDisconnected(db, merchantId);
+          result.disconnected.push(String(merchantId));
+          log(`[scheduler] invoice-sync: merchant ${merchantId} live token rejected (HTTP 401) — marked disconnected, sequences stopped`);
+        } else if (sync.reason) {
+          result.errors.push(`merchant ${merchantId} (livemode=${livemode}): ${sync.reason}`);
+        }
+        continue;
+      }
+      reconcileInvoiceStatuses(db, merchantId, before, livemode, log);
 
-    reconcileInvoiceStatuses(db, merchantId, before, log);
-
-    // Task creation for newly-overdue invoices — the core of the chase
+      // Task creation for newly-overdue invoices — the core of the chase
     // promise. Every overdue invoice with no task is considered, oldest
     // first. The Standard cap blocks only when the number of ALREADY-tracked
     // overdue invoices is at the limit (50), so the 50th is still trackable
@@ -356,15 +387,15 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
     // tracked count drops below the limit (db.ts's documented blocked-resume
     // contract — the watcher's per-event rule would block an entire burst).
     const limit = invoiceLimitFor(db, merchantId);
-    let tracked = limit !== null ? countTrackedOverdue(db, merchantId) : 0;
+    let tracked = limit !== null ? countTrackedOverdue(db, merchantId, livemode) : 0;
     const untracked = db
       .query(
         `SELECT i.* FROM invoices i
-         WHERE i.merchant_id = ? AND i.status = 'overdue'
+         WHERE i.merchant_id = ? AND i.status = 'overdue' AND i.livemode = ?
            AND NOT EXISTS (SELECT 1 FROM reminder_tasks rt WHERE rt.invoice_id = i.id)
          ORDER BY i.id ASC`
       )
-      .all(merchantId) as Invoice[];
+      .all(merchantId, livemode) as Invoice[];
 
     for (const invoice of untracked) {
       if (isInvoiceSequenceStopped(invoice)) {
@@ -385,6 +416,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
       } else {
         result.blocked.stopped++;
       }
+    }
     }
   }
 

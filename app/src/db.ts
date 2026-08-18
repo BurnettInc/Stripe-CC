@@ -130,11 +130,15 @@ export function upsertInvoice(
     currency: string;
     due_date: string;
     status: string;
+    /** 1 = live, 0 = test (reviewer fix #5). Defaults to LIVE — the
+     * pre-mode behavior; every pre-migration row is live. */
+    livemode?: number;
   }
 ) {
+  const livemode = params.livemode === 0 ? 0 : 1;
   const existing = db
-    .query("SELECT id FROM invoices WHERE stripe_invoice_id = ?")
-    .get(params.stripe_invoice_id) as { id: number } | null;
+    .query("SELECT id FROM invoices WHERE stripe_invoice_id = ? AND livemode = ?")
+    .get(params.stripe_invoice_id, livemode) as { id: number } | null;
 
   if (existing) {
     // ever_overdue is the sticky "was ever in the overdue pipeline" flag
@@ -152,9 +156,9 @@ export function upsertInvoice(
   }
 
   const result = db.run(
-    `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, ever_overdue)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [params.stripe_invoice_id, params.merchant_id, params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status === "overdue" ? 1 : 0]
+    `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, ever_overdue, livemode)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [params.stripe_invoice_id, params.merchant_id, params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status === "overdue" ? 1 : 0, livemode]
   );
   return Number(result.lastInsertRowid);
 }
@@ -587,9 +591,12 @@ export function isActivePaidSubscriber(db: Database, merchantId: number): boolea
   return !!sub && sub.status === "active" && (sub.tier === "standard" || sub.tier === "pro");
 }
 
-/** Count of currently-overdue invoices for a merchant — the measure behind the Standard cap. */
-export function countOverdueInvoices(db: Database, merchantId: number): number {
-  const row = db.query("SELECT COUNT(*) AS count FROM invoices WHERE merchant_id=? AND status='overdue'").get(merchantId) as { count: number };
+/** Count of currently-overdue invoices for a merchant — the measure behind the
+ * Standard cap. Mode-scoped since reviewer fix #5 (default live): a merchant's
+ * live and test pipelines are separate, so test-mode overdue rows never count
+ * against the live cap (and vice versa). */
+export function countOverdueInvoices(db: Database, merchantId: number, livemode = 1): number {
+  const row = db.query("SELECT COUNT(*) AS count FROM invoices WHERE merchant_id=? AND status='overdue' AND livemode=?").get(merchantId, livemode === 0 ? 0 : 1) as { count: number };
   return row.count;
 }
 
@@ -787,22 +794,26 @@ export function getTaskById(db: Database, id: number) {
  * candidates). Sent/cancelled tasks are excluded unless includeAll is true
  * (used for history, e.g. the e2e suite).
  *
+ * Mode-scoped (reviewer fix #5): `livemode` (1 = live, 0 = test) restricts the
+ * result to the active mode's invoices — the drawer never sees the other
+ * mode's tasks. Defaults to LIVE (web dashboard sends no mode header).
+ *
  * Every row carries the invoice facts plus two inbox-specific fields:
  * - days_overdue: whole days since due_date (mirrors the watcher's math)
  * - awaiting_approval: true when the task has a reviewed draft ready to send
  *   (status 'reviewed'), false otherwise (pending = nothing drafted yet).
  */
-export function getAllTasks(db: Database, merchantId: number, includeAll = false): Array<Record<string, unknown>> {
+export function getAllTasks(db: Database, merchantId: number, includeAll = false, livemode = 1): Array<Record<string, unknown>> {
   const rows = db.query(`
     SELECT rt.*, i.stripe_invoice_id, i.customer_name, i.customer_email, i.amount_cents, i.currency, i.due_date, i.status as invoice_status,
            i.reply_paused_at, i.manually_paused_at, i.reply_opt_out_at, i.dispute_id, i.refund_id,
            (SELECT reply_status FROM inbound_replies WHERE invoice_id = i.id ORDER BY id DESC LIMIT 1) AS reply_status
     FROM reminder_tasks rt
     JOIN invoices i ON rt.invoice_id = i.id
-    WHERE i.merchant_id = ?
+    WHERE i.merchant_id = ? AND i.livemode = ?
       ${includeAll ? "" : "AND rt.status IN ('pending', 'drafted', 'reviewed')"}
     ORDER BY rt.created_at DESC
-  `).all(merchantId) as Array<Record<string, unknown>>;
+  `).all(merchantId, livemode === 0 ? 0 : 1) as Array<Record<string, unknown>>;
 
   return rows.map((row) => {
     const dueDate = String(row.due_date ?? "");
@@ -909,6 +920,9 @@ export interface Invoice {
   currency: string;
   due_date: string;
   status: string;
+  /** 1 = live Stripe mode, 0 = test (reviewer fix #5, migration 022). Every
+   *  row is tagged at write; pre-existing rows are live (default 1). */
+  livemode: number;
   trust_mode_override: string | null;
   /** 1 once this invoice EVER entered the overdue pipeline (sticky — never
    *  cleared; see migration 020 + upsertInvoice). Backs recovery_events. */
