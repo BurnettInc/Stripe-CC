@@ -47,6 +47,21 @@
  * STRIPE_APP_CHNLINK — the app's External-Testing channel-link token
  * (chnlink_…), retained ONLY as an internal-QA switch between the two
  * authorize formats (see the NOTE below).
+ *
+ * PUBLISHED → LIVE-ONLY PAGE (2026-08-18): the app is APPROVED and the
+ * marketplace install URL is the PUBLIC Live-mode surface — a real merchant
+ * landing from the listing must only ever be offered Live mode.
+ * STRIPE_APP_ENABLE_TEST_INSTALL is the internal-QA gate (STRIPE_APP_CHNLINK
+ * convention): when it is NOT exactly "1", the /oauth/install page renders as
+ * if test mode does not exist — the "Connect with Stripe — test mode" button
+ * AND every test-mode notice are suppressed even when
+ * STRIPE_APP_TEST_CLIENT_ID + STRIPE_APP_TEST_KEY are configured, and only
+ * the live-mode button (or its normal missing-creds notice) renders. When it
+ * IS "1" the page renders both modes per configuredModes exactly as before
+ * (dev/QA only). The gate is RENDERING-only: /oauth/install/start?link=test,
+ * the ?auto=1 chain, buildAuthorizeUrl, appClientIdFor and missingEnvFor are
+ * untouched, so internal QA can still drive test-mode installs via the
+ * explicit ?link=test URL. The var must stay unset in production.
  * The authorize URL is built in buildAuthorizeUrl. The PUBLIC format
  * (…/oauth/v2/authorize?client_id=…&redirect_uri=…&state=…) is the OFFICIAL
  * Live-mode install URL — the reviewer-required shape (round 2026-08-15) and
@@ -255,6 +270,20 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
 // approval the public format is the official install link (reviewer fix #4),
 // so there is no advisory and no chnlink mention on the page.
 //
+// PUBLISHED → LIVE-ONLY (2026-08-18): the app is APPROVED and the marketplace
+// install page is the PUBLIC Live-mode surface, so test mode must never be
+// offered to a real merchant. STRIPE_APP_ENABLE_TEST_INSTALL is the
+// internal-QA gate (same convention as STRIPE_APP_CHNLINK): when it is NOT
+// exactly "1" the page renders as if test mode does not exist — the test-mode
+// button AND every test-mode notice are suppressed even when
+// STRIPE_APP_TEST_CLIENT_ID + STRIPE_APP_TEST_KEY are configured, and only
+// the live-mode button (or its normal missing-creds notice) renders. When it
+// IS "1" the page renders both modes per configuredModes exactly as before
+// (dev/QA only). RENDERING-ONLY: /oauth/install/start?link=test, the ?auto=1
+// chain, buildAuthorizeUrl, appClientIdFor and missingEnvFor are untouched,
+// so internal QA can still drive test-mode installs via the explicit
+// ?link=test URL. The var must stay unset in production.
+//
 // NO-JS SIGN-IN (2026-08-18, review blocker): the sign-in card is a REAL form
 // (method=post action=/api/account/request-magic-link) that POSTs natively
 // when the inline script cannot run — the Stripe review sandbox renders this
@@ -279,6 +308,27 @@ export function installPageHtml(
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const buttonFor = (linkType: LinkType, label: string) =>
     `<a href="${baseUrl}/oauth/install/start?link=${linkType}" style="display:block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;margin:10px 0;text-align:center;">${label}</a>`;
+
+  // PUBLISHED → LIVE-ONLY RENDER GATE (2026-08-18): the app is APPROVED and
+  // this page is the PUBLIC marketplace install surface, so test mode must
+  // never be offered to a real merchant. STRIPE_APP_ENABLE_TEST_INSTALL is
+  // the internal-QA switch (STRIPE_APP_CHNLINK convention): when it is NOT
+  // exactly "1" the page renders as if test mode does not exist — the test
+  // button and EVERY test-mode notice are suppressed even when
+  // STRIPE_APP_TEST_CLIENT_ID + STRIPE_APP_TEST_KEY are configured — and only
+  // the live-mode button (or its normal missing-creds notice) renders. When
+  // it IS "1" the page renders both modes per configuredModes exactly as
+  // before (dev/QA only). RENDERING-ONLY: the /oauth/install/start?link=test
+  // path, ?auto=1, buildAuthorizeUrl, appClientIdFor and missingEnvFor are
+  // untouched, so internal QA can still drive test-mode installs via the
+  // explicit ?link=test URL. The var must stay unset in production.
+  const testInstallEnabled = process.env.STRIPE_APP_ENABLE_TEST_INSTALL === "1";
+  const renderModes: LinkType[] = testInstallEnabled ? [...LINK_TYPES] : ["live"];
+  // The modes that are BOTH configured by env AND eligible to render on this
+  // page — the live-only gate strips "test" out of configuredModes when the
+  // flag is off, so a test-only-configured server falls into the "not
+  // configured" branch and shows only the live-mode notice.
+  const shownModes = configuredModes.filter((lt) => renderModes.includes(lt));
 
   // Human text for a mode's missing env vars, e.g. "<code>STRIPE_APP_TEST_CLIENT_ID</code>
   // (or the default <code>STRIPE_CLIENT_ID</code>) and <code>STRIPE_APP_TEST_KEY</code>".
@@ -419,8 +469,8 @@ export function installPageHtml(
     const connectedLine = dashboardUrl
       ? `<p style="color:#047857;font-size:13px;margin:0 0 14px;">✅ You're connected — <a href="${dashboardUrl}" style="color:#047857;font-weight:600;">open your dashboard</a></p>`
       : "";
-    if (configuredModes.length === 0) {
-      const perMode = LINK_TYPES.map((lt) => {
+    if (shownModes.length === 0) {
+      const perMode = renderModes.map((lt) => {
         const envs = missingEnv[lt];
         if (envs.length === 0) return "";
         return `<br>${lt === "test" ? "Test" : "Live"} mode: set ${missingTextFor(lt)}`;
@@ -433,10 +483,11 @@ export function installPageHtml(
           <li>Review the permissions and approve the connection.</li>
           <li>You'll land in your CollectionsCopilot dashboard, ready to configure reminders.</li>
         </ol>
-        ${configuredModes.includes("test") ? buttonFor("test", "Connect with Stripe — test mode") : ""}
-        ${configuredModes.includes("live") ? buttonFor("live", "Connect with Stripe — live mode") : ""}
+        ${shownModes.includes("test") ? buttonFor("test", "Connect with Stripe — test mode") : ""}
+        ${shownModes.includes("live") ? buttonFor("live", "Connect with Stripe — live mode") : ""}
         ${
-          LINK_TYPES.filter((lt) => !configuredModes.includes(lt) && missingEnv[lt].length > 0)
+          renderModes
+            .filter((lt) => !shownModes.includes(lt) && missingEnv[lt].length > 0)
             .map((lt) => `<p style="color:#9CA3AF;font-size:12px;margin:12px 0 0;">${lt === "test" ? "Test" : "Live"} mode is not available yet — set ${missingTextFor(lt)}.</p>`)
             .join("")
         }
@@ -480,7 +531,12 @@ export function installPageHtml(
  * (signed-out only) render the no-JS form POST's outcome as server-side
  * banners — the sign-in card is a real method=post form (the Stripe review
  * sandbox iframe blocks the inline script), and
- * /api/account/request-magic-link 302s back here with those params. */
+ * /api/account/request-magic-link 302s back here with those params.
+ * PUBLISHED → LIVE-ONLY: the RENDERED page is gated by
+ * STRIPE_APP_ENABLE_TEST_INSTALL (installPageHtml applies the filter — when
+ * the flag is not "1" the test-mode button and notices never render); the
+ * per-mode configuration computed here is the TRUE env state, and
+ * /oauth/install/start?link=test stays reachable for internal QA. */
 export function handleAppInstallPage(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
   const baseUrl = baseUrlFor();
