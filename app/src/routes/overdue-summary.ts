@@ -148,7 +148,7 @@ export function handleOverdueSummary(db: Database, merchantId: number, req: Requ
     WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=? AND i.livemode=?
     ORDER BY sl.id DESC
     LIMIT 5
-  `).all(merchantId) as Array<{
+  `).all(merchantId, livemode) as Array<{
     sent_at: string; stage: number; invoice_id: number; customer_name: string;
     amount_cents: number; currency: string;
   }>;

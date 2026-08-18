@@ -137,7 +137,7 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
   }
 
   const invoice = getInvoiceById(db, invoiceId);
-  if (!invoice || invoice.merchant_id !== merchantId) {
+  if (!invoice || invoice.merchant_id !== merchantId || invoice.livemode !== requestLivemode(req)) {
     return new Response(JSON.stringify({ error: "Invoice not found" }), { status: 404, headers });
   }
 
