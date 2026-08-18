@@ -52,6 +52,20 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS email_connections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  merchant_id INTEGER NOT NULL REFERENCES merchants(id),
+  provider TEXT NOT NULL CHECK(provider IN ('gmail', 'microsoft')),
+  account_email TEXT NOT NULL DEFAULT '',
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  token_expires_at TEXT,
+  scopes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(merchant_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_email_connections_merchant ON email_connections(merchant_id);
 CREATE TABLE IF NOT EXISTS unsubscribes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   merchant_id INTEGER NOT NULL REFERENCES merchants(id),

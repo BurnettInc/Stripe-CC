@@ -524,6 +524,9 @@ export function clearMerchantDeletion(db: Database, merchantId: number): void {
  *   sessions           — merchant_id
  *   stripe_connections — merchant_id
  *   oauth_tokens       — merchant_id
+ *   email_connections  — merchant_id (sender-identity Phase 1, migration 026)
+ *   email_oauth_states — merchant_id (one-time state rows for the email
+ *                        authorize hop, migration 026)
  *   subscription_events— merchant_id
  *   merchants          — the row itself
  * Plus the account layer (migration 017) when this merchant is the LAST
@@ -564,6 +567,8 @@ export function purgeMerchantData(db: Database, merchantId: number): void {
     db.run("DELETE FROM sessions WHERE merchant_id = ?", [merchantId]);
     db.run("DELETE FROM stripe_connections WHERE merchant_id = ?", [merchantId]);
     db.run("DELETE FROM oauth_tokens WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM email_connections WHERE merchant_id = ?", [merchantId]);
+    db.run("DELETE FROM email_oauth_states WHERE merchant_id = ?", [merchantId]);
     db.run("DELETE FROM subscription_events WHERE merchant_id = ?", [merchantId]);
 
     // Account layer: delete the linked account only when this is its last
