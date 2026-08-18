@@ -77,7 +77,7 @@ function Home() {
             Founding Member Offer — first 50 to sign up
           </p>
           <ul className="space-y-1.5 text-sm text-gray-700">
-            <li>✓ <span className="font-semibold text-indigo-900">Lifetime 50% off</span> both plans once we go live — Standard <span className="font-semibold">$7.50/mo</span>, Pro <span className="font-semibold">$14.50/mo</span>, forever.</li>
+            <li>✓ <span className="font-semibold text-indigo-900">Lifetime 50% off</span> both plans — Standard <span className="font-semibold">$7.50/mo</span>, Pro <span className="font-semibold">$14.50/mo</span>, forever.</li>
             <li>✓ Priority support for your first 90 days.</li>
             <li>✓ Your discount stays even if we raise prices later.</li>
             <li>✓ Guaranteed to the first 50 people who sign up.</li>
