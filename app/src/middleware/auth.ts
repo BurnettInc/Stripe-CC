@@ -90,16 +90,76 @@ export function getStripeConnection(db: Database, merchantId: number): StripeCon
 }
 
 /**
+ * MODE-AWARE connection lookup (reviewer fix #5): resolve the Stripe
+ * connection whose tokens belong to the requested mode (livemode 1 = live,
+ * 0 = test), so every Stripe API call and invoice pull for a merchant uses
+ * the token of the mode the caller is acting in — never the other mode's.
+ *
+ * Resolution order for a merchant + mode:
+ *   1. oauth_tokens row for (merchant_id, livemode) — the marketplace-install
+ *      token pair (migration 014). A merchant can hold BOTH a live and a test
+ *      token (different Stripe account ids, same merchant_id); the mode picks
+ *      the right pair. The pair is read + decrypted directly from oauth_tokens
+ *      (freshest rolling pair) in StripeConnection shape.
+ *   2. When the merchant has NO oauth_tokens rows at all (a legacy web-connect
+ *      merchant — the Express /stripe/connect flow stores only the
+ *      stripe_connections mirror), fall back to the legacy mirror
+ *      (getStripeConnection) for LIVE mode: web-connect is a live-key flow, so
+ *      the mirror IS the live connection. Test mode gets null for such
+ *      merchants (they have no test connection at all).
+ *   3. When the merchant HAS oauth_tokens rows but NONE for the requested
+ *      mode, return null — the mode is genuinely not connected. Never leak
+ *      the other mode's token into the wrong mode's view.
+ */
+export function getStripeConnectionFor(
+  db: Database,
+  merchantId: number,
+  livemode: number
+): StripeConnection | null {
+  const mode = livemode ? 1 : 0;
+  const row = db
+    .query(
+      `SELECT stripe_user_id, access_token, refresh_token, stripe_publishable_key
+       FROM oauth_tokens WHERE merchant_id = ? AND livemode = ?
+       ORDER BY updated_at DESC LIMIT 1`
+    )
+    .get(merchantId, mode) as
+    | { stripe_user_id: string; access_token: string; refresh_token: string | null; stripe_publishable_key: string }
+    | null;
+  if (row) {
+    const key = getEncryptionKey();
+    return {
+      id: row.stripe_user_id,
+      merchant_id: merchantId,
+      access_token: decryptValue(row.access_token, key) ?? "",
+      refresh_token: decryptValue(row.refresh_token, key),
+      stripe_publishable_key: row.stripe_publishable_key,
+      created_at: "",
+      updated_at: "",
+    };
+  }
+  // No token row for the requested mode: a merchant with ANY marketplace
+  // install has mode-specific tokens, so a missing mode row means that mode is
+  // simply not connected — never fall through to the other mode's token. Only
+  // a merchant with NO marketplace install at all (pure web-connect) gets the
+  // legacy mirror fallback, and only for live mode (web-connect is live).
+  const any = db.query("SELECT 1 FROM oauth_tokens WHERE merchant_id = ? LIMIT 1").get(merchantId);
+  if (any || mode !== 1) return null;
+  return getStripeConnection(db, merchantId);
+}
+
+/**
  * Returns the Stripe secret key to use for API calls.
- * 
+ *
  * Priority:
- * 1. OAuth access_token from stripe_connections for the given merchant
+ * 1. OAuth access_token for the given merchant + MODE (mode-aware since
+ *    reviewer fix #5 — default live, matching the pre-fix behavior)
  * 2. STRIPE_SECRET_KEY env var (backward compat)
- * 
+ *
  * Returns null if neither is available.
  */
-export function getStripeKey(db: Database, merchantId: number): string | null {
-  const conn = getStripeConnection(db, merchantId);
+export function getStripeKey(db: Database, merchantId: number, livemode = 1): string | null {
+  const conn = getStripeConnectionFor(db, merchantId, livemode);
   if (conn?.access_token) {
     return conn.access_token;
   }

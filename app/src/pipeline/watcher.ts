@@ -14,6 +14,10 @@ export interface WebhookEvent {
   type: string;
   /** Stripe connected-account ID the event belongs to (top-level `account` field). */
   account?: string;
+  /** Stripe mode the event belongs to (top-level `livemode` field — true =
+   * live, false = test). Absent in legacy/test payloads → treated as LIVE
+   * (the pre-mode default; all pre-migration rows are live). */
+  livemode?: boolean;
   data: {
     object: {
       id: string;
@@ -44,6 +48,10 @@ function formatMoney(cents: number, currency: string): string {
  * 2. Fall back to matching the merchant's own invoices by amount, then
  *    customer email, then customer name (in that preference order).
  *
+ * MODE-AWARE (reviewer fix #5): the charge lookup uses the event mode's token
+ * (getStripeKey with the event's livemode) and every DB match is scoped to the
+ * mode — a live dispute never resolves to a test-mode invoice row.
+ *
  * Never throws: any API failure degrades to the DB-only match so the event is
  * still processed. Returns null when nothing matches.
  */
@@ -52,9 +60,10 @@ async function resolveInvoiceForCharge(
   merchantId: number,
   chargeId: string | undefined,
   fallback: { amountCents?: number; customerName?: string; customerEmail?: string },
+  livemode: number,
 ): Promise<Invoice | null> {
   if (chargeId) {
-    const key = getStripeKey(db, merchantId);
+    const key = getStripeKey(db, merchantId, livemode);
     if (key) {
       try {
         const stripe = new Stripe(key);
@@ -65,8 +74,8 @@ async function resolveInvoiceForCharge(
         const chargeInvoice = (charge as { invoice?: string | null }).invoice;
         if (chargeInvoice) {
           const byInvoice = db
-            .query("SELECT * FROM invoices WHERE stripe_invoice_id=? AND merchant_id=?")
-            .get(chargeInvoice, merchantId) as Invoice | null;
+            .query("SELECT * FROM invoices WHERE stripe_invoice_id=? AND merchant_id=? AND livemode=?")
+            .get(chargeInvoice, merchantId, livemode) as Invoice | null;
           if (byInvoice) return byInvoice;
         }
         // Enrich the fallback with facts only the charge carries (billing name/email).
@@ -83,31 +92,34 @@ async function resolveInvoiceForCharge(
     }
   }
 
-  return matchInvoiceByAmountAndCustomer(db, merchantId, fallback);
+  return matchInvoiceByAmountAndCustomer(db, merchantId, fallback, livemode);
 }
 
-/** Match a merchant's invoice by amount, preferring customer email then name. */
+/** Match a merchant's invoice by amount, preferring customer email then name.
+ * Mode-scoped (reviewer fix #5): `livemode` restricts the match to the event's
+ * mode so a live charge can never resolve to a test invoice row. */
 function matchInvoiceByAmountAndCustomer(
   db: Database,
   merchantId: number,
   match: { amountCents?: number; customerName?: string; customerEmail?: string },
+  livemode: number,
 ): Invoice | null {
   const amount = typeof match.amountCents === "number" ? match.amountCents : 0;
   if (match.customerEmail) {
     const byEmail = db
-      .query("SELECT * FROM invoices WHERE merchant_id=? AND amount_cents=? AND customer_email=? ORDER BY created_at DESC, id DESC LIMIT 1")
-      .get(merchantId, amount, match.customerEmail) as Invoice | null;
+      .query("SELECT * FROM invoices WHERE merchant_id=? AND amount_cents=? AND customer_email=? AND livemode=? ORDER BY created_at DESC, id DESC LIMIT 1")
+      .get(merchantId, amount, match.customerEmail, livemode) as Invoice | null;
     if (byEmail) return byEmail;
   }
   if (match.customerName) {
     const byName = db
-      .query("SELECT * FROM invoices WHERE merchant_id=? AND amount_cents=? AND customer_name=? ORDER BY created_at DESC, id DESC LIMIT 1")
-      .get(merchantId, amount, match.customerName) as Invoice | null;
+      .query("SELECT * FROM invoices WHERE merchant_id=? AND amount_cents=? AND customer_name=? AND livemode=? ORDER BY created_at DESC, id DESC LIMIT 1")
+      .get(merchantId, amount, match.customerName, livemode) as Invoice | null;
     if (byName) return byName;
   }
   return db
-    .query("SELECT * FROM invoices WHERE merchant_id=? AND amount_cents=? ORDER BY created_at DESC, id DESC LIMIT 1")
-    .get(merchantId, amount) as Invoice | null;
+    .query("SELECT * FROM invoices WHERE merchant_id=? AND amount_cents=? AND livemode=? ORDER BY created_at DESC, id DESC LIMIT 1")
+    .get(merchantId, amount, livemode) as Invoice | null;
 }
 
 /**
@@ -160,7 +172,9 @@ export async function createTaskForOverdueInvoice(
   const limit = invoiceLimitFor(db, merchantId);
   let overdueBefore = opts.overdueBefore;
   if (overdueBefore === undefined) {
-    const count = countOverdueInvoices(db, merchantId);
+    // Mode-scoped count (reviewer fix #5): the Standard cap measures the
+    // invoice's OWN mode's overdue rows, never the other mode's.
+    const count = countOverdueInvoices(db, merchantId, invoice.livemode);
     overdueBefore = getTaskForInvoice(db, invoice.id) ? count : Math.max(0, count - 1);
   }
 
@@ -284,6 +298,13 @@ export async function createTaskForOverdueInvoice(
 export async function handleWebhookEvent(db: Database, event: WebhookEvent): Promise<{ action: string; invoiceId?: number; taskId?: number }> {
   ensureDefaultMerchant(db);
 
+  // The event's Stripe mode (top-level livemode — reviewer fix #5). Absent /
+  // undefined (legacy test payloads) → LIVE, the pre-mode default: existing
+  // rows are live, and webhooks without the field must keep working against
+  // them. Every lookup and every upsert below is scoped to this mode, so a
+  // live event can never touch a test row (and vice versa).
+  const livemode = event.livemode === false ? 0 : 1;
+
   // Attribute the event to the merchant that owns the Stripe account it came
   // from — never blindly "row 1". Falls back to the default merchant when the
   // account isn't (yet) in stripe_connections.
@@ -314,9 +335,11 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
       // to 'overdue' (defeating the sender's terminal-skip guard) and create a
       // NEW task that would re-dun a stopped customer at the next escalation
       // stage. isInvoiceSequenceStopped is the single shared "stopped" model.
+      // Mode-scoped (reviewer fix #5): only the event mode's row can stop the
+      // event — a live invoice's stopped state never suppresses a test event.
       const existingRow = db
-        .query("SELECT * FROM invoices WHERE stripe_invoice_id = ?")
-        .get(stripeInvoiceId) as Invoice | null;
+        .query("SELECT * FROM invoices WHERE stripe_invoice_id = ? AND livemode = ?")
+        .get(stripeInvoiceId, livemode) as Invoice | null;
       if (existingRow && isInvoiceSequenceStopped(existingRow)) {
         const stopped = existingRow.status === "paid"
           ? "paid"
@@ -340,11 +363,12 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
       }
 
       // Standard plan cap: an active Standard merchant may track at most 50
-      // overdue invoices at once. Capture the pre-existing overdue count
+      // overdue invoices at once — per mode (reviewer fix #5: test rows never
+      // count against the live cap). Capture the pre-existing overdue count
       // BEFORE the upsert below so the 50th invoice is still trackable and
       // the 51st is blocked (count >= 50 means 50 rows were already tracked).
       const limit = invoiceLimitFor(db, merchantId);
-      const overdueBefore = limit !== null ? countOverdueInvoices(db, merchantId) : 0;
+      const overdueBefore = limit !== null ? countOverdueInvoices(db, merchantId, livemode) : 0;
 
       const invoiceId = upsertInvoice(db, {
         stripe_invoice_id: stripeInvoiceId,
@@ -355,6 +379,7 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
         currency,
         due_date: dueDate,
         status: "overdue",
+        livemode,
       });
       const invoice = getInvoiceById(db, invoiceId);
       if (!invoice) {
@@ -374,9 +399,13 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
       const inv = event.data.object;
       const stripeInvoiceId = inv.id;
 
+      // Mode-scoped read (reviewer fix #5): only the event mode's row can be
+      // marked paid — a live invoice.paid never flips a test row, and vice
+      // versa. (Same id can't normally exist in both modes, but the guard is
+      // the isolation contract itself.)
       const existing = db
-        .query("SELECT * FROM invoices WHERE stripe_invoice_id = ?")
-        .get(stripeInvoiceId) as Invoice | null;
+        .query("SELECT * FROM invoices WHERE stripe_invoice_id = ? AND merchant_id = ? AND livemode = ?")
+        .get(stripeInvoiceId, merchantId, livemode) as Invoice | null;
 
       if (existing) {
         // Admin telemetry (migration 020): record the recovery event — this
@@ -441,7 +470,7 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
       const chargeId = typeof dispute.charge === "string" ? dispute.charge : undefined;
       const amount = typeof dispute.amount === "number" ? dispute.amount : undefined;
 
-      const invoice = await resolveInvoiceForCharge(db, merchantId, chargeId, { amountCents: amount });
+      const invoice = await resolveInvoiceForCharge(db, merchantId, chargeId, { amountCents: amount }, livemode);
       if (!invoice) {
         console.log(`[webhook] dispute.created ${disputeId}: no local invoice matched (charge ${chargeId ?? "?"}, merchant ${merchantId}) — no action`);
         return { action: `dispute ${disputeId} not matched to a local invoice — no action` };
@@ -489,7 +518,7 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
       const chargeId = typeof refund.charge === "string" ? refund.charge : undefined;
       const amount = typeof refund.amount === "number" ? refund.amount : undefined;
 
-      const invoice = await resolveInvoiceForCharge(db, merchantId, chargeId, { amountCents: amount });
+      const invoice = await resolveInvoiceForCharge(db, merchantId, chargeId, { amountCents: amount }, livemode);
       if (!invoice) {
         console.log(`[webhook] charge.refunded ${refundId}: no local invoice matched (charge ${chargeId ?? "?"}, merchant ${merchantId}) — no action`);
         return { action: `refund ${refundId} not matched to a local invoice — no action` };

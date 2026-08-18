@@ -73,7 +73,7 @@
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { ensureDefaultMerchant, isMerchantDisconnected, upsertInvoice } from "../db";
-import { encryptValue, decryptValue, getEncryptionKey, getStripeConnection } from "../middleware/auth";
+import { encryptValue, decryptValue, getEncryptionKey, getStripeConnectionFor } from "../middleware/auth";
 import { saveStripeConnection } from "../middleware/auth";
 import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
 import { accountFromCookie } from "./accounts";
@@ -998,7 +998,7 @@ export async function backfillMerchantInvoices(
   db: Database,
   merchantId: number,
   accessToken: string,
-  opts: { includeInactive?: boolean } = {}
+  opts: { includeInactive?: boolean; livemode?: number } = {}
 ): Promise<{ inserted: number; error?: string }> {
   try {
     const res = await fetch(`${STRIPE_API}/invoices?limit=100`, {
@@ -1015,10 +1015,10 @@ export async function backfillMerchantInvoices(
     for (const raw of list) {
       const mapped = mapBackfilledInvoice((raw ?? {}) as Record<string, unknown>, merchantId, opts.includeInactive === true);
       if (!mapped) continue;
-      upsertInvoice(db, mapped);
+      upsertInvoice(db, { ...mapped, livemode: opts.livemode === 0 ? 0 : 1 });
       inserted++;
     }
-    console.log(`[oauth-app] backfilled ${inserted} invoice(s) for merchant ${merchantId}`);
+    console.log(`[oauth-app] backfilled ${inserted} invoice(s) for merchant ${merchantId} (livemode=${opts.livemode === 0 ? 0 : 1})`);
     return { inserted };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1035,6 +1035,15 @@ export async function backfillMerchantInvoices(
  * the install never entered the pipeline (no cron, no per-merchant webhook
  * registration), so the dashboard/drawer stayed stale forever.
  *
+ * MODE-AWARE since reviewer fix #5: `opts.livemode` (1 = live default,
+ * 0 = test) selects the token of that mode via getStripeConnectionFor and tags
+ * every pulled row with the mode (upsertInvoice livemode). The dashboard /
+ * drawer / scheduler call it once per mode — live rows never mix with test
+ * rows. A merchant with a marketplace install in only ONE mode gets a no-op
+ * for the other mode (getStripeConnectionFor returns null — never the other
+ * mode's token); a legacy web-connect merchant (no oauth_tokens at all) syncs
+ * live via the stripe_connections mirror, exactly as before.
+ *
  * Wired into dashboard loads (see index.ts): when /stats or /overdue/summary
  * is requested for a merchant with a stored connection, this best-effort
  * refresh runs FIRST so the response reflects invoices created since the last
@@ -1042,8 +1051,8 @@ export async function backfillMerchantInvoices(
  * invoice in Stripe → reload → it appears) works with zero extra steps.
  *
  * Guard rails:
- *   - NO fetch when the merchant has no stored connection/token, or is
- *     disconnected (application.deauthorized sets merchants.disconnected=1
+ *   - NO fetch when the merchant has no stored connection/token for the mode,
+ *     or is disconnected (application.deauthorized sets merchants.disconnected=1
  *     while the token row may still exist) — log + skip.
  *   - NEVER throws into the caller: every failure is caught and logged, and
  *     the page still renders (sync is a refresh, never a gate).
@@ -1054,18 +1063,21 @@ export async function backfillMerchantInvoices(
 export async function syncMerchantInvoices(
   db: Database,
   merchantId: number,
-  opts: { includeInactive?: boolean } = {}
+  opts: { includeInactive?: boolean; livemode?: number } = {}
 ): Promise<{ inserted: number; synced: boolean; reason?: string }> {
+  const livemode = opts.livemode === 0 ? 0 : 1;
   try {
     if (isMerchantDisconnected(db, merchantId)) {
       console.log(`[oauth-app] invoice sync skipped for merchant ${merchantId} — stripe account disconnected/deauthorized`);
       return { inserted: 0, synced: false, reason: "disconnected" };
     }
-    const conn = getStripeConnection(db, merchantId);
+    const conn = getStripeConnectionFor(db, merchantId, livemode);
     if (!conn || !conn.access_token) {
-      // No OAuth connection (web-connect merchant without one, or cleared):
-      // nothing to fetch with — skip silently (log-only).
-      console.log(`[oauth-app] invoice sync skipped for merchant ${merchantId} — no stored connection token`);
+      // No OAuth connection for this mode (web-connect merchant without one,
+      // or a marketplace install in the other mode only): nothing to fetch
+      // with — skip silently (log-only). Never falls back to the other mode's
+      // token (getStripeConnectionFor guarantees that).
+      console.log(`[oauth-app] invoice sync skipped for merchant ${merchantId} (livemode=${livemode}) — no stored connection token for this mode`);
       return { inserted: 0, synced: false, reason: "no-connection" };
     }
     // Token refresh before backfill. Stripe OAuth access tokens (rk_live_…)
@@ -1084,13 +1096,13 @@ export async function syncMerchantInvoices(
     // sees the current token, not the stale mirror.
     let accessToken = conn.access_token;
     const oauthRow = db
-      .query("SELECT stripe_user_id FROM oauth_tokens WHERE merchant_id = ? ORDER BY updated_at DESC LIMIT 1")
-      .get(merchantId) as { stripe_user_id: string } | null;
+      .query("SELECT stripe_user_id FROM oauth_tokens WHERE merchant_id = ? AND livemode = ? ORDER BY updated_at DESC LIMIT 1")
+      .get(merchantId, livemode) as { stripe_user_id: string } | null;
     if (oauthRow?.stripe_user_id) {
       const refreshed = await refreshAppAccessToken(db, oauthRow.stripe_user_id);
       if (refreshed.ok) {
         if (refreshed.refreshed) {
-          console.log(`[oauth-app] invoice sync: refreshed expired access token for ${oauthRow.stripe_user_id} (merchant ${merchantId})`);
+          console.log(`[oauth-app] invoice sync: refreshed expired access token for ${oauthRow.stripe_user_id} (merchant ${merchantId}, livemode=${livemode})`);
           // Mirror the fresh pair into stripe_connections so getStripeConnection
           // callers don't keep reading the pre-refresh (expired) token.
           const fresh = getAppOAuthTokens(db, oauthRow.stripe_user_id);
@@ -1106,7 +1118,7 @@ export async function syncMerchantInvoices(
         console.warn(`[oauth-app] invoice sync: token refresh failed for ${oauthRow.stripe_user_id} (${refreshed.error}) — falling back to stored access token`);
       }
     }
-    const result = await backfillMerchantInvoices(db, merchantId, accessToken, opts);
+    const result = await backfillMerchantInvoices(db, merchantId, accessToken, { ...opts, livemode });
     return {
       inserted: result.inserted,
       synced: true,
@@ -1337,7 +1349,9 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
   // empty one (reviewer round-2 ask). Best-effort — any failure logs and
   // degrades to the previous empty-dashboard behavior; never blocks or
   // breaks the install. Idempotent via upsertInvoice on stripe_invoice_id.
-  await backfillMerchantInvoices(db, merchantId, tokens.access_token);
+  // Tagged with the install's mode (livemode from the token exchange —
+  // reviewer fix #5) so a test-mode install never writes live rows.
+  await backfillMerchantInvoices(db, merchantId, tokens.access_token, { livemode: tokens.livemode ? 1 : 0 });
 
   // ── Mint the session + cross-host handoff ──
   // SameSite / persistence analysis (task D): the install STATE is

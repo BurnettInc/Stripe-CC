@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { ensureDefaultMerchant, resolveMerchant } from "../db";
-import { saveStripeConnection, getStripeConnection, clearStripeConnection } from "../middleware/auth";
+import { saveStripeConnection, getStripeConnectionFor, getStripeConnection, clearStripeConnection } from "../middleware/auth";
 import { readCookie } from "../middleware/session";
 import { notifyOwnerStripeConnect } from "../pipeline/owner-notify";
 import Stripe from "stripe";
@@ -445,13 +445,18 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
 /**
  * GET /stripe/connection — Return the current Stripe connection status for the dashboard.
  */
-export async function handleStripeConnectionStatus(db: Database): Promise<Response> {
+export async function handleStripeConnectionStatus(db: Database, req?: Request): Promise<Response> {
   ensureDefaultMerchant(db);
 
   // Resolve the merchant without assuming "row 1": the connected merchant
   // (most recent connection) wins, default merchant is the fallback.
   const merchant = resolveMerchant(db);
-  const conn = merchant ? getStripeConnection(db, merchant.id) : null;
+  // MODE-AWARE (reviewer fix #5): the drawer sends X-Stripe-Mode on every
+  // fetch, so the connection status reflects the ACTIVE mode's token — the
+  // drawer in Test mode sees the test connection (or "not connected"), never
+  // the live one. Absent header (web dashboard) → live, as before.
+  const livemode = req ? (req.headers.get("X-Stripe-Mode") === "test" ? 0 : 1) : 1;
+  const conn = merchant ? getStripeConnectionFor(db, merchant.id, livemode) : null;
 
   return new Response(
     JSON.stringify(conn

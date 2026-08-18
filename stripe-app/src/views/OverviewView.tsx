@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-sdk/ui';
-import { BASE_URL } from '../api';
+import { apiFetch, modeTitleSuffix, setActiveMode, type Mode } from '../api';
 
 type InvoiceStatus = 'active' | 'paused' | 'awaiting_approval';
 type PauseReason = 'manual' | 'reply' | null;
@@ -65,7 +65,9 @@ const statusLabel: Record<InvoiceStatus, string> = {
  * (fetch throws, e.g. CORS) surface the critical Banner with Retry, matching
  * the other views.
  */
-export default function OverviewView() {
+export default function OverviewView(props?: { mode?: Mode }) {
+  const mode: Mode = props?.mode ?? 'live';
+  setActiveMode(mode);
   const [summary, setSummary] = useState<OverdueSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [notConnected, setNotConnected] = useState(false);
@@ -77,7 +79,7 @@ export default function OverviewView() {
     setError(null);
     setNotConnected(false);
     try {
-      const response = await fetch(`${BASE_URL}/overdue/summary`, { credentials: 'include' });
+      const response = await apiFetch('/overdue/summary');
       if (!response.ok) {
         // 401 = no session yet (parent routing normally prevents this state).
         setNotConnected(true);
@@ -98,8 +100,7 @@ export default function OverviewView() {
     setActingOn(invoice.id);
     setError(null);
     try {
-      const response = await fetch(`${BASE_URL}/tasks/${resuming ? 'resume' : 'pause'}`, {
-        credentials: 'include',
+      const response = await apiFetch(`/tasks/${resuming ? 'resume' : 'pause'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoice_id: invoice.id }),
@@ -122,7 +123,7 @@ export default function OverviewView() {
   ];
 
   return (
-    <ContextView title="Overdue invoices">
+    <ContextView title={`Overdue invoices${modeTitleSuffix(mode)}`}>
       <Box css={{ stack: 'y', gap: 'medium' }}>
         {notConnected ? (
           <Box css={{ color: 'secondary' }}>

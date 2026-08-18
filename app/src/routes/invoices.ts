@@ -1,16 +1,17 @@
 import type { Database } from "bun:sqlite";
 import { getEscalationStage } from "../pipeline/escalation";
+import { requestLivemode } from "../middleware/mode";
 
 const jsonHeaders = { "Content-Type": "application/json" };
 const modes = ["draft", "semi", "full"];
 
-function resolveInvoice(db: Database, rawId: string) {
+function resolveInvoice(db: Database, rawId: string, livemode: number) {
   const numericId = Number(rawId);
   if (Number.isInteger(numericId) && numericId > 0) {
-    const byId = db.query("SELECT * FROM invoices WHERE id=?").get(numericId);
+    const byId = db.query("SELECT * FROM invoices WHERE id=? AND livemode=?").get(numericId, livemode);
     if (byId) return byId as Record<string, unknown>;
   }
-  return db.query("SELECT * FROM invoices WHERE stripe_invoice_id=?").get(rawId) as Record<string, unknown> | null;
+  return db.query("SELECT * FROM invoices WHERE stripe_invoice_id=? AND livemode=?").get(rawId, livemode) as Record<string, unknown> | null;
 }
 
 function notFound() { return new Response(JSON.stringify({ error: "Invoice not found" }), { status: 404, headers: jsonHeaders }); }
@@ -19,7 +20,8 @@ export async function handleInvoices(db: Database, req: Request, rawPath: string
   const match = rawPath.match(/^\/([^/]+)(?:\/trust-mode)?$/);
   if (!match) return notFound();
   const rawId = decodeURIComponent(match[1]);
-  const invoice = resolveInvoice(db, rawId);
+  const livemode = requestLivemode(req);
+  const invoice = resolveInvoice(db, rawId, livemode);
   if (!invoice || invoice.merchant_id !== merchantId) return notFound();
   const id = invoice.id as number;
   const isTrustMode = rawPath.endsWith("/trust-mode");
