@@ -401,7 +401,7 @@
       font-size: 2rem;
       font-weight: 700;
       color: var(--text);                      /* gray-900 like marketing */
-      margin-bottom: 14px;
+      margin-bottom: 6px;
       letter-spacing: -0.02em;
     }
     .tier-card .price span {
@@ -429,6 +429,56 @@
       box-shadow: 0 4px 14px rgba(79, 70, 229, 0.12);
     }
     .tier-card.featured .price { color: var(--primary-hover); }
+    /* ── Billing period toggle + founding pricing (Phase B) ── */
+    .billing-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--primary-light);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px;
+      margin: 0 0 18px;
+    }
+    .billing-toggle-btn {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 7px 16px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background .15s ease, color .15s ease;
+    }
+    .billing-toggle-btn:hover { color: var(--text); }
+    .billing-toggle-btn.active {
+      background: #fff;
+      color: var(--primary);
+      box-shadow: var(--shadow);
+    }
+    .billing-toggle-save { font-size: 0.7rem; font-weight: 700; color: var(--success); }
+    .tier-card .price .price-struck {
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--muted);
+      text-decoration: line-through;
+      margin-left: 8px;
+      letter-spacing: 0;
+    }
+    .price-sub { font-size: 0.8rem; color: var(--muted); margin: 0 0 14px; }
+    .founding-badge {
+      display: inline-block;
+      background: var(--warning-light);
+      border: 1px solid #FCD34D;
+      color: var(--warning);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin: 0 0 6px;
+    }
+    .founding-note { font-size: 0.75rem; color: var(--muted); margin: 0 0 10px; }
 
     /* ── Paused banner ── */
     .paused-banner {
@@ -1092,37 +1142,52 @@
       </div>
       <!-- Pricing block — hidden while an active subscription exists -->
       <div id="pricing">
-      <div class="tier-cards">
-        <!-- Standard Tier -->
-        <div class="tier-card">
-          <h3>Standard</h3>
-          <div class="price">$15<span>/mo</span></div>
-          <ul>
-            <li>✓ Up to 50 overdue invoices tracked</li>
-            <li>✓ 3-stage escalation ladder</li>
-            <li>✓ AI-drafted reminder emails</li>
-            <li>✓ Draft &amp; Semi-Auto modes</li>
-            <li>✓ Weekly summary reports</li>
-          </ul>
-          <button onclick="subscribe('standard')" id="btn-standard" class="btn-outline">
-            Subscribe to Standard
-          </button>
+        <!-- Billing period selector (Phase B): monthly (default, unchanged) or
+             yearly ($135/$250 — honest savings: Standard $45/yr = 25% off,
+             Pro $98/yr ≈ 28% off). The interval is UI state subscribe() sends
+             to /billing/checkout; the founding coupon is attached SERVER-SIDE
+             only — this page only displays what checkout will charge. -->
+        <div class="billing-toggle" role="tablist" aria-label="Billing period">
+          <button type="button" class="billing-toggle-btn active" id="toggle-month" data-interval="month" role="tab" aria-selected="true" onclick="setBillingInterval('month')">Monthly</button>
+          <button type="button" class="billing-toggle-btn" id="toggle-year" data-interval="year" role="tab" aria-selected="false" onclick="setBillingInterval('year')">Yearly <span class="billing-toggle-save">save up to 28%</span></button>
         </div>
-        <!-- Pro Tier -->
-        <div class="tier-card featured">
-          <h3>Pro <span style="font-size:0.7rem;background:var(--primary);color:white;padding:2px 10px;border-radius:10px;">Popular</span></h3>
-          <div class="price">$29<span>/mo</span></div>
-          <ul>
-            <li>✓ Unlimited overdue invoices</li>
-            <li>✓ 3-stage escalation ladder</li>
-            <li>✓ AI-drafted reminder emails</li>
-            <li>✓ Full Auto mode</li>
-            <li>✓ Priority support</li>
-          </ul>
-          <button onclick="subscribe('pro')" id="btn-pro">
-            Subscribe to Pro
-          </button>
-        </div>
+        <div class="tier-cards">
+          <!-- Standard Tier -->
+          <div class="tier-card">
+            <h3>Standard</h3>
+            <div class="price" id="price-standard"></div>
+            <div class="founding-badge" id="founding-badge-standard" style="display:none;"></div>
+            <div class="founding-note" id="founding-note-standard" style="display:none;"></div>
+            <div class="price-sub" id="price-sub-standard"></div>
+            <ul>
+              <li>✓ Up to 50 overdue invoices tracked</li>
+              <li>✓ 3-stage escalation ladder</li>
+              <li>✓ AI-drafted reminder emails</li>
+              <li>✓ Draft &amp; Semi-Auto modes</li>
+              <li>✓ Weekly summary reports</li>
+            </ul>
+            <button onclick="subscribe('standard')" id="btn-standard" class="btn-outline">
+              Subscribe to Standard
+            </button>
+          </div>
+          <!-- Pro Tier -->
+          <div class="tier-card featured">
+            <h3>Pro <span style="font-size:0.7rem;background:var(--primary);color:white;padding:2px 10px;border-radius:10px;">Popular</span></h3>
+            <div class="price" id="price-pro"></div>
+            <div class="founding-badge" id="founding-badge-pro" style="display:none;"></div>
+            <div class="founding-note" id="founding-note-pro" style="display:none;"></div>
+            <div class="price-sub" id="price-sub-pro"></div>
+            <ul>
+              <li>✓ Unlimited overdue invoices</li>
+              <li>✓ 3-stage escalation ladder</li>
+              <li>✓ AI-drafted reminder emails</li>
+              <li>✓ Full Auto mode</li>
+              <li>✓ Priority support</li>
+            </ul>
+            <button onclick="subscribe('pro')" id="btn-pro">
+              Subscribe to Pro
+            </button>
+          </div>
         </div>
       </div>
       <div id="sub-error" style="margin-top: 14px; font-size: 0.85rem; display: none;"></div>
@@ -1225,8 +1290,8 @@
         title.textContent = 'Connected to Stripe — subscription required';
         sub.textContent = 'Your Stripe account is connected and your invoices are synced. Choose a plan to start sending automatic payment reminders.';
         actions.innerHTML =
-          '<button onclick="subscribe(\'standard\')" id="status-banner-standard" class="status-banner-btn">Subscribe Standard — $15/mo</button>' +
-          '<button onclick="subscribe(\'pro\')" id="status-banner-pro" class="status-banner-btn status-banner-btn-primary">Subscribe Pro — $29/mo</button>';
+          '<button onclick="subscribe(\'standard\')" id="status-banner-standard" class="status-banner-btn">Subscribe Standard — ' + planPriceLabel('standard') + '</button>' +
+          '<button onclick="subscribe(\'pro\')" id="status-banner-pro" class="status-banner-btn status-banner-btn-primary">Subscribe Pro — ' + planPriceLabel('pro') + '</button>';
       } else {
         banner.classList.add('banner-ok');
         dot.className = 'status-banner-dot ok';
@@ -1317,6 +1382,7 @@
           if (connectBanner) connectBanner.style.display = 'none';
           // Status banner — the clear source of truth for connection +
           // subscription state (rendered from this same /stats payload).
+          LAST_STATS = s;
           renderStatusBanner(s);
           // Standard 50-invoice cap banner — shown only while over the limit
           // (active Standard with >= 50 overdue invoices; the watcher blocks
@@ -1564,6 +1630,14 @@
         if (handoffIf401(res)) return;
         if (res.ok) {
           var sub = await res.json();
+          // Founding Member Offer state (Phase B) — drives the pricing block
+          // and the status-banner CTAs. Display only: checkout attaches the
+          // founding coupon server-side (routes/billing.ts).
+          FOUNDING_OPEN = !!sub.foundingOpen;
+          IS_FOUNDER = !!sub.isFounder;
+          FOUNDING_REMAINING = typeof sub.foundingRemaining === 'number' ? sub.foundingRemaining : (FOUNDING_OPEN ? 50 : 0);
+          renderPricing();
+          if (LAST_STATS) renderStatusBanner(LAST_STATS);
           var isPro = sub.tier === 'pro' && sub.status === 'active';
           var isActive = sub.tier && sub.status === 'active';
           var isDevPro = !!sub.dev_pro;
@@ -1571,15 +1645,20 @@
           IS_PRO = isPro;
           IS_DEV_PRO = isDevPro;
           if (isActive) {
-            var price = sub.tier === 'pro' ? '29' : '15';
             var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
             var dateStr = sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '—';
             // The plan card is the single source of truth for plan details
             // (name + price, since date, Manage Billing) — no duplicate pill.
-            document.getElementById('plan-name').textContent = tierName + ' plan — $' + price + '/mo';
+            // Price is interval-aware (Phase B): yearly subscribers see the
+            // yearly price; founders see their locked-in 50% price (they are
+            // genuinely paying it — the coupon is on their subscription).
+            var planIv = sub.interval === 'year' ? 'year' : 'month';
+            var planList = PLAN_PRICES[sub.tier] ? PLAN_PRICES[sub.tier][planIv] : (sub.tier === 'pro' ? 29 : 15);
+            var planShown = IS_FOUNDER ? planList / 2 : planList;
+            document.getElementById('plan-name').textContent = tierName + ' plan — $' + fmtPrice(planShown) + (planIv === 'year' ? '/yr' : '/mo');
             document.getElementById('plan-since').textContent = isDevPro
               ? 'Developer preview — subscribe to manage billing'
-              : 'Since ' + dateStr;
+              : 'Since ' + dateStr + (IS_FOUNDER ? ' · Founding Member — lifetime 50% off' : '');
             if (planCard) planCard.style.display = 'block';
             if (pricing) pricing.style.display = 'none';
             statusEl.innerHTML = '';
@@ -1647,6 +1726,90 @@
     // Track connection state so subscribe() can pre-check before hitting checkout
     var STIPE_CONNECTED = false;
 
+    // ── Billing period + founding pricing (Phase B) ──
+    // Display constants mirror the LIVE Stripe catalog (routes/billing.ts
+    // PRICE_IDS): $15/$29 monthly, $135/$250 yearly. Founding pricing is 50%
+    // of the current price — the server attaches the founding coupon at
+    // checkout (never this page); these helpers only display what checkout
+    // will charge. Savings are the honest dollar amounts vs 12 × monthly:
+    // Standard 180−135 = $45/yr (25%), Pro 348−250 = $98/yr (~28%).
+    var BILLING_INTERVAL = 'month';      // UI state, sent to /billing/checkout
+    var FOUNDING_OPEN = false;           // founding window open (fewer than 50)
+    var IS_FOUNDER = false;              // this merchant already earned a slot
+    var FOUNDING_REMAINING = 50;         // honest spots-left count for display
+    var LAST_STATS = null;               // last /stats payload (banner re-render)
+    var PLAN_PRICES = {
+      standard: { month: 15, year: 135 },
+      pro:      { month: 29, year: 250 },
+    };
+    // Eligible = window still open OR already a founder (lifetime benefit) —
+    // matches isFoundingEligible() in db.ts, the exact check checkout uses.
+    function foundingEligible() { return FOUNDING_OPEN || IS_FOUNDER; }
+    function fmtPrice(n) {
+      var v = Math.round(Number(n) * 100) / 100;
+      return String(v % 1 === 0 ? v : v.toFixed(2));
+    }
+    function periodLabel() { return BILLING_INTERVAL === 'year' ? '/yr' : '/mo'; }
+    function yearlySave(tier) { return (PLAN_PRICES[tier].month * 12) - PLAN_PRICES[tier].year; }
+    function priceFor(tier, iv) {
+      var period = iv || BILLING_INTERVAL;
+      var p = PLAN_PRICES[tier][period];
+      return foundingEligible() ? p / 2 : p;
+    }
+    function planPriceLabel(tier) {
+      return '$' + fmtPrice(priceFor(tier)) + periodLabel();
+    }
+    function renderPricing() {
+      ['standard', 'pro'].forEach(function(tier) {
+        var priceEl = document.getElementById('price-' + tier);
+        var badgeEl = document.getElementById('founding-badge-' + tier);
+        var noteEl = document.getElementById('founding-note-' + tier);
+        var subEl = document.getElementById('price-sub-' + tier);
+        if (!priceEl) return;
+        var list = PLAN_PRICES[tier][BILLING_INTERVAL];
+        var price = priceFor(tier);
+        var founding = foundingEligible();
+        priceEl.innerHTML = '$' + fmtPrice(price) + '<span>' + periodLabel() + '</span>' +
+          (founding ? '<span class="price-struck">$' + list + periodLabel() + '</span>' : '');
+        if (badgeEl) {
+          if (founding) {
+            badgeEl.style.display = '';
+            badgeEl.textContent = 'Founding Member — lifetime 50% off';
+          } else {
+            badgeEl.style.display = 'none';
+            badgeEl.textContent = '';
+          }
+        }
+        if (noteEl) {
+          if (founding) {
+            noteEl.style.display = '';
+            noteEl.textContent = IS_FOUNDER
+              ? 'Priority support for 90 days — your 50% is locked in for life.'
+              : 'Priority support for 90 days \u00b7 ' + FOUNDING_REMAINING + ' of 50 spots left';
+          } else {
+            noteEl.style.display = 'none';
+            noteEl.textContent = '';
+          }
+        }
+        if (subEl) {
+          subEl.textContent = BILLING_INTERVAL === 'year'
+            ? 'Billed yearly — save $' + yearlySave(tier) + ' vs monthly'
+            : 'Billed monthly';
+        }
+      });
+    }
+    function setBillingInterval(iv) {
+      if (iv !== 'month' && iv !== 'year') return;
+      BILLING_INTERVAL = iv;
+      var m = document.getElementById('toggle-month');
+      var y = document.getElementById('toggle-year');
+      if (m) { m.classList.toggle('active', iv === 'month'); m.setAttribute('aria-selected', iv === 'month' ? 'true' : 'false'); }
+      if (y) { y.classList.toggle('active', iv === 'year'); y.setAttribute('aria-selected', iv === 'year' ? 'true' : 'false'); }
+      renderPricing();
+      if (LAST_STATS) renderStatusBanner(LAST_STATS);   // banner CTAs follow the period
+    }
+    renderPricing();
+
     async function subscribe(tier) {
       var errorEl = document.getElementById('sub-error');
       errorEl.style.display = 'none';
@@ -1673,7 +1836,7 @@
         var res = await fetch('/billing/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tier: tier }),
+          body: JSON.stringify({ tier: tier, interval: BILLING_INTERVAL }),
         });
 
         var data = await res.json();

@@ -51,6 +51,14 @@ function tierFromPriceId(priceId: string | undefined): string | undefined {
   }
   return undefined;
 }
+/** Map a subscribed price id back to its billing interval (Phase B). */
+function intervalFromPriceId(priceId: string | undefined): string | undefined {
+  if (!priceId) return undefined;
+  for (const interval of Object.keys(PRICE_IDS.standard)) {
+    if (PRICE_IDS.standard[interval] === priceId || PRICE_IDS.pro[interval] === priceId) return interval;
+  }
+  return undefined;
+}
 
 // ── Founding Member Offer (Phase A, 2026-08-18) ──
 // LIVE coupon on the app's platform Stripe account: percent_off=50,
@@ -353,6 +361,10 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     allow_promotion_codes: "true",
     "metadata[merchant_id]": String(merchantId),
     "metadata[tier]": tier,
+    // Billing interval on the session (Phase B) so the completion webhook can
+    // record it on the subscription row (the dashboard's plan card then shows
+    // the honest "$250/yr" for yearly subscribers). Default month, unchanged.
+    "metadata[interval]": billingInterval,
     success_url: successUrl,
     cancel_url: cancelUrl,
   });
@@ -808,7 +820,7 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           id?: string;
           subscription?: string;
           customer?: string;
-          metadata?: { merchant_id?: string; tier?: string };
+          metadata?: { merchant_id?: string; tier?: string; interval?: string };
         };
         const stripeSubscriptionId = session.subscription;
         const stripeCustomerId = session.customer;
@@ -816,6 +828,10 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           ? parseInt(session.metadata.merchant_id, 10)
           : null;
         const tier = session.metadata?.tier || "standard";
+        // Billing interval recorded at checkout (Phase B): metadata[interval]
+        // is set by handleCheckout; absent/unknown falls back to month, which
+        // is also what every pre-Phase-B subscription actually was.
+        const interval = session.metadata?.interval === "year" ? "year" : "month";
 
         if (!stripeSubscriptionId || !merchantId) {
           console.error("[billing] checkout.session.completed missing subscription or merchant_id");
@@ -829,7 +845,7 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
         if (existing) {
           console.log(`[billing] Subscription ${stripeSubscriptionId} already exists, skipping`);
         } else {
-          createSubscription(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, stripe_customer_id: stripeCustomerId, tier });
+          createSubscription(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, stripe_customer_id: stripeCustomerId, tier, interval });
           recordSubscriptionEvent(db, { merchant_id: merchantId, stripe_subscription_id: stripeSubscriptionId, event: "created", tier, status: "active" });
           console.log(`[billing] Subscription created: merchant=${merchantId} tier=${tier} sub=${stripeSubscriptionId} customer=${stripeCustomerId || "n/a"}`);
           // Owner notification: "💳 Paid subscription — ..." for real
@@ -917,12 +933,14 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           const status = sub.status || existing.status;
 
           let tier: string | undefined;
+          let interval: string | undefined;
           const priceId = sub.items?.data?.[0]?.price?.id;
           if (priceId) {
             tier = tierFromPriceId(priceId);
+            interval = intervalFromPriceId(priceId);
           }
 
-          updateSubscriptionStatus(db, sub.id, status, tier);
+          updateSubscriptionStatus(db, sub.id, status, tier, interval);
           recordSubscriptionEvent(db, { merchant_id: existing.merchant_id, stripe_subscription_id: sub.id, event: "updated", tier, status });
           console.log(`[billing] Subscription ${sub.id} updated: status=${status} tier=${tier || "unchanged"}`);
           // Full Auto is Pro-only: demote trust_mode if this merchant lost Pro

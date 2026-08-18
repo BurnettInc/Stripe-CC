@@ -182,6 +182,7 @@ async function main(): Promise<void> {
     check("(b) default month → 200", res.status === 200, `status=${res.status}`);
     check("(b) default month uses MONTHLY standard price", p?.get("line_items[0][price]") === MONTH_STD, p?.get("line_items[0][price]") ?? "no call");
     check("(b) mode=subscription unchanged", p?.get("mode") === "subscription", p?.get("mode") ?? "");
+    check("(b) metadata[interval]=month on default checkout", p?.get("metadata[interval]") === "month", p?.get("metadata[interval]") ?? "no interval");
   }
   {
     const res = await postCheckout({ tier: "pro" });
@@ -194,6 +195,7 @@ async function main(): Promise<void> {
     const res = await postCheckout({ tier: "standard", interval: "year" });
     const p = lastCheckoutParams();
     check("(c) yearly standard → YEARLY standard price ($135)", res.status === 200 && p?.get("line_items[0][price]") === YEAR_STD, `status=${res.status} price=${p?.get("line_items[0][price]")}`);
+    check("(c) metadata[interval]=year on yearly checkout", p?.get("metadata[interval]") === "year", p?.get("metadata[interval]") ?? "no interval");
   }
   {
     const res = await postCheckout({ tier: "pro", interval: "year" });
@@ -329,6 +331,66 @@ async function main(): Promise<void> {
     check("(m) founder completion → 200", res.status === 200, `status=${res.status}`);
     check("(m) no new row for founder (still 50)", countFounding() === QUOTA, `count=${countFounding()}`);
     check("(m) no strip for a founder", stub.deleteCalls.length === 0, JSON.stringify(stub.deleteCalls));
+  }
+
+  // ── (n) /subscription founding state + interval (Phase B dashboard UI) ──
+  // The dashboard's pricing block reads foundingOpen/isFounder/foundingRemaining
+  // from /subscription to decide whether to show founding pricing and the
+  // "N of 50 spots left" note; the plan card reads interval to show the honest
+  // yearly price. The UI only DISPLAYS — checkout attaches the coupon server-side.
+  {
+    seedFounding([]);
+    const d = db();
+    d.run("DELETE FROM subscriptions WHERE merchant_id=1"); // clear (i)/(m) rows
+    d.close();
+    const res = await fetch(`${BASE}/subscription`, { headers: { Cookie: `session=${SESSION}` } });
+    const body = await res.json() as Record<string, unknown>;
+    check("(n) /subscription 200", res.status === 200, `status=${res.status}`);
+    check("(n) foundingOpen=true with quota open", body.foundingOpen === true, JSON.stringify(body));
+    check("(n) isFounder=false when not a founder", body.isFounder === false, JSON.stringify(body));
+    check("(n) foundingRemaining=50 with empty quota", body.foundingRemaining === 50, JSON.stringify(body));
+  }
+  {
+    seedFounding([{ merchantId: 1, subId: "sub_founder_dash" }]);
+    const res = await fetch(`${BASE}/subscription`, { headers: { Cookie: `session=${SESSION}` } });
+    const body = await res.json() as Record<string, unknown>;
+    check("(n) isFounder=true for a founder", body.isFounder === true, JSON.stringify(body));
+    check("(n) foundingOpen=true for a founder (lifetime benefit)", body.foundingOpen === true, JSON.stringify(body));
+    check("(n) foundingRemaining=49 with one slot taken", body.foundingRemaining === 49, JSON.stringify(body));
+  }
+  {
+    // Quota full and merchant 1 NOT a founder → window closed, no founding
+    // pricing for them (standard display only).
+    seedFounding(Array.from({ length: QUOTA }, (_, i) => ({ merchantId: 2 + i, subId: `sub_n_${i}` })));
+    const res = await fetch(`${BASE}/subscription`, { headers: { Cookie: `session=${SESSION}` } });
+    const body = await res.json() as Record<string, unknown>;
+    check("(n) foundingOpen=false with quota full", body.foundingOpen === false, JSON.stringify(body));
+    check("(n) isFounder=false for a non-founder", body.isFounder === false, JSON.stringify(body));
+    check("(n) foundingRemaining=0 when full", body.foundingRemaining === 0, JSON.stringify(body));
+  }
+  {
+    // Interval passthrough: a yearly subscription row → /subscription says year
+    // (the dashboard plan card then shows "$250/yr"-style pricing, not $29/mo).
+    const d = db();
+    d.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status, interval) VALUES (1, 'sub_dash_year', 'pro', 'active', 'year')");
+    d.close();
+    const res = await fetch(`${BASE}/subscription`, { headers: { Cookie: `session=${SESSION}` } });
+    const body = await res.json() as Record<string, unknown>;
+    check("(n) interval=year on a yearly subscription row", body.interval === "year", JSON.stringify(body));
+    check("(n) tier pro preserved on the row", body.tier === "pro", JSON.stringify(body));
+  }
+  {
+    // Webhook interval recording: a checkout completion with metadata.interval
+    // = year stores interval='year' on the new subscription row (default month
+    // when absent — already covered by (i)).
+    seedFounding([]);
+    const d = db();
+    d.run("DELETE FROM subscriptions WHERE merchant_id=2");
+    d.close();
+    const res = await postWebhook(completedSession({ id: "cs_year1", subscription: "sub_year1", customer: "cus_year1", metadata: { merchant_id: "2", tier: "standard", interval: "year" } }));
+    check("(n) yearly completion → 200", res.status === 200, `status=${res.status}`);
+    const row = db().query("SELECT interval FROM subscriptions WHERE stripe_subscription_id='sub_year1'").get() as { interval: string } | null;
+    check("(n) subscription row interval=year recorded from metadata", row?.interval === "year", JSON.stringify(row));
   }
 
   stub.server.stop(true);

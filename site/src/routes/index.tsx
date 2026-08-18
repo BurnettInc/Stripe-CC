@@ -430,6 +430,7 @@ function Home() {
               name: "Standard",
               price: "$15",
               period: "/month",
+              priceSub: "$135/year (save $45)",
               tier: "standard",
               body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
               features: [
@@ -446,6 +447,7 @@ function Home() {
               name: "Pro",
               price: "$29",
               period: "/month",
+              priceSub: "$250/year (save $98)",
               tier: "pro",
               body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
               features: [
@@ -474,6 +476,9 @@ function Home() {
                 </span>
                 <span className="text-gray-500">{plan.period}</span>
               </p>
+              {plan.priceSub && (
+                <p className="mt-1 text-sm text-gray-500">{plan.priceSub}</p>
+              )}
               <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
               <ul className="mt-6 space-y-3">
                 {plan.features.map((f) => (
@@ -512,7 +517,7 @@ function Home() {
         </div>
         <p className="mt-8 text-sm text-gray-500 text-center">
           Install from the Stripe App Marketplace — subscribe inside the app after
-          connecting. $15/month Standard · $29/month Pro.
+          connecting. $15/mo or $135/yr Standard · $29/mo or $250/yr Pro.
         </p>
       </section>
 
