@@ -306,27 +306,33 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
       // Stale/replayed-event guard: a re-fired overdue/payment_failed event
       // for an invoice we've already stopped must NOT resurrect the sequence.
       // Snapshot the pre-existing row BEFORE the upsert: if the invoice is
-      // paid, disputed, refunded, reply-paused, manually-paused, or the
-      // customer opted out of reminders for it (reply_opt_out_at), skip
-      // entirely WITHOUT upserting — the upsert would flip status back from
-      // 'paid' to 'overdue' (defeating the sender's paid-skip guard) and
-      // create a NEW task that would re-dun a stopped customer at the next
-      // escalation stage.
+      // paid, VOIDED, UNCOLLECTIBLE (reviewer fix #2 — the two are first-class
+      // terminal stop states, never resurrected by a late webhook), disputed,
+      // refunded, reply-paused, manually-paused, or the customer opted out of
+      // reminders for it (reply_opt_out_at), skip entirely WITHOUT upserting —
+      // the upsert would flip status back from 'paid'/'void'/'uncollectible'
+      // to 'overdue' (defeating the sender's terminal-skip guard) and create a
+      // NEW task that would re-dun a stopped customer at the next escalation
+      // stage. isInvoiceSequenceStopped is the single shared "stopped" model.
       const existingRow = db
         .query("SELECT * FROM invoices WHERE stripe_invoice_id = ?")
         .get(stripeInvoiceId) as Invoice | null;
-      if (existingRow && (existingRow.status === "paid" || existingRow.dispute_id || existingRow.refund_id || existingRow.reply_paused_at || existingRow.manually_paused_at || existingRow.reply_opt_out_at)) {
+      if (existingRow && isInvoiceSequenceStopped(existingRow)) {
         const stopped = existingRow.status === "paid"
           ? "paid"
-          : existingRow.dispute_id
-            ? "disputed"
-            : existingRow.refund_id
-              ? "refunded"
-              : existingRow.reply_opt_out_at
-                ? "opt-out"
-                : existingRow.reply_paused_at
-                  ? "reply-paused"
-                  : "manually-paused";
+          : existingRow.status === "void"
+            ? "voided"
+            : existingRow.status === "uncollectible"
+              ? "uncollectible"
+              : existingRow.dispute_id
+                ? "disputed"
+                : existingRow.refund_id
+                  ? "refunded"
+                  : existingRow.reply_opt_out_at
+                    ? "opt-out"
+                    : existingRow.reply_paused_at
+                      ? "reply-paused"
+                      : "manually-paused";
         console.log(
           `[watcher] stale ${event.type} for invoice ${stripeInvoiceId} skipped — invoice already ${stopped}`
         );

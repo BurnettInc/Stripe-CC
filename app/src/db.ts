@@ -929,18 +929,23 @@ export interface Invoice {
 }
 
 /**
- * Whether an invoice's sequence is stopped (paid, disputed, refunded,
- * reply-paused, manually-paused, or the customer opted out of reminders for
- * it). This is the "stopped" model shared by the watcher's stale-event guard,
- * the inbound reply handler (never re-pause a stopped sequence), and any future
- * auto-send path: a stopped invoice must never be resurrected by a
- * replayed/overdue event or a late-arriving send. A null invoice counts as
- * stopped (callers treat unknown as "don't act").
+ * Whether an invoice's sequence is stopped (paid, voided, uncollectible,
+ * disputed, refunded, reply-paused, manually-paused, or the customer opted out
+ * of reminders for it). 'void' and 'uncollectible' are first-class terminal
+ * stop states (reviewer fix #2): an invoice voided or marked uncollectible in
+ * Stripe is no longer an active debt, and its sequence must never be
+ * resurrected by a replayed overdue/payment_failed event or a late-arriving
+ * send. This is the "stopped" model shared by the watcher's stale-event guard,
+ * the scheduler's sync/advance passes, the sender's pre-send guard, and the
+ * inbound reply handler (never re-pause a stopped sequence). A null invoice
+ * counts as stopped (callers treat unknown as "don't act").
  */
 export function isInvoiceSequenceStopped(invoice: Invoice | null): boolean {
   if (!invoice) return true;
   return (
     invoice.status === "paid" ||
+    invoice.status === "void" ||
+    invoice.status === "uncollectible" ||
     !!invoice.dispute_id ||
     !!invoice.refund_id ||
     !!invoice.reply_paused_at ||

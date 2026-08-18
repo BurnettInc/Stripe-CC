@@ -112,17 +112,16 @@ if (appClientId) {
   console.log(`   App client id: NOT SET (live-mode marketplace installs will show a "not configured" notice)`);
 }
 // App channel-link token status (masked to the suffix — never log the full
-// token). OPTIONAL-but-recommended while the app is UNPUBLISHED: Stripe
-// rejects the plain public install link ("The provided OAuth link is
-// invalid") until the app is approved, so the chnlink path segment is the
-// ONLY working install path pre-approval. Once the app is published, drop
-// STRIPE_APP_CHNLINK — buildAuthorizeUrl then falls back to the public
-// format, which is what the published listing will serve.
+// token). INTERNAL-QA ONLY since the app was approved (v0.1.21, 8/18): the
+// OFFICIAL install URL is the public format, and the chnlink testing channel
+// must NOT ship in production (reviewer fix #4) — set the var only in dev/QA
+// environments to exercise the External-Testing channel. buildAuthorizeUrl
+// emits the public format when the var is unset.
 const chnlinkToken = process.env.STRIPE_APP_CHNLINK || "";
 if (chnlinkToken) {
-  console.log(`   App channel-link token: …${chnlinkToken.slice(-4)} (configured — chnlink install links while unpublished)`);
+  console.log(`   App channel-link token: …${chnlinkToken.slice(-4)} (configured — INTERNAL QA ONLY: chnlink testing-channel install links; not for production)`);
 } else {
-  console.log(`   App channel-link token: NOT SET (public install links — Stripe rejects them until the app is approved; set it now, drop after approval)`);
+  console.log(`   App channel-link token: not set (OFFICIAL public install links — production default)`);
 }
 
 // Email provider status

@@ -14,12 +14,13 @@
  *   2. GET /oauth/install/start      — generate a CSRF-safe state row (link
  *                                      type test|live encoded inside the state
  *                                      per the docs), 302 → marketplace.stripe
- *                                      .com/oauth/v2/chnlink_{TOKEN}/authorize
+ *                                      .com/oauth/v2/authorize
  *                                      ?client_id=…&redirect_uri=…&state=…
- *                                      (chnlink path while STRIPE_APP_CHNLINK
- *                                      is set — the pre-approval format; the
- *                                      public /oauth/v2/authorize format when
- *                                      unset — see the NOTE below)
+ *                                      (the OFFICIAL public format — post-
+ *                                      approval; when STRIPE_APP_CHNLINK is
+ *                                      set for internal QA the older
+ *                                      chnlink_{TOKEN} testing-channel format
+ *                                      is emitted instead — see the NOTE below)
  *   3. GET /oauth/callback?code=…&state=…
  *                                    — Stripe redirects back with a one-time
  *                                      code (valid 5 min). Verify+consume the
@@ -43,26 +44,24 @@
  * Env: STRIPE_APP_TEST_CLIENT_ID / STRIPE_APP_LIVE_CLIENT_ID (per-mode app
  * client ids, ca_…; STRIPE_CLIENT_ID is the legacy default fallback),
  * STRIPE_APP_TEST_KEY / STRIPE_APP_LIVE_KEY (app developer API keys), and
- * STRIPE_APP_CHNLINK — the app's channel-link token (chnlink_…), the switch
- * between the two authorize formats (see the NOTE below).
- * The authorize URL is built in buildAuthorizeUrl. While the app is
- * UNPUBLISHED it carries the chnlink path segment:
- * https://marketplace.stripe.com/oauth/v2/chnlink_{TOKEN}/authorize
- * ?client_id=…&redirect_uri=…&state=…
- * Stripe generates separate links for live and test modes; the mode is
- * selected by the client_id + the link type carried inside `state` (the same
- * URL shape serves both modes).
- * NOTE (2026-08-17): Stripe's dashboard-generated install links carry the
- * chnlink token IN THE PATH; the public OAuth docs omit it, and while the app
- * is UNPUBLISHED (live_mode_version empty — this app is still in review)
- * Stripe REJECTS the plain public link ("The provided OAuth link is invalid",
- * re-proven on the live install 8/17). The chnlink URL is the
- * External-Testing channel link and is the ONLY working install path
- * pre-approval, for BOTH modes (one token per app; mode via client_id +
- * state). The reviewer's public-format requirement (round 2026-08-15) is
- * about the POST-APPROVAL listing: once the app is published, drop
- * STRIPE_APP_CHNLINK and buildAuthorizeUrl falls back to the public format
- * (…/oauth/v2/authorize?…), which is what the published listing will serve.
+ * STRIPE_APP_CHNLINK — the app's External-Testing channel-link token
+ * (chnlink_…), retained ONLY as an internal-QA switch between the two
+ * authorize formats (see the NOTE below).
+ * The authorize URL is built in buildAuthorizeUrl. The PUBLIC format
+ * (…/oauth/v2/authorize?client_id=…&redirect_uri=…&state=…) is the OFFICIAL
+ * Live-mode install URL — the reviewer-required shape (round 2026-08-15) and
+ * what the published listing serves. The mode is selected by the client_id +
+ * the link type carried inside `state` (the same URL shape serves both modes).
+ * NOTE (2026-08-18): the app is APPROVED (v0.1.21) — the public format works
+ * for real installs now. STRIPE_APP_CHNLINK is KEPT ONLY as an internal QA
+ * switch: when set, buildAuthorizeUrl emits the External-Testing channel URL
+ * (…/oauth/v2/chnlink_{TOKEN}/authorize, one token per app; mode via
+ * client_id + state) — the ONLY working path while the app was UNPUBLISHED
+ * (Stripe rejects the public link pre-approval: "The provided OAuth link is
+ * invalid", re-proven on the live install 8/17). It is REMOVED from the
+ * production environment (reviewer fix #4: no test-mode channel parameters
+ * ship in the production install flow) and should never be re-added there —
+ * set it only in dev/QA environments to exercise the testing channel.
  * For LIVE links the developer key falls back to STRIPE_SECRET_KEY when
  * STRIPE_APP_LIVE_KEY is unset — per Stripe's OAuth docs the app developer
  * key for a live-mode install IS the developer account's own live secret key
@@ -80,13 +79,13 @@ import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
 import { accountFromCookie } from "./accounts";
 
 // ── Constants ──
-// The marketplace authorize endpoint carries the app's chnlink token in the
-// path while the app is unpublished:
-// https://marketplace.stripe.com/oauth/v2/chnlink_{TOKEN}/authorize
+// The marketplace authorize endpoint's OFFICIAL (post-approval) format is the
+// PUBLIC URL: https://marketplace.stripe.com/oauth/v2/authorize
 // ?client_id=…&redirect_uri=…&state=… (built in buildAuthorizeUrl — see the
-// IMPORTANT note there). When STRIPE_APP_CHNLINK is unset the builder falls
-// back to the PUBLIC format (…/oauth/v2/authorize?…) — the post-approval
-// shape, correct once the app is published.
+// IMPORTANT note there). When STRIPE_APP_CHNLINK is set the builder emits the
+// older External-Testing channel format (…/oauth/v2/chnlink_{TOKEN}/authorize)
+// instead — an internal-QA switch; the var must stay unset in production
+// (reviewer fix #4).
 // Same env-override convention as routes/billing.ts: endpoint tests point
 // STRIPE_API_BASE at a local stub (e.g. http://localhost:3199/v1).
 const STRIPE_API = (process.env.STRIPE_API_BASE || "https://api.stripe.com/v1").replace(/\/+$/, "");
@@ -129,15 +128,14 @@ export function appClientIdFor(linkType: LinkType): string | null {
   return modeClientId ?? process.env.STRIPE_CLIENT_ID ?? null;
 }
 
-/** The app's channel-link token (chnlink_…). Stripe's dashboard-generated
- * install links carry it IN THE URL PATH (marketplace.stripe.com/oauth/v2/
- * chnlink_{TOKEN}/authorize); the public OAuth docs omit it. While the app is
- * UNPUBLISHED (live_mode_version empty), Stripe rejects authorize requests
- * without it ("The provided OAuth link is invalid") — so it is the ONLY
- * working install path pre-approval, for BOTH modes (one token per app; the
- * mode is selected by the client_id). OPTIONAL-but-recommended: once the app
- * is published the public format works, and the var should be DROPPED (the
- * env var is the switch between the two formats in buildAuthorizeUrl). */
+/** The app's External-Testing channel-link token (chnlink_…), retained as an
+ * INTERNAL-QA switch: when set, buildAuthorizeUrl emits the testing-channel
+ * URL (marketplace.stripe.com/oauth/v2/chnlink_{TOKEN}/authorize — the ONLY
+ * working install path while the app was UNPUBLISHED; mode is selected by the
+ * client_id). The PUBLIC format (no chnlink) is the official post-approval
+ * shape and the production default — the var MUST stay unset in production
+ * (reviewer fix #4); set it only in dev/QA environments to exercise the
+ * testing channel. */
 export function appChnlink(): string | null {
   return process.env.STRIPE_APP_CHNLINK ?? null;
 }
@@ -149,12 +147,11 @@ export function appChnlink(): string | null {
  * developer-key slot (the appDevKeyFor fallback), so the key entry appears
  * only when BOTH STRIPE_APP_LIVE_KEY and STRIPE_SECRET_KEY are unset, and it
  * reads "set STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY".
- * STRIPE_APP_CHNLINK is deliberately NOT listed here: it is optional — the
- * page renders a mode's button whether or not it is set, and buildAuthorizeUrl
- * falls back to the public format when unset. While the app is unpublished
- * that public link will be REJECTED by Stripe, so the var is recommended
- * pre-approval (the install page shows an advisory when it is unset); after
- * approval it should be dropped. See appChnlink() + buildAuthorizeUrl. */
+ * STRIPE_APP_CHNLINK is deliberately NOT listed here: it is an internal-QA
+ * switch, never a gate — the page renders a mode's button whether or not it
+ * is set, and buildAuthorizeUrl emits the official PUBLIC format when unset
+ * (the production default since the app was approved; reviewer fix #4). See
+ * appChnlink() + buildAuthorizeUrl. */
 export function missingEnvFor(linkType: LinkType): string[] {
   const missing: string[] = [];
   if (!appClientIdFor(linkType)) {
@@ -209,24 +206,18 @@ export function consumeInstallState(
 // returns `scope: "stripe_apps"`), so adding one would be wrong. `state`
 // doubles as the link-type carrier (docs: "pass the relevant link type within
 // the state parameter") and is echoed back by Stripe on the callback.
-// REVIEWER ROUND (2026-08-17): the app is STILL UNPUBLISHED (live_mode_version
-// empty), and Stripe rejects the plain public authorize format for unpublished
-// apps ("The provided OAuth link is invalid" — re-proven on the live install
-// 8/17). PR #96 (8/15) removed the chnlink_ path segment because the reviewer's
-// CHANGES REQUESTED said the marketplace install URL must use the public
-// format — but the reviewer's own installs in earlier rounds succeeded THROUGH
-// the chnlink URL, and the public format is the POST-APPROVAL listing shape.
-// So the chnlink injection is restored: when STRIPE_APP_CHNLINK is set, the
-// URL is …/oauth/v2/chnlink_{TOKEN}/authorize (the External-Testing channel
-// link — the ONLY working install path pre-approval); when unset, the public
-// format …/oauth/v2/authorize is emitted (correct once the app is published —
-// drop the env var then). The mode is selected by client_id + state in both
-// cases. IMPORTANT — the docs omit the chnlink path segment, but Stripe's own
-// dashboard-generated install links carry it; a leading "chnlink_" prefix on
-// the env value (the exact path token from App Settings) is tolerated and
-// normalized, so the produced URL always carries exactly one "chnlink_…"
-// segment. Never a malformed link: when the client id is missing a clear
-// error is returned (the chnlink fallback keeps the public format valid).
+// POST-APPROVAL (2026-08-18, reviewer fix #4): the app is APPROVED (v0.1.21)
+// and the OFFICIAL install URL is the PUBLIC format below — no chnlink path
+// segment, no test-mode channel parameters. STRIPE_APP_CHNLINK is retained
+// ONLY as an internal-QA switch: when set, the URL is
+// …/oauth/v2/chnlink_{TOKEN}/authorize (the External-Testing channel link
+// that was the ONLY working install path pre-approval); when unset (the
+// production default), the public …/oauth/v2/authorize format is emitted.
+// The mode is selected by client_id + state in both cases. A leading
+// "chnlink_" prefix on the env value (the exact path token from App
+// Settings) is tolerated and normalized, so the produced URL always carries
+// exactly one "chnlink_…" segment. Never a malformed link: when the client
+// id is missing a clear error is returned.
 export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: string } | { error: string } {
   const clientId = appClientIdFor(linkType);
   const baseUrl = baseUrlFor();
@@ -238,17 +229,15 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state });
   const chnlink = appChnlink();
   if (chnlink) {
-    // Pre-approval: the chnlink (External-Testing) path segment is required —
-    // Stripe rejects the plain link for unpublished apps. Normalize: tolerate
-    // the env value carrying the "chnlink_" prefix (as it appears in App
-    // Settings) so we never emit a doubled prefix.
+    // Internal QA only: the chnlink (External-Testing) path segment. Normalize:
+    // tolerate the env value carrying the "chnlink_" prefix (as it appears in
+    // App Settings) so we never emit a doubled prefix. Never set in production.
     const token = chnlink.replace(/^chnlink_/, "");
     return { url: `https://marketplace.stripe.com/oauth/v2/chnlink_${token}/authorize?${params.toString()}` };
   }
-  // STRIPE_APP_CHNLINK unset → the PUBLIC format (docs.stripe.com/stripe-apps/
-  // api-authentication/oauth#publish-app). Correct once the app is published;
-  // while unpublished Stripe rejects it — the install page's advisory covers
-  // that when the var is unset.
+  // STRIPE_APP_CHNLINK unset → the OFFICIAL PUBLIC format
+  // (docs.stripe.com/stripe-apps/api-authentication/oauth#publish-app) — the
+  // Live-mode install URL the published listing serves (reviewer fix #4).
   return { url: `https://marketplace.stripe.com/oauth/v2/authorize?${params.toString()}` };
 }
 
@@ -260,11 +249,11 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
 // cookie it renders the "sign in / create account" card (email input → POST
 // /api/account/request-magic-link → one-time link); with one it renders the
 // "Connect with Stripe" buttons per configured mode (a mode is installable
-// when its client id and developer key resolve — STRIPE_APP_CHNLINK is
-// OPTIONAL for button rendering: when it is unset an amber advisory explains
-// that Stripe rejects the public link while the app is unpublished), plus
-// "Signed in as {email} · sign out" and — when the account already owns a
-// connected merchant — an "open your dashboard" link.
+// when its client id and developer key resolve), plus "Signed in as {email} ·
+// sign out" and — when the account already owns a connected merchant — an
+// "open your dashboard" link. STRIPE_APP_CHNLINK plays NO role here: since
+// approval the public format is the official install link (reviewer fix #4),
+// so there is no advisory and no chnlink mention on the page.
 //
 // NO-JS SIGN-IN (2026-08-18, review blocker): the sign-in card is a REAL form
 // (method=post action=/api/account/request-magic-link) that POSTs natively
@@ -284,7 +273,6 @@ export function installPageHtml(
   missingEnv: Record<LinkType, string[]>,
   account?: { email: string } | null,
   dashboardUrl?: string | null,
-  chnlinkNotice?: string,
   notice?: { kind: "success" | "error"; message: string } | null
 ): string {
   // HTML-escape for any server-rendered user-visible text (error banner).
@@ -437,11 +425,7 @@ export function installPageHtml(
         if (envs.length === 0) return "";
         return `<br>${lt === "test" ? "Test" : "Live"} mode: set ${missingTextFor(lt)}`;
       }).join("");
-      body = `${accountLine}${connectedLine}<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong>${perMode} Once set, this page will show a "Connect with Stripe" button. No action is needed on your side.</p>${
-        chnlinkNotice
-          ? `<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 14px;font-size:13px;">${chnlinkNotice}</p>`
-          : ""
-      }`;
+      body = `${accountLine}${connectedLine}<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong>${perMode} Once set, this page will show a "Connect with Stripe" button. No action is needed on your side.</p>`;
     } else {
       body = `${accountLine}${connectedLine}<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Connect your Stripe account to let CollectionsCopilot watch for overdue invoices and send your customers friendly, automatic payment reminders.</p>
         <ol style="color:#4B5563;font-size:14px;line-height:1.8;margin:0 0 22px;padding-left:20px;text-align:left;">
@@ -455,11 +439,6 @@ export function installPageHtml(
           LINK_TYPES.filter((lt) => !configuredModes.includes(lt) && missingEnv[lt].length > 0)
             .map((lt) => `<p style="color:#9CA3AF;font-size:12px;margin:12px 0 0;">${lt === "test" ? "Test" : "Live"} mode is not available yet — set ${missingTextFor(lt)}.</p>`)
             .join("")
-        }
-        ${
-          chnlinkNotice
-            ? `<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 14px;font-size:13px;margin:14px 0 0;">${chnlinkNotice}</p>`
-            : ""
         }
         <p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>`;
     }
@@ -496,33 +475,27 @@ export function installPageHtml(
  * create-account card; valid → the Connect buttons + signed-in line. ?auto=1
  * skips the page and 302s straight into the authorize flow (useful for
  * programmatic links and tests — /oauth/install/start still enforces the
- * cookie). ?sent=1 / ?error=<msg> (signed-out only) render the no-JS form
- * POST's outcome as server-side banners — the sign-in card is a real
- * method=post form (the Stripe review sandbox iframe blocks the inline
- * script), and /api/account/request-magic-link 302s back here with those
- * params. */
+ * cookie); the default link type is LIVE (the production install mode —
+ * reviewer fix #4), overridable with ?link=test|live. ?sent=1 / ?error=<msg>
+ * (signed-out only) render the no-JS form POST's outcome as server-side
+ * banners — the sign-in card is a real method=post form (the Stripe review
+ * sandbox iframe blocks the inline script), and
+ * /api/account/request-magic-link 302s back here with those params. */
 export function handleAppInstallPage(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
   const baseUrl = baseUrlFor();
   // A mode is installable only when NOTHING is missing for it: its client id
   // (mode var, or the STRIPE_CLIENT_ID fallback) and its developer key (live
   // falls back to STRIPE_SECRET_KEY). missingEnvFor encodes both, so a mode
-  // is configured iff its missing list is empty. STRIPE_APP_CHNLINK is NOT a
-  // gate: it is optional-but-recommended while the app is unpublished — when
-  // unset the Connect buttons still render and an advisory explains that
-  // Stripe rejects the public install link until the app is approved.
+  // is configured iff its missing list is empty. STRIPE_APP_CHNLINK plays no
+  // role on the page (internal-QA switch only — since approval the public
+  // format is the official install link; reviewer fix #4).
   const configuredModes: LinkType[] = LINK_TYPES.filter((lt) => missingEnvFor(lt).length === 0);
   const missingEnv: Record<LinkType, string[]> = { test: missingEnvFor("test"), live: missingEnvFor("live") };
-  // Advisory shown when the channel-link token is unset (optional-but-
-  // recommended pre-approval — the fallback public format is the post-approval
-  // shape and Stripe rejects it while the app is unpublished).
-  const chnlinkNotice = appChnlink()
-    ? ""
-    : "STRIPE_APP_CHNLINK is not set. While the app is unpublished, Stripe rejects the public install link (“The provided OAuth link is invalid”) — set it to make the Connect buttons installable. After the app is approved the public format works and the var can be dropped.";
 
   const url = new URL(req.url);
   if (url.searchParams.get("auto") === "1") {
-    const link = isLinkType(url.searchParams.get("link") ?? "") ? url.searchParams.get("link")! : "test";
+    const link = isLinkType(url.searchParams.get("link") ?? "") ? url.searchParams.get("link")! : "live";
     return new Response(null, { status: 302, headers: { Location: `${baseUrl}/oauth/install/start?link=${link}` } });
   }
 
@@ -556,7 +529,7 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
       : null
     : null;
 
-  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl, chnlinkNotice, notice), {
+  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl, notice), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
@@ -617,7 +590,9 @@ export function handleAppInstallStart(db: Database, req: Request): Response {
   }
   const url = new URL(req.url);
   const linkParam = url.searchParams.get("link") ?? "";
-  const linkType: LinkType = isLinkType(linkParam) ? linkParam : "test";
+  // Default link type is LIVE — the production install mode (reviewer fix #4);
+  // ?link=test remains for QA.
+  const linkType: LinkType = isLinkType(linkParam) ? linkParam : "live";
 
   return installStartResponse(db, linkType, account.id);
 }
@@ -925,13 +900,24 @@ function unixToIsoDate(unixSeconds: number): string {
  *   - open          → 'overdue' when due_date is in the past, else 'open'
  *                     (amount = amount_due, due_date = invoice due_date;
  *                      open invoices without a due_date use created)
- *   - anything else (void / uncollectible / draft / …) → null = NOT active,
- *                     skipped entirely: nothing to chase, so the backfill
- *                     never surfaces a dead debt as actionable.
- * With `includeInactive` (the scheduler's reconciliation sync) those inactive
- * statuses map to status 'void' instead of null — the sync pass then stops
- * open sequences for them (cancel tasks), so an invoice voided in Stripe
- * after a missed webhook stops being chased locally.
+ *   - void          → 'void' — a first-class TERMINAL stop state (reviewer
+ *                     fix #2): the debt is no longer active and must never be
+ *                     chased again.
+ *   - uncollectible → 'uncollectible' — the same terminal semantics, kept
+ *                     DISTINCT from 'void' so the pipeline's logs and stop
+ *                     reasons can tell the two apart.
+ *   - draft         → never stored: draft invoices are not active debts and
+ *                     must never surface as actionable or as "stopped".
+ * With `includeInactive` unset (the install backfill) all inactive statuses
+ * (void / uncollectible / draft) map to null = skipped entirely, so the
+ * backfill never surfaces a dead debt as actionable. With `includeInactive`
+ * (the scheduler's reconciliation sync) void → 'void' and uncollectible →
+ * 'uncollectible' are stored (the sync pass then stops open sequences for
+ * them — cancel tasks — so an invoice voided or marked uncollectible in
+ * Stripe after a missed webhook stops being chased locally); draft still
+ * maps to null (a draft never carries tasks, so there is nothing to cancel
+ * and nothing to record — and 'draft' is not a legal value of the status
+ * CHECK constraint).
  * Customer name/email fall back to "—" when the invoice carries none.
  */
 function mapBackfilledInvoice(
@@ -969,6 +955,9 @@ function mapBackfilledInvoice(
   }
   if (status !== "open") {
     if (!includeInactive) return null; // void / uncollectible / draft: not active
+    if (status === "draft") return null; // drafts never carry tasks — nothing to reconcile
+    // Reconciliation pass: keep void and uncollectible DISTINCT (both are
+    // first-class terminal stop states; the CHECK constraint now allows both).
     return {
       stripe_invoice_id: inv.id,
       merchant_id: merchantId,
@@ -977,7 +966,7 @@ function mapBackfilledInvoice(
       amount_cents: typeof inv.amount_due === "number" ? inv.amount_due : 0,
       currency,
       due_date: unixToIsoDate(created),
-      status: "void",
+      status: status === "uncollectible" ? "uncollectible" : "void",
     };
   }
 
