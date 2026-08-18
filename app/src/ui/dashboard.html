@@ -1947,7 +1947,11 @@
     }
     function pauseReasonChipFor(t) {
       if (hasReplyPause(t)) {
-        return '<span class="pause-reason-chip reply">Reply received</span>';
+        // Reply detection v1: the /tasks payload carries reply_action_flag (the
+        // owner-approved actionable flag for the detected classification) —
+        // surface it right on the pause chip when present.
+        var flag = t && t.reply_action_flag ? ' — ' + esc(t.reply_action_flag) : '';
+        return '<span class="pause-reason-chip reply">Reply received' + flag + '</span>';
       }
       if (t && t.dispute_id) {
         return '<span class="pause-reason-chip dispute">Dispute</span>';
