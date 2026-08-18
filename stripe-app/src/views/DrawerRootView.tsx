@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-sdk/ui';
 import OverviewView from './OverviewView';
-import { BASE_URL, DASHBOARD_URL } from '../api';
+import { BASE_URL, DASHBOARD_URL, INSTALL_URL } from '../api';
 
 type Tier = 'standard' | 'pro';
 interface SubscriptionResponse { tier: Tier | null; status: 'active' | 'none'; dev_pro?: boolean }
@@ -64,7 +64,7 @@ export default function DrawerRootView() {
         <Box css={{ stack: 'y', gap: 'small' }}>
           <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
           <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to start Collections Copilot.</Box>
-          <Button type="primary" href={`${BASE_URL}/stripe/connect?return=stripe`} target="_blank">Connect Stripe</Button>
+          <Button type="primary" href={INSTALL_URL} target="_blank">Connect Stripe</Button>
           <Box css={{ color: 'secondary', font: 'caption' }}>Connecting opens a new tab. When you've finished onboarding there, come back and check your status.</Box>
           <Button type="secondary" onPress={() => { void loadSubscription(); }}>Check status</Button>
         </Box>

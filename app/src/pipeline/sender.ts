@@ -342,33 +342,46 @@ export function checkPaymentStatus(db: Database, invoiceId: number): boolean {
 }
 
 /**
- * Shared payment guard for both send paths (real provider and stub).
- * If the invoice is already paid, logs the skip plus a simulated thank-you
- * note and returns a SendResult describing the skip. Returns null when the
- * send may proceed (no task, or invoice is not paid).
+ * Shared terminal-status guard for both send paths (real provider and stub).
+ * If the invoice is paid, voided, or uncollectible (reviewer fix #2 — all
+ * three are first-class terminal stop states; an invoice voided or marked
+ * uncollectible in Stripe must never be emailed), logs the skip and returns a
+ * SendResult describing it. The paid case keeps the simulated thank-you note;
+ * void/uncollectible log the stop reason only (no thank-you — the customer
+ * did not pay). Returns null when the send may proceed (no task, or the
+ * invoice status is not terminal).
  */
 function checkPaidAndSkip(db: Database, task: ReminderTask | null): SendResult | null {
   if (!task) return null;
-  if (!checkPaymentStatus(db, task.invoice_id)) return null;
-
   const invoice = db
-    .query("SELECT customer_name, stripe_invoice_id FROM invoices WHERE id = ?")
-    .get(task.invoice_id) as { customer_name: string; stripe_invoice_id: string } | null;
+    .query("SELECT status, customer_name, stripe_invoice_id FROM invoices WHERE id = ?")
+    .get(task.invoice_id) as { status: string; customer_name: string; stripe_invoice_id: string } | null;
+  if (!invoice) return null;
+  const status = invoice.status;
+  if (status !== "paid" && status !== "void" && status !== "uncollectible") return null;
 
-  const custName = invoice?.customer_name || "Customer";
-  const invId = invoice?.stripe_invoice_id || `#${task.invoice_id}`;
+  const custName = invoice.customer_name || "Customer";
+  const invId = invoice.stripe_invoice_id || `#${task.invoice_id}`;
 
-  // Log the skip
-  const skipMsg = `Invoice ${task.invoice_id} is already paid — skipping send`;
+  // Log the skip with a status-specific reason (distinct per terminal state).
+  const skipMsg =
+    status === "paid"
+      ? `Invoice ${task.invoice_id} is already paid — skipping send`
+      : status === "void"
+        ? `Invoice ${task.invoice_id} was voided — skipping send`
+        : `Invoice ${task.invoice_id} was marked uncollectible — skipping send`;
   logSend(db, task.id, "skipped", skipMsg);
 
-  // Also log a simulated "thank you" note for the pipeline log
-  const thankYouMsg = [
-    `[THANK YOU NOTE] Would send to ${custName}:`,
-    `  Subject: Thanks for your payment — ${invId}`,
-    `  Body: Hi ${custName}, just wanted to say thanks for taking care of invoice ${invId}. We appreciate your prompt payment!`,
-  ].join("\n");
-  logSend(db, task.id, "success", thankYouMsg, "reminder");
+  // Only the paid case also logs a simulated "thank you" note for the
+  // pipeline log (voided/uncollectible debts were not paid).
+  if (status === "paid") {
+    const thankYouMsg = [
+      `[THANK YOU NOTE] Would send to ${custName}:`,
+      `  Subject: Thanks for your payment — ${invId}`,
+      `  Body: Hi ${custName}, just wanted to say thanks for taking care of invoice ${invId}. We appreciate your prompt payment!`,
+    ].join("\n");
+    logSend(db, task.id, "success", thankYouMsg, "reminder");
+  }
 
   return {
     success: false,

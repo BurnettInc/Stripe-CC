@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   amount_cents INTEGER NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'usd',
   due_date TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'paid', 'void', 'overdue')),
+  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'paid', 'void', 'overdue', 'uncollectible')),
   trust_mode_override TEXT DEFAULT NULL CHECK(trust_mode_override IN ('draft', 'semi', 'full')),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

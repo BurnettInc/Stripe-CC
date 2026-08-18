@@ -24,12 +24,13 @@
  *       present in the markup
  *   (b) /oauth/install/start WITHOUT an account cookie → 302 back to
  *       /oauth/install (the reviewer's flow signs in BEFORE connecting);
- *       WITH the cookie → 302 to
- *       https://marketplace.stripe.com/oauth/v2/chnlink_test/authorize
- *       (the suite server is booted with STRIPE_APP_CHNLINK=chnlink_test —
- *       the path segment Stripe's dashboard install links carry and that
- *       Stripe REQUIRES while the app is unpublished; when the env var is
- *       unset the builder falls back to the PUBLIC format — see (i))
+ *       WITH the cookie → 302 to the OFFICIAL PUBLIC format
+ *       https://marketplace.stripe.com/oauth/v2/authorize?client_id=…
+ *       &redirect_uri=…&state=… (the suite server boots WITHOUT
+ *       STRIPE_APP_CHNLINK — the production default since the app was
+ *       approved, reviewer fix #4; when the env var IS set the builder emits
+ *       the chnlink External-Testing format instead — the switch is pinned at
+ *       unit level in (i))
  *       with client_id=STRIPE_CLIENT_ID (legacy fallback — the suite server
  *       has no mode-specific client ids), redirect_uri=the manifest URI, a
  *       CSRF-safe state ("<48 hex>:<link-type>") stored in oauth_install_states
@@ -79,15 +80,15 @@
  *   (i) buildAuthorizeUrl: per-mode client_id (mode env wins, STRIPE_CLIENT_ID
  *       falls back) + redirect_uri + state; with STRIPE_APP_CHNLINK set the
  *       URL carries the chnlink path segment (chnlink_{TOKEN}/authorize — the
- *       ONLY working format while the app is unpublished); with it UNSET the
- *       builder falls back to the PUBLIC format
- *       (marketplace.stripe.com/oauth/v2/authorize — the post-approval shape).
+ *       retained internal-QA switch); with it UNSET (the production default,
+ *       reviewer fix #4) the builder emits the OFFICIAL PUBLIC format
+ *       (marketplace.stripe.com/oauth/v2/authorize — no chnlink segment).
  *       A clear error names the missing client-id env vars.
  *   (m) installPageHtml: a mode's button appears when its client id and its
  *       developer key resolve (live key slot satisfied by STRIPE_SECRET_KEY
- *       alone) — STRIPE_APP_CHNLINK is OPTIONAL for button rendering: when it
- *       is unset an amber advisory is rendered instead of hiding the buttons;
- *       the "not configured" notice lists the missing env vars per mode
+ *       alone) — STRIPE_APP_CHNLINK plays NO role on the page since approval
+ *       (no advisory, no chnlink mention — reviewer fix #4); the "not
+ *       configured" notice lists the missing env vars per mode
  *       ("set STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY" when both live key
  *       vars are unset)
  *   (j) exchangeCodeForTokens: happy path through the stub; missing-key error
@@ -294,7 +295,7 @@ async function main(): Promise<void> {
   check("a4b: signed-in line (email + sign out)", pageIn.includes("Signed in as") && pageIn.includes("installer@example.com") && pageIn.includes("sign out"), "");
   check("a5: step instructions present", pageIn.includes("Click <strong>Connect with Stripe</strong>"), "");
   const auto = await get(`${BASE}/oauth/install?auto=1`);
-  check("a6: ?auto=1 302s into authorize flow", auto.status === 302 && auto.headers.get("location") === "https://stripe-cc-production.up.railway.app/oauth/install/start?link=test", `loc=${auto.headers.get("location")}`);
+  check("a6: ?auto=1 302s into authorize flow (default link = LIVE — the production install mode)", auto.status === 302 && auto.headers.get("location") === "https://stripe-cc-production.up.railway.app/oauth/install/start?link=live", `loc=${auto.headers.get("location")}`);
 
   // ── (b) install start → marketplace authorize (account-gated) ──
   const startNoCookie = await get(`${BASE}/oauth/install/start?link=test`);
@@ -302,7 +303,7 @@ async function main(): Promise<void> {
   const start = await get(`${BASE}/oauth/install/start?link=test`, ACC_COOKIE);
   check("b1: start 302s", start.status === 302, `status=${start.status}`);
   const loc = start.headers.get("location") || "";
-  check("b2: marketplace authorize URL carries the chnlink path segment (suite server booted with STRIPE_APP_CHNLINK=chnlink_test)", loc.startsWith("https://marketplace.stripe.com/oauth/v2/chnlink_test/authorize?"), loc);
+  check("b2: marketplace authorize URL is the OFFICIAL PUBLIC format (no chnlink — suite server boots without STRIPE_APP_CHNLINK)", loc.startsWith("https://marketplace.stripe.com/oauth/v2/authorize?") && !loc.includes("chnlink"), loc);
   const authUrl = new URL(loc);
   check("b3: client_id = STRIPE_CLIENT_ID", authUrl.searchParams.get("client_id") === "ca_test_client", authUrl.searchParams.get("client_id") || "");
   check("b4: redirect_uri = manifest allowed_redirect_uris entry", authUrl.searchParams.get("redirect_uri") === MANIFEST_REDIRECT_URI, authUrl.searchParams.get("redirect_uri") || "");
@@ -319,14 +320,14 @@ async function main(): Promise<void> {
   check("b7: live link encodes :live in state", /^[0-9a-f]{48}:live$/.test(stateLive), stateLive);
   const startBogus = await get(`${BASE}/oauth/install/start?link=bogus`, ACC_COOKIE);
   const stateBogus = new URL(startBogus.headers.get("location") || "").searchParams.get("state") || "";
-  check("b8: unknown link falls back to test", /^[0-9a-f]{48}:test$/.test(stateBogus), stateBogus);
+  check("b8: unknown link falls back to LIVE (production default)", /^[0-9a-f]{48}:live$/.test(stateBogus), stateBogus);
 
   // ── (b2) EVERY authorize entry point yields a state + a persisted DB row ──
   // The install page's ?auto=1 chain (with AND without ?link=) must end in an
   // authorize redirect whose state was persisted BEFORE the redirect. These
   // hit /oauth/install/start via the auto chain, exactly like a real install.
   const autoNoLink = await get(`${BASE}/oauth/install?auto=1`, ACC_COOKIE);
-  check("b9: ?auto=1 (no link) 302s to install/start?link=test (default)", autoNoLink.status === 302 && autoNoLink.headers.get("location") === "https://stripe-cc-production.up.railway.app/oauth/install/start?link=test", `loc=${autoNoLink.headers.get("location")}`);
+  check("b9: ?auto=1 (no link) 302s to install/start?link=live (default)", autoNoLink.status === 302 && autoNoLink.headers.get("location") === "https://stripe-cc-production.up.railway.app/oauth/install/start?link=live", `loc=${autoNoLink.headers.get("location")}`);
   const autoStart = await get(`${BASE}/oauth/install/start?link=test`, ACC_COOKIE);
   const autoState = new URL(autoStart.headers.get("location") || "").searchParams.get("state") || "";
   check("b10: auto chain (no link) authorize URL carries CSRF state", /^[0-9a-f]{48}:test$/.test(autoState), autoState);
@@ -816,27 +817,26 @@ async function main(): Promise<void> {
   check("m13: signed-in with a connected merchant → dashboard shortcut shown", pageAcctDash.includes("You're connected") && pageAcctDash.includes("open your dashboard"), "");
   check("m14: signed-in without a merchant → no dashboard shortcut", !pageAll.includes("open your dashboard"), "");
 
-  // ── (m3) unit: the chnlink advisory (optional-but-recommended) ──
-  // STRIPE_APP_CHNLINK does NOT gate the buttons — when it is unset the page
-  // still renders the Connect buttons and an amber advisory explains that
-  // Stripe rejects the public link while the app is unpublished. The advisory
-  // text is computed by handleAppInstallPage (from appChnlink()) and passed in
-  // as the chnlinkNotice param; this pins the render contract.
+  // ── (m3) unit: the page NEVER mentions chnlink since approval ──
+  // STRIPE_APP_CHNLINK plays NO role on the install page (reviewer fix #4):
+  // the official install link is the public format, so there is no advisory
+  // and no chnlink text anywhere in the rendered HTML — with the env var
+  // either unset or set (the env switch only affects buildAuthorizeUrl).
   process.env.STRIPE_APP_TEST_KEY = "sk_test_page";
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_page";
   process.env.STRIPE_CLIENT_ID = "ca_page_fallback";
   process.env.STRIPE_APP_TEST_CLIENT_ID = "ca_test_page";
   process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_page";
   delete process.env.STRIPE_APP_CHNLINK;
-  const ADVISORY = "STRIPE_APP_CHNLINK is not set. While the app is unpublished, Stripe rejects the public install link";
-  const pageAdvisory = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT, null, ADVISORY);
-  check("m15: chnlink unset → advisory rendered (when passed) AND buttons NOT hidden", pageAdvisory.includes(ADVISORY) && pageAdvisory.includes(`${pageBase}/oauth/install/start?link=test`) && pageAdvisory.includes(`${pageBase}/oauth/install/start?link=live`), "");
-  const pageNoAdvisory = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT, null, "");
-  check("m16: no advisory text → nothing extra rendered (buttons unaffected)", !pageNoAdvisory.includes(ADVISORY) && pageNoAdvisory.includes(`${pageBase}/oauth/install/start?link=test`), "");
+  const pageNoChnlink = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
+  check("m15: chnlink unset → page has NO chnlink advisory and buttons NOT hidden", !pageNoChnlink.includes("chnlink") && !pageNoChnlink.includes("STRIPE_APP_CHNLINK") && pageNoChnlink.includes(`${pageBase}/oauth/install/start?link=test`) && pageNoChnlink.includes(`${pageBase}/oauth/install/start?link=live`), "");
   process.env.STRIPE_APP_CHNLINK = "chnlink_unit";
-  check("m17: appChnlink() reads the env switch (set → value)", mod.appChnlink() === "chnlink_unit", String(mod.appChnlink()));
+  const pageChnlinkSet = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
+  check("m16: chnlink SET → page still has NO chnlink text (the env switch affects only buildAuthorizeUrl, never the page)", !pageChnlinkSet.includes("chnlink") && !pageChnlinkSet.includes("STRIPE_APP_CHNLINK"), "");
   delete process.env.STRIPE_APP_CHNLINK;
-  check("m17b: appChnlink() null when unset", mod.appChnlink() === null, String(mod.appChnlink()));
+  check("m17: appChnlink() null when unset", mod.appChnlink() === null, String(mod.appChnlink()));
+  process.env.STRIPE_APP_CHNLINK = "chnlink_unit";
+  check("m17b: appChnlink() reads the env switch (set → value)", mod.appChnlink() === "chnlink_unit", String(mod.appChnlink()));
   process.env.STRIPE_APP_CHNLINK = "chnlink_unit";
 
   // Restore env for any later sections.

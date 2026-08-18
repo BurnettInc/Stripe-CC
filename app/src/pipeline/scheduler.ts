@@ -169,12 +169,13 @@ function markDisconnected(db: Database, merchantId: number): void {
 
 /**
  * Status propagation for one sync run: an invoice that transitioned to
- * 'paid' or 'void' since the previous sync gets the same close/stop
- * treatment the watcher applies on invoice.paid (cancel tasks + one-time
- * payment-received notification) and the void analog (cancel open tasks +
- * log). Detected by diffing the pre-sync snapshot against the post-sync rows,
- * so a missed webhook is recovered — the stale local state can no longer
- * keep a sequence alive forever (PROMISES_AUDIT #9).
+ * 'paid', 'void', or 'uncollectible' since the previous sync gets the same
+ * close/stop treatment the watcher applies on invoice.paid (cancel tasks +
+ * one-time payment-received notification) and the void/uncollectible analog
+ * (cancel open tasks + log, distinct message per status). Detected by diffing
+ * the pre-sync snapshot against the post-sync rows, so a missed webhook is
+ * recovered — the stale local state can no longer keep a sequence alive
+ * forever (PROMISES_AUDIT #9).
  */
 function reconcileInvoiceStatuses(
   db: Database,
@@ -240,19 +241,24 @@ function reconcileInvoiceStatuses(
       } else {
         log(`[scheduler] invoice-sync: invoice ${row.stripe_invoice_id} became paid — sequence closed${followed.n > 0 ? "" : " (never followed up)"}`);
       }
-    } else if (row.status === "void") {
-      // Void / uncollectible / draft in Stripe = the debt is no longer active:
-      // stop open sequences (the void analog of watcher's close/stop paths).
+    } else if (row.status === "void" || row.status === "uncollectible") {
+      // Void / uncollectible in Stripe = the debt is no longer active: stop
+      // open sequences (the terminal analog of watcher's close/stop paths).
+      // Drafts never carry tasks (they are never stored as overdue), so the
+      // only inactive statuses that reach here are 'void' and
+      // 'uncollectible' — each with a DISTINCT log message so the two are
+      // distinguishable in the audit trail (reviewer fix #2).
       const cancelled = db
         .run(
           "UPDATE reminder_tasks SET status='cancelled' WHERE invoice_id=? AND status IN ('pending','drafted','reviewed')",
           [row.id]
         ).changes;
+      const reason = row.status === "void" ? "voided" : "marked uncollectible";
       if (cancelled > 0) {
-        logSend(db, 0, "success", `Invoice ${row.stripe_invoice_id} voided in Stripe — stopped ${cancelled} open sequence(s)`, "disconnect");
-        log(`[scheduler] invoice-sync: invoice ${row.stripe_invoice_id} became void — ${cancelled} open sequence(s) stopped`);
+        logSend(db, 0, "success", `Invoice ${row.stripe_invoice_id} ${reason} in Stripe — stopped ${cancelled} open sequence(s)`, "disconnect");
+        log(`[scheduler] invoice-sync: invoice ${row.stripe_invoice_id} became ${row.status} — ${cancelled} open sequence(s) stopped`);
       } else {
-        log(`[scheduler] invoice-sync: invoice ${row.stripe_invoice_id} became void (no open sequences)`);
+        log(`[scheduler] invoice-sync: invoice ${row.stripe_invoice_id} became ${row.status} (no open sequences)`);
       }
     }
   }
@@ -278,7 +284,15 @@ export interface InvoiceSyncPassResult {
 export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {}): Promise<InvoiceSyncPassResult> {
   const log = deps.log ?? console.log;
   const now = deps.now?.() ?? new Date();
-  const syncInvoices = deps.syncInvoices ?? syncMerchantInvoices;
+  const syncInvoices = deps.syncInvoices ?? ((db: Database, merchantId: number) =>
+    // The periodic sync MUST include inactive statuses: void / uncollectible
+    // invoices in Stripe carry no webhook (only payment_failed/overdue do),
+    // so the ONLY way to detect a void/uncollectible transition after a
+    // missed webhook is to pull those rows and diff them (reviewer fix #2 —
+    // the reconcile pass then cancels the open sequence). The install
+    // backfill path keeps includeInactive=false (never surface dead debts as
+    // actionable on first connect); the draft status stays excluded either way.
+    syncMerchantInvoices(db, merchantId, { includeInactive: true }));
   const result: InvoiceSyncPassResult = {
     merchants: 0,
     invoicesUpserted: 0,

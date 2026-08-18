@@ -31,6 +31,11 @@
  *       clock / no clock → kept
  *   (j) single-flight guard: a tick while the previous run is in flight is
  *       skipped; the next tick runs
+ *   (k) void / uncollectible are first-class TERMINAL stop states (reviewer
+ *       fix #2): sync stores them DISTINCTLY and cancels open sequences; a
+ *       stale/replayed overdue webhook cannot resurrect them (watcher guard);
+ *       the sender skips both without emailing; isInvoiceSequenceStopped
+ *       treats both as stopped
  *
  * Run: bun run test-scheduler.ts   (or bash /tmp/run-suite.sh scheduler —
  * the suite driver boots an idle server with SCHEDULER_ENABLED=0; the test
@@ -57,8 +62,10 @@ process.env.FROM_EMAIL = "test@example.com";
 Bun.spawnSync(["rm", "-f", `${DB_PATH}`, `${DB_PATH}-wal`, `${DB_PATH}-shm`]);
 
 // ── Dynamic imports (env above must be set first) ──
-const { getDb, createReminderTask, purgeMerchantData } = await import("./src/db");
+const { getDb, createReminderTask, purgeMerchantData, isInvoiceSequenceStopped } = await import("./src/db");
 const sched = await import("./src/pipeline/scheduler");
+const watcher = await import("./src/pipeline/watcher");
+const sender = await import("./src/pipeline/sender");
 
 const db = getDb();
 
@@ -117,6 +124,12 @@ function openInvoice(id: string, dueSec: number, amountCents = 10000): Record<st
 function paidInvoice(id: string, createdSec: number, amountCents = 10000): Record<string, unknown> {
   return {
     id, status: "paid", created: createdSec, amount_due: amountCents, amount_paid: amountCents,
+    currency: "usd", customer_name: `Customer ${id}`, customer_email: `cust-${id}@example.com`,
+  };
+}
+function inactiveInvoice(id: string, status: string, createdSec: number, amountCents = 10000): Record<string, unknown> {
+  return {
+    id, status, created: createdSec, amount_due: amountCents, amount_paid: 0,
     currency: "usd", customer_name: `Customer ${id}`, customer_email: `cust-${id}@example.com`,
   };
 }
@@ -445,6 +458,101 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   check("(j) first tick ran to completion", runs === 1, `runs=${runs}`);
   const third = await wrapped();
   check("(j) next tick runs after the previous completed", third.skipped === false && runs === 2, `skipped=${third.skipped} runs=${runs}`);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// (k) void / uncollectible — first-class terminal stop states (reviewer fix #2)
+// ════════════════════════════════════════════════════════════════════════
+{
+  // Unit: the shared "stopped" model treats both as stopped.
+  check("(k) isInvoiceSequenceStopped(void) === true", isInvoiceSequenceStopped({ status: "void" } as never), "");
+  check("(k) isInvoiceSequenceStopped(uncollectible) === true", isInvoiceSequenceStopped({ status: "uncollectible" } as never), "");
+  check("(k) isInvoiceSequenceStopped(overdue) === false", !isInvoiceSequenceStopped({ status: "overdue" } as never), "");
+
+  // m20: invoice VOIDED in Stripe after a missed webhook → local status 'void'
+  // (distinct), open task cancelled, never re-chased.
+  const m20 = seedMerchant("acct_m20", { trustMode: "draft" });
+  seedConnection(m20, "rk_m20");
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m20_void', ?, 'C20', 'c20@example.com', 16000, 'usd', ?, 'overdue')", [m20, sqliteFromDate(new Date(FAKE_NOW.getTime() - 8 * DAY_MS)).slice(0, 10)]);
+  const m20Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m20_void'").get() as { id: number };
+  createReminderTask(db, m20Inv.id, 2);
+  stubState.invoiceSets["rk_m20"] = [inactiveInvoice("in_m20_void", "void", DAYS(8), 16000)];
+
+  // m21: invoice marked UNCOLLECTIBLE in Stripe → stored 'uncollectible'
+  // (DISTINCT from 'void'), open task cancelled.
+  const m21 = seedMerchant("acct_m21", { trustMode: "draft" });
+  seedConnection(m21, "rk_m21");
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m21_unc', ?, 'C21', 'c21@example.com', 17000, 'usd', ?, 'overdue')", [m21, sqliteFromDate(new Date(FAKE_NOW.getTime() - 9 * DAY_MS)).slice(0, 10)]);
+  const m21Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m21_unc'").get() as { id: number };
+  createReminderTask(db, m21Inv.id, 2);
+  stubState.invoiceSets["rk_m21"] = [inactiveInvoice("in_m21_unc", "uncollectible", DAYS(9), 17000)];
+
+  await sched.runInvoiceSyncPass(db, { now: fakeNow, log: () => {} });
+  await sched.runInvoiceSyncPass(db, { now: fakeNow, log: () => {} }); // a second pass must not resurrect anything
+
+  const m20Row = db.query("SELECT status FROM invoices WHERE id=?").get(m20Inv.id) as { status: string };
+  const m21Row = db.query("SELECT status FROM invoices WHERE id=?").get(m21Inv.id) as { status: string };
+  check("(k) sync stores 'void' DISTINCTLY", m20Row.status === "void", `status=${m20Row.status}`);
+  check("(k) sync stores 'uncollectible' DISTINCTLY (NOT collapsed into 'void')", m21Row.status === "uncollectible", `status=${m21Row.status}`);
+  const m20Tasks = db.query("SELECT status FROM reminder_tasks WHERE invoice_id=?").all(m20Inv.id) as { status: string }[];
+  const m21Tasks = db.query("SELECT status FROM reminder_tasks WHERE invoice_id=?").all(m21Inv.id) as { status: string }[];
+  check("(k) void transition cancelled the open task", m20Tasks.length === 1 && m20Tasks[0].status === "cancelled", JSON.stringify(m20Tasks));
+  check("(k) uncollectible transition cancelled the open task", m21Tasks.length === 1 && m21Tasks[0].status === "cancelled", JSON.stringify(m21Tasks));
+  check("(k) no new tasks after the stop (second pass created nothing)", taskCount(m20) === 1 && taskCount(m21) === 1, `m20=${taskCount(m20)} m21=${taskCount(m21)}`);
+
+  // m22: a stale/replayed overdue WEBHOOK must not resurrect a stopped invoice
+  // (the watcher's stale-event guard — the actual resurrection bug fixed).
+  const m22 = seedMerchant("acct_m22", { trustMode: "draft" });
+  seedConnection(m22, "rk_m22");
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m22_void', ?, 'C22', 'c22@example.com', 18000, 'usd', ?, 'void')", [m22, sqliteFromDate(new Date(FAKE_NOW.getTime() - 10 * DAY_MS)).slice(0, 10)]);
+  const m22Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m22_void'").get() as { id: number };
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m22_unc', ?, 'C22', 'c22@example.com', 18000, 'usd', ?, 'uncollectible')", [m22, sqliteFromDate(new Date(FAKE_NOW.getTime() - 11 * DAY_MS)).slice(0, 10)]);
+  const m22Unc = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m22_unc'").get() as { id: number };
+
+  const staleVoid = await watcher.handleWebhookEvent(db, {
+    type: "invoice.overdue",
+    account: "acct_m22",
+    data: { object: { id: "in_m22_void", status: "open", customer_name: "C22", customer_email: "c22@example.com", amount_due: 18000, currency: "usd", due_date: DAYS(10) } },
+  } as never);
+  const staleUnc = await watcher.handleWebhookEvent(db, {
+    type: "invoice.payment_failed",
+    account: "acct_m22",
+    data: { object: { id: "in_m22_unc", status: "open", customer_name: "C22", customer_email: "c22@example.com", amount_due: 18000, currency: "usd", due_date: DAYS(11) } },
+  } as never);
+  check("(k) stale overdue webhook skipped for a VOIDED invoice (action names it)", staleVoid.action.includes("already voided"), staleVoid.action);
+  check("(k) stale payment_failed webhook skipped for an UNCOLLECTIBLE invoice", staleUnc.action.includes("already uncollectible"), staleUnc.action);
+  check("(k) voided invoice NOT resurrected by the stale webhook (status stays void, no task)", (db.query("SELECT status FROM invoices WHERE id=?").get(m22Inv.id) as { status: string }).status === "void" && taskCount(m22) === 0, "");
+  check("(k) uncollectible invoice NOT resurrected (status stays uncollectible)", (db.query("SELECT status FROM invoices WHERE id=?").get(m22Unc.id) as { status: string }).status === "uncollectible", "");
+
+  // Sender: a voided/uncollectible invoice is never emailed (pre-send guard).
+  const m23 = seedMerchant("acct_m23", { trustMode: "draft" });
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m23_void', ?, 'C23', 'c23@example.com', 19000, 'usd', ?, 'void')", [m23, sqliteFromDate(new Date(FAKE_NOW.getTime() - 12 * DAY_MS)).slice(0, 10)]);
+  const m23Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m23_void'").get() as { id: number };
+  const m23Task = createReminderTask(db, m23Inv.id, 3);
+  const m23Res = sender.sendEmail(db, db.query("SELECT * FROM reminder_tasks WHERE id=?").get(m23Task) as never, { subject: "reminder", body: "please pay" });
+  const m23Skips = db.query("SELECT COUNT(*) AS n FROM send_logs WHERE reminder_task_id=? AND status='skipped'").get(m23Task) as { n: number };
+  const m23Sends = db.query("SELECT COUNT(*) AS n FROM send_logs WHERE reminder_task_id=? AND status='success'").get(m23Task) as { n: number };
+  check("(k) sender skips a VOIDED invoice (no email)", m23Res.success === false && (m23Res.message ?? "").includes("voided"), JSON.stringify(m23Res));
+  check("(k) void skip logged as skipped, NO success log", m23Skips.n === 1 && m23Sends.n === 0, `skips=${m23Skips.n} sends=${m23Sends.n}`);
+
+  const m24 = seedMerchant("acct_m24", { trustMode: "draft" });
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m24_unc', ?, 'C24', 'c24@example.com', 20000, 'usd', ?, 'uncollectible')", [m24, sqliteFromDate(new Date(FAKE_NOW.getTime() - 13 * DAY_MS)).slice(0, 10)]);
+  const m24Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m24_unc'").get() as { id: number };
+  const m24Task = createReminderTask(db, m24Inv.id, 3);
+  const m24Res = sender.sendEmail(db, db.query("SELECT * FROM reminder_tasks WHERE id=?").get(m24Task) as never, { subject: "reminder", body: "please pay" });
+  const m24Skips = db.query("SELECT COUNT(*) AS n FROM send_logs WHERE reminder_task_id=? AND status='skipped'").get(m24Task) as { n: number };
+  const m24Sends = db.query("SELECT COUNT(*) AS n FROM send_logs WHERE reminder_task_id=? AND status='success'").get(m24Task) as { n: number };
+  check("(k) sender skips an UNCOLLECTIBLE invoice (no email)", m24Res.success === false && (m24Res.message ?? "").includes("uncollectible"), JSON.stringify(m24Res));
+  check("(k) uncollectible skip logged as skipped, NO success log (no thank-you for an unpaid debt)", m24Skips.n === 1 && m24Sends.n === 0, `skips=${m24Skips.n} sends=${m24Sends.n}`);
+
+  // Control: the paid case keeps its thank-you success log (back-compat).
+  const m25 = seedMerchant("acct_m25", { trustMode: "draft" });
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m25_paid', ?, 'C25', 'c25@example.com', 21000, 'usd', ?, 'paid')", [m25, sqliteFromDate(new Date(FAKE_NOW.getTime() - 14 * DAY_MS)).slice(0, 10)]);
+  const m25Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m25_paid'").get() as { id: number };
+  const m25Task = createReminderTask(db, m25Inv.id, 3);
+  const m25Res = sender.sendEmail(db, db.query("SELECT * FROM reminder_tasks WHERE id=?").get(m25Task) as never, { subject: "reminder", body: "please pay" });
+  const m25Sends = db.query("SELECT COUNT(*) AS n FROM send_logs WHERE reminder_task_id=? AND status='success'").get(m25Task) as { n: number };
+  check("(k) paid skip keeps the simulated thank-you success log (back-compat)", m25Res.success === false && m25Sends.n >= 1, JSON.stringify(m25Res));
 }
 
 // ── Cleanup ──

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Select, Spinner } from '@stripe/ui-extension-sdk/ui';
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
-import { BASE_URL } from '../api';
+import { BASE_URL, INSTALL_URL } from '../api';
 
 type TrustMode = 'draft' | 'semi' | 'full';
 type TrustModeValue = TrustMode | 'global';
@@ -166,7 +166,7 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
       <Box css={{ stack: 'y', gap: 'small' }}>
         <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
         <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to access CollectionsCopilot invoice details.</Box>
-        <Button type="primary" href={`${BASE_URL}/stripe/connect?return=stripe`} target="_blank">Connect Stripe</Button>
+        <Button type="primary" href={INSTALL_URL} target="_blank">Connect Stripe</Button>
         <Box css={{ color: 'secondary', font: 'caption' }}>Connecting opens a new tab. When you've finished onboarding there, come back and check your status.</Box>
         <Button type="secondary" onPress={() => { void load(); }}>Check status</Button>
       </Box>
