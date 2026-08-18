@@ -62,6 +62,7 @@ import type { Invoice, Merchant } from "../db";
 import { notifyMerchant, isPlaceholderMerchant } from "../pipeline/notify";
 import { sendEmailForReal } from "../pipeline/sender";
 import { processReplyAI } from "../pipeline/reply-ai";
+import { classifyReplyDetect, detectLabel, replyActionFlag } from "../pipeline/reply-detect";
 import type { EmailDraft } from "../pipeline/drafter";
 
 const INBOUND_TOKEN = process.env.INBOUND_WEBHOOK_TOKEN;
@@ -208,12 +209,23 @@ export async function handleInboundReply(db: Database, req: Request): Promise<Re
       ? JSON.stringify(p.raw_message)
       : null;
 
+  // ── Reply detection v1 (deterministic; owner 8/18) ──
+  // Classify the reply ONCE at capture so the merchant-facing flag is set even
+  // if the AI layer is absent or fails. The result lives in its own columns
+  // (detect_classification / detect_extracted_date / action_flag) and never
+  // touches the AI classification column or send behavior. Subject is included
+  // so a reply whose whole message is in the subject still classifies.
+  const detect = classifyReplyDetect(subject ? `${subject}\n${replyBody}` : replyBody);
+  const actionFlag = replyActionFlag(detect.classification, detect.extracted_date);
+
   const inserted = db.run(
     `INSERT OR IGNORE INTO inbound_replies
        (merchant_id, invoice_id, sequence_key, received_at, from_email, from_name,
-        subject, body, raw_message, idempotency_key, reply_status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'captured')`,
-    [invoice.merchant_id, invoice.id, seq, receivedAt, fromEmail, fromName, subject, replyBody, rawMessage, idemKey],
+        subject, body, raw_message, idempotency_key, reply_status,
+        detect_classification, detect_extracted_date, action_flag)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'captured', ?, ?, ?)`,
+    [invoice.merchant_id, invoice.id, seq, receivedAt, fromEmail, fromName, subject, replyBody, rawMessage, idemKey,
+      detect.classification, detect.extracted_date, actionFlag],
   );
   if (inserted.changes === 0) {
     console.log(`[inbound] duplicate reply for sequence_id ${seq} (idem ${idemKey.slice(0, 12)}…) — ignored (200 no-op)`);
@@ -237,11 +249,18 @@ export async function handleInboundReply(db: Database, req: Request): Promise<Re
   // ── Forward + notify (best-effort; never fail the webhook) ──
   await forwardReply(db, invoice, { fromEmail, fromName, subject, body: replyBody });
   try {
+    // The notification is the merchant's primary surface for a captured reply:
+    // the subject carries the detected category and the body carries the
+    // actionable flag (reply detection v1). The full original reply is already
+    // in their inbox (forwardReply) and the /replies review queue.
+    const label = detectLabel(detect.classification);
     await notifyMerchant(
       db,
       invoice.merchant_id,
-      `Customer reply — invoice ${invoice.stripe_invoice_id} sequence paused`,
-      `${invoice.customer_name} replied to invoice ${invoice.stripe_invoice_id} — sequence paused, awaiting your review.`,
+      `Customer reply — invoice ${invoice.stripe_invoice_id} sequence paused (${label})`,
+      `${invoice.customer_name} replied to invoice ${invoice.stripe_invoice_id} — sequence paused, awaiting your review.\n\n` +
+        `Classification: ${label} — ${actionFlag}\n` +
+        `(Reply: "${(replyBody || "").trim().slice(0, 200)}")`,
     );
   } catch (err: unknown) {
     console.warn(`[inbound] merchant notification failed for invoice ${invoice.stripe_invoice_id}: ${err instanceof Error ? err.message : String(err)}`);

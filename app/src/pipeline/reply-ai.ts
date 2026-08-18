@@ -70,6 +70,11 @@ export interface InboundReplyRow {
   reply_status: string;
   handled_at: string | null;
   created_at: string;
+  // Reply detection v1 (migration 025, set at capture by routes/inbound.ts —
+  // additive to the AI classification above; see pipeline/reply-detect.ts).
+  detect_classification: string | null;
+  detect_extracted_date: string | null;
+  action_flag: string | null;
 }
 
 export interface ClassifiedReply {
