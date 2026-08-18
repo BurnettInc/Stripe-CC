@@ -90,7 +90,16 @@
  *       (no advisory, no chnlink mention — reviewer fix #4); the "not
  *       configured" notice lists the missing env vars per mode
  *       ("set STRIPE_APP_LIVE_KEY or STRIPE_SECRET_KEY" when both live key
- *       vars are unset)
+ *       vars are unset). The m-series renders with
+ *       STRIPE_APP_ENABLE_TEST_INSTALL=1 (the internal-QA flag — asserting
+ *       the flag-ON "both modes as configured" behavior)
+ *   (m4) PUBLISHED → LIVE-ONLY page: STRIPE_APP_ENABLE_TEST_INSTALL gates the
+ *       RENDERED page — unset/≠"1" suppresses the test-mode button AND every
+ *       test-mode notice even when STRIPE_APP_TEST_CLIENT_ID +
+ *       STRIPE_APP_TEST_KEY are configured (only the live-mode button, or its
+ *       missing-creds notice, renders); "1" restores today's both-modes
+ *       behavior (internal QA). Rendering-only — /oauth/install/start?link=test
+ *       is untouched, so QA can still drive test-mode installs directly.
  *   (j) exchangeCodeForTokens: happy path through the stub; missing-key error
  *       (naming STRIPE_APP_LIVE_KEY + STRIPE_SECRET_KEY fallback for live)
  *       without any network call; live exchange authenticates with the
@@ -444,7 +453,7 @@ async function main(): Promise<void> {
   // ── (c6) dashboard HTML carries the status banner (markup + renderer) ──
   const dash = await (await fetch(`${BASE}/dashboard`)).text();
   check("c32: dashboard has the status banner markup", dash.includes('id="status-banner"') && dash.includes('id="status-banner-title"') && dash.includes('id="status-banner-actions"') && dash.includes('id="status-banner-dot"'), "");
-  check("c33: dashboard banner renderer covers all three states (reviewer wording)", dash.includes("renderStatusBanner") && dash.includes("Connected to Stripe — subscription required") && dash.includes("Active — Connected to Stripe") && dash.includes("Subscribe Standard — $15/mo") && dash.includes("Subscribe Pro — $29/mo") && dash.includes("Not connected to Stripe"), "");
+  check("c33: dashboard banner renderer covers all three states (reviewer wording)", dash.includes("renderStatusBanner") && dash.includes("Connected to Stripe — subscription required") && dash.includes("Active — Connected to Stripe") && dash.includes("Subscribe Standard — ") && dash.includes("planPriceLabel('standard')") && dash.includes("Subscribe Pro — ") && dash.includes("planPriceLabel('pro')") && dash.includes("Not connected to Stripe"), "");
   d2.close();
 
   // ── (c7) email-gap repair: a re-install fixes a placeholder merchant email ──
@@ -772,6 +781,12 @@ async function main(): Promise<void> {
   process.env.STRIPE_APP_TEST_KEY = "sk_test_page";
   process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_page";
   process.env.STRIPE_APP_LIVE_KEY = "sk_live_page";
+  // The m-series asserts the flag-ON behavior (both modes render per
+  // configuredModes — the internal-QA / pre-publish page). Since the app is
+  // PUBLISHED (2026-08-18) the page is LIVE-only by default, so the existing
+  // "test button shown" checks need the internal-QA flag set to keep passing;
+  // the flag-OFF (published) behavior is pinned separately in (m4) below.
+  process.env.STRIPE_APP_ENABLE_TEST_INSTALL = "1";
   const pageAll = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
   check("m1: test button shown when test client id + test key both set", pageAll.includes(`${pageBase}/oauth/install/start?link=test`), "");
   check("m2: live button shown when live client id + live key both set", pageAll.includes(`${pageBase}/oauth/install/start?link=live`), "");
@@ -838,6 +853,46 @@ async function main(): Promise<void> {
   process.env.STRIPE_APP_CHNLINK = "chnlink_unit";
   check("m17b: appChnlink() reads the env switch (set → value)", mod.appChnlink() === "chnlink_unit", String(mod.appChnlink()));
   process.env.STRIPE_APP_CHNLINK = "chnlink_unit";
+
+  // ── (m4) unit: STRIPE_APP_ENABLE_TEST_INSTALL — PUBLISHED → LIVE-ONLY page ──
+  // The app is APPROVED + PUBLISHED (2026-08-18): the marketplace install page
+  // is the public Live-mode surface, so the page must NEVER offer test mode to
+  // a real merchant. STRIPE_APP_ENABLE_TEST_INSTALL is the internal-QA switch
+  // (STRIPE_APP_CHNLINK convention): when it is NOT exactly "1" the page
+  // renders as if test mode does not exist — no test-mode button, no test-mode
+  // notices — even when STRIPE_APP_TEST_CLIENT_ID + STRIPE_APP_TEST_KEY are
+  // configured; only the live-mode button (or its missing-creds notice)
+  // renders. When it IS "1" the page renders both modes per configuredModes
+  // (internal QA). RENDERING-ONLY: /oauth/install/start?link=test,
+  // buildAuthorizeUrl, appClientIdFor and missingEnvFor are untouched.
+  const savedTestInstallFlag = process.env.STRIPE_APP_ENABLE_TEST_INSTALL;
+  process.env.STRIPE_CLIENT_ID = "ca_page_fallback";
+  process.env.STRIPE_APP_TEST_CLIENT_ID = "ca_test_page";
+  process.env.STRIPE_APP_TEST_KEY = "sk_test_page";
+  process.env.STRIPE_APP_LIVE_CLIENT_ID = "ca_live_page";
+  process.env.STRIPE_APP_LIVE_KEY = "sk_live_page";
+  delete process.env.STRIPE_APP_ENABLE_TEST_INSTALL;
+  const pageLiveOnly = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
+  check("m18: flag unset + both modes configured → test button NOT rendered", !pageLiveOnly.includes(`${pageBase}/oauth/install/start?link=test`), "");
+  check("m19: flag unset + both modes configured → live button rendered", pageLiveOnly.includes(`${pageBase}/oauth/install/start?link=live`), "");
+  check("m20: flag unset → no 'test mode'/'Test mode' text anywhere on the page", !/test mode/i.test(pageLiveOnly), "");
+  process.env.STRIPE_APP_ENABLE_TEST_INSTALL = "1";
+  const pageGateOpen = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
+  check("m21: flag '1' → test button rendered again (internal QA path)", pageGateOpen.includes(`${pageBase}/oauth/install/start?link=test`), "");
+  // Test creds configured but LIVE missing, flag unset → the "not configured"
+  // branch must show ONLY the live-mode missing notice — the test-mode notice
+  // ("Test mode is not available yet — set STRIPE_APP_TEST_CLIENT_ID.") is
+  // suppressed even though test creds exist.
+  delete process.env.STRIPE_APP_ENABLE_TEST_INSTALL;
+  delete process.env.STRIPE_APP_LIVE_CLIENT_ID;
+  delete process.env.STRIPE_APP_LIVE_KEY;
+  delete process.env.STRIPE_SECRET_KEY;
+  const pageTestOnly = mod.installPageHtml(pageBase, modesWith(), missingMap(), ACCT);
+  check("m22: flag unset, test-only configured → no test button and no test-mode notice", !pageTestOnly.includes("link=test") && !/test mode/i.test(pageTestOnly), "");
+  check("m23: flag unset, test-only configured → live-mode missing notice still shown", pageTestOnly.includes("Live mode: set"), "");
+  // Restore the flag to its prior state (delete when it was unset).
+  if (savedTestInstallFlag === undefined) delete process.env.STRIPE_APP_ENABLE_TEST_INSTALL;
+  else process.env.STRIPE_APP_ENABLE_TEST_INSTALL = savedTestInstallFlag;
 
   // Restore env for any later sections.
   process.env.STRIPE_CLIENT_ID = "ca_unit_client";
