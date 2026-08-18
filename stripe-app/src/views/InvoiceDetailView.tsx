@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banner, Box, Button, ContextView, Select, Spinner } from '@stripe/ui-extension-sdk/ui';
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
-import { BASE_URL, INSTALL_URL } from '../api';
+import { apiFetch, installUrlFor, modeTitleSuffix, setActiveMode, type Mode } from '../api';
 
 type TrustMode = 'draft' | 'semi' | 'full';
 type TrustModeValue = TrustMode | 'global';
@@ -86,6 +86,8 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
   // Stripe supplies the current object through the extension environment for
   // dashboard detail viewports. Keep invoiceId for local/testing callers.
   const invoiceId = props?.invoiceId ?? props?.environment?.objectContext?.id ?? null;
+  const mode: Mode = props?.environment?.mode ?? 'live';
+  setActiveMode(mode);
   const [invoice, setInvoice] = useState<InvoiceDetails | null>(null);
   const [trustMode, setTrustMode] = useState<TrustModeValue>('global');
   const [loading, setLoading] = useState(Boolean(invoiceId));
@@ -100,8 +102,8 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
     setUnauthenticated(false);
     try {
       const [invoiceResponse, modeResponse] = await Promise.all([
-        fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}`, { credentials: 'include' }),
-        fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}/trust-mode`, { credentials: 'include' }),
+        apiFetch(`/invoices/${encodeURIComponent(invoiceId)}`),
+        apiFetch(`/invoices/${encodeURIComponent(invoiceId)}/trust-mode`),
       ]);
       // A 401 here simply means there is no backend session yet (the merchant
       // hasn't connected Stripe) — show the connect prompt instead of a hard
@@ -132,8 +134,7 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`${BASE_URL}/invoices/${encodeURIComponent(invoiceId)}/trust-mode`, {
-        credentials: 'include',
+      const response = await apiFetch(`/invoices/${encodeURIComponent(invoiceId)}/trust-mode`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trust_mode: value === 'global' ? null : value }),
@@ -150,7 +151,7 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
   };
 
   if (!invoiceId) {
-    return <ContextView title="Collections Copilot"><Box css={{ color: 'secondary' }}>Select an invoice to view its collection status.</Box></ContextView>;
+    return <ContextView title={`Collections Copilot${modeTitleSuffix(mode)}`}><Box css={{ color: 'secondary' }}>Select an invoice to view its collection status.</Box></ContextView>;
   }
 
   const sequence = invoice?.sequence ?? invoice?.sequence_status;
@@ -161,12 +162,12 @@ export default function InvoiceDetailView(props?: InvoiceDetailProps) {
   const paused = sequence?.paused ?? invoice?.sequence_paused ?? invoice?.sequencePaused;
   const stage = invoice?.escalation_stage ?? invoice?.escalationStage;
 
-  return <ContextView title="Collections Copilot"><Box css={{ stack: 'y', gap: 'medium' }}>
+  return <ContextView title={`Collections Copilot${modeTitleSuffix(mode)}`}><Box css={{ stack: 'y', gap: 'medium' }}>
     {unauthenticated ? (
       <Box css={{ stack: 'y', gap: 'small' }}>
         <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
         <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to access CollectionsCopilot invoice details.</Box>
-        <Button type="primary" href={INSTALL_URL} target="_blank">Connect Stripe</Button>
+        <Button type="primary" href={installUrlFor(mode)} target="_blank">Connect Stripe</Button>
         <Box css={{ color: 'secondary', font: 'caption' }}>Connecting opens a new tab. When you've finished onboarding there, come back and check your status.</Box>
         <Button type="secondary" onPress={() => { void load(); }}>Check status</Button>
       </Box>

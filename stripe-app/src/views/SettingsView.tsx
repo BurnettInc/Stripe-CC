@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Box, Button, ContextView, Select, Spinner, Banner } from '@stripe/ui-extension-sdk/ui';
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
-import { BASE_URL, INSTALL_URL } from '../api';
+import { apiFetch, BASE_URL, installUrlFor, modeTitleSuffix, setActiveMode, type Mode } from '../api';
 
 type TrustMode = 'draft' | 'semi' | 'full';
 type Tier = 'standard' | 'pro';
@@ -41,8 +41,10 @@ const planPrices: Record<Tier, string> = { standard: '$15/month', pro: '$29/mont
  * string "settings" (see docs.stripe.com/stripe-apps/app-settings), which is
  * what this view is registered for.
  */
-export default function SettingsView(props?: { oauthContext?: ExtensionContextValue['oauthContext'] }) {
+export default function SettingsView(props?: { oauthContext?: ExtensionContextValue['oauthContext']; environment?: ExtensionContextValue['environment'] }) {
   const oauthContext = props?.oauthContext;
+  const mode: Mode = props?.environment?.mode ?? 'live';
+  setActiveMode(mode);
   const [trustMode, setTrustMode] = useState<TrustMode | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionResponse | null>(null);
   const [connection, setConnection] = useState<ConnectionResponse | null>(null);
@@ -56,9 +58,9 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
     setError(null);
     try {
       const [settingsRes, subRes, connRes] = await Promise.all([
-        fetch(`${BASE_URL}/settings`, { credentials: 'include' }),
-        fetch(`${BASE_URL}/subscription`, { credentials: 'include' }),
-        fetch(`${BASE_URL}/stripe/connection`, { credentials: 'include' }),
+        apiFetch('/settings'),
+        apiFetch('/subscription'),
+        apiFetch('/stripe/connection'),
       ]);
       if (settingsRes.status === 401 || subRes.status === 401 || connRes.status === 401) {
         setUnauthenticated(true);
@@ -94,8 +96,7 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`${BASE_URL}/settings`, {
-        credentials: 'include',
+      const response = await apiFetch('/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trust_mode: value }),
@@ -120,13 +121,13 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
       : 'Free plan';
 
   return (
-    <ContextView title="Collections Copilot">
+    <ContextView title={`Collections Copilot${modeTitleSuffix(mode)}`}>
       <Box css={{ stack: 'y', gap: 'medium' }}>
         {unauthenticated ? (
           <Box css={{ stack: 'y', gap: 'small' }}>
             <Box css={{ font: 'subheading', fontWeight: 'semibold' }}>Connect your Stripe account</Box>
             <Box css={{ color: 'secondary' }}>Sign in through Stripe Connect to access Collections Copilot settings.</Box>
-            <Button type="primary" href={INSTALL_URL} target="_blank">Connect Stripe</Button>
+            <Button type="primary" href={installUrlFor(mode)} target="_blank">Connect Stripe</Button>
             <Box css={{ color: 'secondary', font: 'caption' }}>Connecting opens a new tab. When you've finished onboarding there, come back and check your status.</Box>
             <Button type="secondary" onPress={() => { void load(); }}>Check status</Button>
           </Box>
