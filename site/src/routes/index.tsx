@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { readFile } from "node:fs/promises";
 import { useState, type FormEvent } from "react";
+
+const INSTALL_URL = "https://stripe-cc-production.up.railway.app/oauth/install";
 
 const getBusinessName = createServerFn({ method: "GET" }).handler(async () => {
   try {
@@ -15,111 +16,10 @@ const getBusinessName = createServerFn({ method: "GET" }).handler(async () => {
   }
 });
 
-/**
- * Checkout sessions are created by the backend API (app), not here — it owns
- * the price IDs, merchant attribution, and the billing webhooks. This server
- * function only forwards the request with the visitor's session cookie so the
- * backend can attribute the subscription to the authenticated merchant.
- *
- * APP_API_URL must point at the backend in production, e.g.
- * APP_API_URL=https://api.example.com. Defaults to BASE_URL (same-origin on
- * Railway — one service serves both site and backend) and then the local
- * backend.
- */
-const createCheckout = createServerFn({ method: "POST" })
-  .validator((data: unknown) => {
-    const d = data as { tier?: string };
-    if (!d.tier || !["standard", "pro"].includes(d.tier)) {
-      throw new Error("Invalid tier");
-    }
-    return d as { tier: "standard" | "pro" };
-  })
-  .handler(async ({ data }) => {
-    const apiUrl = (process.env.APP_API_URL || process.env.BASE_URL || "http://localhost:3001").replace(/\/+$/, "");
-    const siteBase = process.env.BASE_URL || "http://localhost:3000";
-
-    // Forward the visitor's session cookie to the backend so its
-    // requireSession() gate can attribute the subscription. This is a
-    // server-to-server call, so a manually forwarded Cookie header works
-    // regardless of domain — no browser same-origin restrictions apply.
-    // The backend sets `session=...` with Path=/ and no Domain attribute
-    // (host-only for the backend origin), which is exactly what the visitor's
-    // browser sends back here on every path.
-    const incomingReq = getRequest();
-    const cookieHeader = incomingReq?.headers.get("cookie") ?? "";
-    if (!cookieHeader.split(";").some((part) => part.trim().startsWith("session="))) {
-      return { error: "Connect your Stripe account before subscribing" };
-    }
-
-    try {
-      const res = await fetch(`${apiUrl}/billing/checkout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: cookieHeader,
-        },
-        body: JSON.stringify({
-          tier: data.tier,
-          successUrl: `${siteBase}/?subscribed=true`,
-          cancelUrl: `${siteBase}/?cancelled=true`,
-        }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      const json = await res.json() as { url?: string; error?: string };
-      if (res.ok && json.url) return { url: json.url };
-      console.error("[checkout] Backend checkout failed:", JSON.stringify(json));
-      if (res.status === 401) {
-        return { error: "Connect your Stripe account before subscribing" };
-      }
-      return { error: json.error || "Checkout failed" };
-    } catch (err) {
-      console.error(`[checkout] Could not reach backend checkout at ${apiUrl}/billing/checkout:`, err instanceof Error ? err.message : String(err));
-      return { error: "Checkout is temporarily unavailable. Please try again later." };
-    }
-  });
-
 export const Route = createFileRoute("/")({
   loader: () => getBusinessName(),
   component: Home,
 });
-
-function SubscribeButton({ tier, label, highlight }: { tier: string; label: string; highlight?: boolean }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleClick = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const result = await createCheckout({ data: { tier: tier as "standard" | "pro" } });
-      if (result.url) {
-        window.location.href = result.url;
-      } else {
-        setError(result.error || "Something went wrong");
-      }
-    } catch {
-      setError("Something went wrong");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div>
-      <button
-        onClick={handleClick}
-        disabled={loading}
-        className={`mt-8 block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors disabled:opacity-50 ${
-          highlight
-            ? "bg-indigo-600 text-white hover:bg-indigo-700"
-            : "border border-gray-300 text-gray-700 hover:bg-gray-50"
-        }`}
-      >
-        {loading ? "Redirecting..." : label}
-      </button>
-      {error && <p className="mt-2 text-xs text-red-600 text-center">{error}</p>}
-    </div>
-  );
-}
 
 function WaitlistForm() {
   const [email, setEmail] = useState("");
@@ -174,7 +74,7 @@ function WaitlistForm() {
         className="w-full max-w-md rounded-lg border border-indigo-200 bg-indigo-50 px-6 py-3 text-base font-medium text-indigo-900"
       >
         You're on the list! Founding members (first 50) lock in lifetime 50% off —
-        we'll email your claim link when we go live.
+        we'll email your founding-member discount details before the offer closes.
       </div>
     );
   }
@@ -219,17 +119,17 @@ function Home() {
           </span>
         </div>
         <a
-          href="#waitlist"
+          href={INSTALL_URL}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
         >
-          Join the waitlist
+          Install on Stripe
         </a>
       </nav>
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-6 pt-20 pb-16 text-center">
         <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700 mb-6">
-          Stripe-native · Zero setup
+          Now live on the Stripe App Marketplace
         </span>
         <span className="inline-block rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700 mb-6 ml-2">
           We never sell your data
@@ -239,11 +139,17 @@ function Home() {
         </h1>
         <p className="mt-6 max-w-xl mx-auto text-lg text-gray-600 leading-relaxed">
           The simplest AI collections assistant for solo Stripe users. Connect your
-          Stripe account in one click, and we'll chase overdue invoices with
-          personalized, escalating reminders — so you get paid without lifting a
-          finger.
+          Stripe account in one click — right from the Stripe App Marketplace — and
+          we'll chase overdue invoices with personalized, escalating reminders, so
+          you get paid without lifting a finger.
         </p>
         <div className="mt-10 flex flex-col items-center gap-4">
+          <a
+            href={INSTALL_URL}
+            className="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+          >
+            Install from the Stripe App Marketplace
+          </a>
           <WaitlistForm />
           <a
             href="#how-it-works"
@@ -603,7 +509,7 @@ function Home() {
               period: "",
               body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
               features: [],
-              cta: "Join the waitlist",
+              cta: "Install free",
               highlight: false,
               free: true,
             },
@@ -620,7 +526,6 @@ function Home() {
                 "Weekly recovery reports",
                 "Trust Mode selector + sending",
               ],
-              cta: "Subscribe to Standard",
               highlight: true,
               free: false,
             },
@@ -637,7 +542,6 @@ function Home() {
                 "Late-fee automation",
                 "Priority support — same-business-day first response (typically within 24 hours, weekdays)",
               ],
-              cta: "Subscribe to Pro",
               highlight: true,
               free: false,
             },
@@ -668,13 +572,22 @@ function Home() {
               </ul>
               {plan.free ? (
                 <a
-                  href="#waitlist"
+                  href={INSTALL_URL}
                   className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   {plan.cta}
                 </a>
               ) : (
-                <SubscribeButton tier={plan.tier!} label={plan.cta} highlight={plan.highlight} />
+                <a
+                  href={INSTALL_URL}
+                  className={`mt-8 block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors ${
+                    plan.highlight
+                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                      : "border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  Install on the Stripe Marketplace
+                </a>
               )}
               {plan.name === "Pro" && (
                 <p className="mt-4 text-xs text-gray-400 leading-relaxed">
@@ -684,6 +597,10 @@ function Home() {
             </div>
           ))}
         </div>
+        <p className="mt-8 text-sm text-gray-500 text-center">
+          Install from the Stripe App Marketplace — subscribe inside the app after
+          connecting. $15/month Standard · $29/month Pro.
+        </p>
       </section>
 
       {/* FAQ */}
@@ -741,20 +658,28 @@ function Home() {
             Ready to stop chasing payments?
           </h2>
           <p className="text-gray-400 max-w-lg mx-auto mb-4">
-            Join the waitlist and we'll email you the moment CollectionsCopilot is
-            live. Polite, personalized, and persistent — without you lifting a
+            Install CollectionsCopilot from the Stripe App Marketplace today.
+            Polite, personalized, and persistent reminders — without you lifting a
             finger.
           </p>
           <p className="text-indigo-300 max-w-lg mx-auto mb-8">
             Founding members (first 50) get lifetime 50% off both plans plus 90
             days of priority support — guaranteed, even if we raise prices later.
           </p>
-          <a
-            href="#waitlist"
-            className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
-          >
-            Join the waitlist
-          </a>
+          <div className="flex flex-col items-center gap-4">
+            <a
+              href={INSTALL_URL}
+              className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
+            >
+              Install from the Stripe App Marketplace
+            </a>
+            <a
+              href="#waitlist"
+              className="inline-block rounded-lg border border-gray-500 px-6 py-3 text-base font-semibold text-gray-200 hover:bg-gray-800 transition-colors"
+            >
+              Join the waitlist
+            </a>
+          </div>
         </div>
       </section>
 
