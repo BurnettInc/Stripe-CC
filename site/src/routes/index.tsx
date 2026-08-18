@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { readFile } from "node:fs/promises";
-import { useState, type FormEvent } from "react";
 
 const INSTALL_URL = "https://stripe-cc-production.up.railway.app/oauth/install";
 
@@ -20,91 +19,6 @@ export const Route = createFileRoute("/")({
   loader: () => getBusinessName(),
   component: Home,
 });
-
-function WaitlistForm() {
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [done, setDone] = useState(false);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const value = email.trim();
-    if (!value) {
-      setError("Enter your email address");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      // Forward the channel the browser already has (same fields/conventions as
-      // the visit-tracking beacon in __root.tsx — no new collection): referrer
-      // + URL utm_* params + the localStorage visitor id. Absent → "".
-      const q = new URLSearchParams(location.search);
-      const utm = (k: string) => q.get(k) || "";
-      const res = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: value,
-          referrer: document.referrer.slice(0, 500),
-          utm_source: utm("utm_source"),
-          utm_medium: utm("utm_medium"),
-          utm_campaign: utm("utm_campaign"),
-          utm_content: utm("utm_content"),
-          visitor_id: localStorage.getItem("cc_vid") || "",
-        }),
-      });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (res.ok && data.ok) {
-        setDone(true);
-      } else {
-        setError(data.error || "Something went wrong — please try again.");
-      }
-    } catch {
-      setError("Something went wrong — please try again.");
-    }
-    setLoading(false);
-  };
-
-  if (done) {
-    return (
-      <div
-        id="waitlist"
-        className="w-full max-w-md rounded-lg border border-indigo-200 bg-indigo-50 px-6 py-3 text-base font-medium text-indigo-900"
-      >
-        You're on the list! Founding members (first 50) lock in lifetime 50% off —
-        we'll email your founding-member discount details before the offer closes.
-      </div>
-    );
-  }
-
-  return (
-    <form
-      id="waitlist"
-      onSubmit={submit}
-      noValidate
-      className="flex w-full max-w-md flex-col gap-3 sm:flex-row"
-    >
-      <input
-        type="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="you@example.com"
-        required
-        className="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-base text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-      />
-      <button
-        type="submit"
-        disabled={loading}
-        className="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {loading ? "Joining..." : "Join the waitlist"}
-      </button>
-      {error && <p className="w-full text-sm text-red-600">{error}</p>}
-    </form>
-  );
-}
 
 function Home() {
   const businessName = Route.useLoaderData();
@@ -150,7 +64,6 @@ function Home() {
           >
             Install from the Stripe App Marketplace
           </a>
-          <WaitlistForm />
           <a
             href="#how-it-works"
             className="rounded-lg border border-gray-300 px-6 py-3 text-base font-medium text-gray-700 hover:bg-gray-50 transition-colors"
@@ -161,13 +74,13 @@ function Home() {
         </div>
         <div className="mt-10 mx-auto max-w-2xl rounded-2xl border border-indigo-200 bg-indigo-50 p-6 text-left">
           <p className="text-sm font-bold uppercase tracking-wide text-indigo-700 mb-2">
-            Founding Member Offer — first 50 waitlist users only
+            Founding Member Offer — first 50 to sign up
           </p>
           <ul className="space-y-1.5 text-sm text-gray-700">
             <li>✓ <span className="font-semibold text-indigo-900">Lifetime 50% off</span> both plans once we go live — Standard <span className="font-semibold">$7.50/mo</span>, Pro <span className="font-semibold">$14.50/mo</span>, forever.</li>
             <li>✓ Priority support for your first 90 days.</li>
             <li>✓ Your discount stays even if we raise prices later.</li>
-            <li>✓ Guaranteed to the first 50 people who join the waitlist — join now to lock in your spot.</li>
+            <li>✓ Guaranteed to the first 50 people who sign up.</li>
           </ul>
         </div>
       </section>
@@ -663,7 +576,7 @@ function Home() {
             finger.
           </p>
           <p className="text-indigo-300 max-w-lg mx-auto mb-8">
-            Founding members (first 50) get lifetime 50% off both plans plus 90
+            Founding members (first 50 to sign up) get lifetime 50% off both plans plus 90
             days of priority support — guaranteed, even if we raise prices later.
           </p>
           <div className="flex flex-col items-center gap-4">
@@ -672,12 +585,6 @@ function Home() {
               className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
             >
               Install from the Stripe App Marketplace
-            </a>
-            <a
-              href="#waitlist"
-              className="inline-block rounded-lg border border-gray-500 px-6 py-3 text-base font-semibold text-gray-200 hover:bg-gray-800 transition-colors"
-            >
-              Join the waitlist
             </a>
           </div>
         </div>
