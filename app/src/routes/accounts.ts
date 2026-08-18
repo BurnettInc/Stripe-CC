@@ -12,7 +12,12 @@
  *       (first-time email = signup, same endpoint — deliberately no existence
  *       leak: ALWAYS 200 {ok:true} for any valid, non-rate-limited email) and
  *       email a one-time 15-minute sign-in link. Per-email + per-IP rate limit
- *       5/hr → 429.
+ *       5/hr → 429. ALSO accepts application/x-www-form-urlencoded (email=…,
+ *       the NATIVE no-JS form POST from the install page's sign-in card — the
+ *       Stripe review sandbox runs the page in an iframe where inline scripts
+ *       don't execute) and answers THAT path with a 302 to /oauth/install
+ *       (?sent=1 on success, ?error=<msg> for invalid/rate-limited) so the
+ *       install page can render feedback with zero JavaScript.
  *   GET  /api/account/verify?token=…&next=…   — consume the one-time token,
  *       record last_login_at, mint a 30-day account session, set the HttpOnly
  *       `cc_account` cookie, 302 to `next` (safe-path guard; default
@@ -169,24 +174,42 @@ function clientIpFor(req: Request): string {
  * POST /api/account/request-magic-link — find-or-create the account and email
  * a one-time sign-in link.
  *
- * Accepts JSON {email} or form-encoded email=... (mirrors /waitlist). Always
- * returns 200 {ok:true} for a valid, non-rate-limited email — whether the
- * account is new or existing — so the endpoint never leaks account existence.
- * Invalid emails → 400 {error}; rate limit (per email AND per IP) → 429.
+ * Accepts JSON {email} (the install page's JS fetch path — returns
+ * 200 {ok:true} / 400 / 429 exactly as before) AND
+ * application/x-www-form-urlencoded email=... (the NATIVE no-JS form POST from
+ * the install page — returns a 302 the browser follows: success →
+ * /oauth/install?sent=1, invalid/rate-limited → /oauth/install?error=<msg>,
+ * where the install page renders server-side banners without any JavaScript —
+ * the Stripe review sandbox runs the page in an iframe where inline scripts
+ * don't execute). Both paths ALWAYS succeed (200 JSON / 302 sent=1) for a
+ * valid, non-rate-limited email — whether the account is new or existing — so
+ * the endpoint never leaks account existence. Invalid emails → 400 (JSON) /
+ * 302 error (form); rate limit (per email AND per IP) → 429 (JSON) / 302
+ * error (form). A send_logs row (type 'account_magic_link') is written on
+ * BOTH paths (inside sendMagicLinkEmail).
  */
 export async function handleAccountRequestMagicLink(db: Database, req: Request): Promise<Response> {
   const headers = { "Content-Type": "application/json" };
+  const contentType = (req.headers.get("content-type") || "").toLowerCase();
+  // Native form POST (no-JS path) vs JS fetch. The response SHAPE differs by
+  // content-type: forms get a 302 redirect to /oauth/install?sent=1|error=…
+  // (server-rendered banners, works with scripts disabled); JSON keeps the
+  // existing 200/400/429 contract.
+  const isForm = contentType.includes("application/x-www-form-urlencoded");
+  /** 302 for the no-JS form path — root-relative to the install page ONLY
+   * (never an arbitrary destination): safe by construction. */
+  const formRedirect = (query: string): Response =>
+    new Response(null, { status: 302, headers: { Location: `/oauth/install?${query}` } });
 
   // Parse email from JSON or form-encoded (same tolerance as /waitlist).
   let emailRaw = "";
-  const contentType = (req.headers.get("content-type") || "").toLowerCase();
-  if (contentType.includes("application/x-www-form-urlencoded")) {
+  if (isForm) {
     try {
       const form = await req.formData();
       const v = form.get("email");
       if (typeof v === "string") emailRaw = v;
     } catch {
-      // Fall through to validation — missing email yields 400.
+      // Fall through to validation — missing email yields 400/302-error.
     }
   } else {
     try {
@@ -199,19 +222,19 @@ export async function handleAccountRequestMagicLink(db: Database, req: Request):
 
   const email = normalizeEmail(emailRaw);
   if (!email) {
-    return new Response(JSON.stringify({ error: "Email is required" }), { status: 400, headers });
+    const msg = "Email is required";
+    return isForm ? formRedirect(`error=${encodeURIComponent(msg)}`) : new Response(JSON.stringify({ error: msg }), { status: 400, headers });
   }
   if (email.length > 254 || !EMAIL_RE.test(email)) {
-    return new Response(JSON.stringify({ error: "Enter a valid email address" }), { status: 400, headers });
+    const msg = "Enter a valid email address";
+    return isForm ? formRedirect(`error=${encodeURIComponent(msg)}`) : new Response(JSON.stringify({ error: msg }), { status: 400, headers });
   }
 
   // Rate limit: per email AND per IP (each 5/hr). Checked after validation so
   // garbage input gets a 400, not a burned rate-limit slot.
   if (!rateLimit(`email:${email}`) || !rateLimit(`ip:${clientIpFor(req)}`)) {
-    return new Response(
-      JSON.stringify({ error: "Too many sign-in requests — please try again later." }),
-      { status: 429, headers },
-    );
+    const msg = "Too many sign-in requests — please try again later.";
+    return isForm ? formRedirect(`error=${encodeURIComponent(msg)}`) : new Response(JSON.stringify({ error: msg }), { status: 429, headers });
   }
 
   // Find-or-create the account (first-time email = signup, same endpoint).
@@ -229,8 +252,11 @@ export async function handleAccountRequestMagicLink(db: Database, req: Request):
   );
   await sendMagicLinkEmail(db, email, token);
 
-  // Always 200 — never reveal whether the account existed.
-  return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+  // Never reveal whether the account existed: JSON 200 {ok:true} (JS path) /
+  // 302 ?sent=1 (no-JS form path).
+  return isForm
+    ? formRedirect("sent=1")
+    : new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
 /** Safe-destination guard for ?next= on verify: relative paths starting with

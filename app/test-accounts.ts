@@ -11,6 +11,10 @@
  *       ALWAYS 200 {ok:true} (no existence leak), token row 64-hex + 15-min
  *       expiry, send_logs 'account_magic_link' row, normalization (trim +
  *       lowercase), invalid/missing email → 400
+ *   (a3) NO-JS form path (the Stripe review sandbox iframe blocks inline
+ *       scripts, so the sign-in card is a real method=post form): urlencoded
+ *       POST → 302 /oauth/install?sent=1 + send_logs row; invalid/missing/
+ *       rate-limited → 302 /oauth/install?error=<msg>; JSON path unchanged
  *   (b) rate limiting: 5/hr per EMAIL (isolated via distinct IPs) and 5/hr
  *       per IP (isolated via distinct emails) → 6th request 429
  *   (c) verify: consumes the one-time token, sets last_login_at, mints a
@@ -170,8 +174,45 @@ async function main(): Promise<void> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "10.0.0.13" },
     body: "email=FormUser@Example.com",
+    redirect: "manual",
   });
-  check("a11: form-encoded email works", formRes.status === 200, `status=${formRes.status}`);
+  const formLoc = formRes.headers.get("location") || "";
+  check("a11: form-encoded POST → 302 to /oauth/install?sent=1 (no-JS path)", formRes.status === 302 && formLoc === "/oauth/install?sent=1", `status=${formRes.status} loc=${formLoc}`);
+  const formAcct = d0.query("SELECT id FROM accounts WHERE email = 'formuser@example.com'").get() as { id: number } | null;
+  check("a11b: form POST created the account (normalized)", !!formAcct, JSON.stringify(formAcct));
+  const formSend = d0.query("SELECT provider_message FROM send_logs WHERE type = 'account_magic_link' AND provider_message LIKE '%formuser@example.com%' ORDER BY id DESC LIMIT 1").get() as { provider_message: string } | null;
+  check("a11c: form path still writes a send_logs row (type account_magic_link)", !!formSend && formSend.provider_message.includes("Magic-link email sent"), formSend?.provider_message ?? "");
+
+  // ── (a3) no-JS form error + rate-limit paths → 302 with ?error= ──
+  const formBad = await fetch(`${BASE}/api/account/request-magic-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "10.0.0.15" },
+    body: "email=not-an-email",
+    redirect: "manual",
+  });
+  check("a12: form POST invalid email → 302 ?error=Enter a valid email address", formBad.status === 302 && (formBad.headers.get("location") || "") === `/oauth/install?error=${encodeURIComponent("Enter a valid email address")}`, `status=${formBad.status} loc=${formBad.headers.get("location")}`);
+  const formMissing = await fetch(`${BASE}/api/account/request-magic-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "10.0.0.18" },
+    body: "other=1",
+    redirect: "manual",
+  });
+  check("a12b: form POST missing email → 302 ?error=Email is required", formMissing.status === 302 && (formMissing.headers.get("location") || "") === `/oauth/install?error=${encodeURIComponent("Email is required")}`, formMissing.headers.get("location") || "");
+  for (let i = 0; i < 5; i++) {
+    await fetch(`${BASE}/api/account/request-magic-link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "10.0.0.16" },
+      body: "email=form-rl@example.com",
+      redirect: "manual",
+    });
+  }
+  const formRl = await fetch(`${BASE}/api/account/request-magic-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "10.0.0.17" },
+    body: "email=form-rl@example.com",
+    redirect: "manual",
+  });
+  check("a13: form POST rate-limited → 302 ?error=Too many sign-in requests", formRl.status === 302 && (formRl.headers.get("location") || "") === `/oauth/install?error=${encodeURIComponent("Too many sign-in requests — please try again later.")}`, formRl.headers.get("location") || "");
   d0.close();
 
   // ── (b) rate limiting ──
