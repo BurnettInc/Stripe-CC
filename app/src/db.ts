@@ -325,11 +325,15 @@ export function isDevPro(db: Database, merchantId: number): boolean {
 
 export function createSubscription(
   db: Database,
-  params: { merchant_id: number; stripe_subscription_id: string; tier: string; stripe_customer_id?: string | null }
+  params: { merchant_id: number; stripe_subscription_id: string; tier: string; stripe_customer_id?: string | null; interval?: string }
 ) {
+  // Billing interval (Phase B): 'month' (default, unchanged) or 'year'. Stored
+  // so the dashboard can show an honest plan card for yearly subscribers
+  // ("Pro plan — $250/yr") instead of the misleading monthly price.
+  const interval = params.interval === "year" ? "year" : "month";
   const result = db.run(
-    "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, stripe_customer_id, tier, status) VALUES (?, ?, ?, ?, 'active')",
-    [params.merchant_id, params.stripe_subscription_id, params.stripe_customer_id ?? null, params.tier]
+    "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, stripe_customer_id, tier, status, interval) VALUES (?, ?, ?, ?, 'active', ?)",
+    [params.merchant_id, params.stripe_subscription_id, params.stripe_customer_id ?? null, params.tier, interval]
   );
   return Number(result.lastInsertRowid);
 }
@@ -338,9 +342,15 @@ export function updateSubscriptionStatus(
   db: Database,
   stripe_subscription_id: string,
   status: string,
-  tier?: string
+  tier?: string,
+  interval?: string
 ) {
-  if (tier) {
+  if (tier && interval) {
+    db.run(
+      "UPDATE subscriptions SET status=?, tier=?, interval=? WHERE stripe_subscription_id=?",
+      [status, tier, interval, stripe_subscription_id]
+    );
+  } else if (tier) {
     db.run(
       "UPDATE subscriptions SET status=?, tier=? WHERE stripe_subscription_id=?",
       [status, tier, stripe_subscription_id]
@@ -1062,5 +1072,7 @@ export interface Subscription {
   stripe_customer_id?: string | null;
   tier: string;
   status: string;
+  /** 'month' | 'year' — billing interval (Phase B; migration 024). */
+  interval?: string;
   created_at: string;
 }
