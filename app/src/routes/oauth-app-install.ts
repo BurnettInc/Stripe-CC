@@ -265,14 +265,30 @@ export function buildAuthorizeUrl(state: string, linkType: LinkType): { url: str
 // that Stripe rejects the public link while the app is unpublished), plus
 // "Signed in as {email} · sign out" and — when the account already owns a
 // connected merchant — an "open your dashboard" link.
+//
+// NO-JS SIGN-IN (2026-08-18, review blocker): the sign-in card is a REAL form
+// (method=post action=/api/account/request-magic-link) that POSTs natively
+// when the inline script cannot run — the Stripe review sandbox renders this
+// page in an iframe where inline <script> does NOT execute, so the previous
+// fetch-only card did nothing there (no request, no email, no error). The
+// endpoint answers the urlencoded form POST with a 302 back to
+// /oauth/install?sent=1 (success) or /oauth/install?error=<msg> (invalid /
+// rate-limited); this GET handler renders those as server-side banners
+// (green in place of the form / red above the form) with zero JavaScript.
+// A <noscript> block and an in-iframe hint (window.self !== window.top, shown
+// only when JS DOES run) give the reviewer escape hatches. The JS fetch
+// enhancement (spinner/timeout/inline status) is unchanged when scripts run.
 export function installPageHtml(
   baseUrl: string,
   configuredModes: LinkType[],
   missingEnv: Record<LinkType, string[]>,
   account?: { email: string } | null,
   dashboardUrl?: string | null,
-  chnlinkNotice?: string
+  chnlinkNotice?: string,
+  notice?: { kind: "success" | "error"; message: string } | null
 ): string {
+  // HTML-escape for any server-rendered user-visible text (error banner).
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const buttonFor = (linkType: LinkType, label: string) =>
     `<a href="${baseUrl}/oauth/install/start?link=${linkType}" style="display:block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;margin:10px 0;text-align:center;">${label}</a>`;
 
@@ -298,18 +314,60 @@ export function installPageHtml(
     // The reviewer's flow: marketplace → listing → Install → user logs in or
     // signs up on our platform → connect Stripe → install → sync → subscribe.
     // One email input serves both (first-time = signup, same endpoint); the
-    // endpoint ALWAYS 200s so account existence is never leaked. Tiny inline
-    // fetch shows "Check your inbox" on success without leaving the page.
-    body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Sign in to install CollectionsCopilot. We'll email you a one-time sign-in link — no password needed.</p>
-      <form id="magic-link-form" style="margin:0 0 12px;">
+    // endpoint ALWAYS 200s so account existence is never leaked. The card is a
+    // REAL form (method=post action=…) so it works with NO JavaScript — the
+    // Stripe review sandbox renders this page in an iframe where the inline
+    // <script> does NOT execute (the previous fetch-only card then did
+    // nothing: no request, no email, no console error). Native submission
+    // POSTs email=… urlencoded to /api/account/request-magic-link, which 302s
+    // back here with ?sent=1 / ?error=<msg> — the GET handler renders those as
+    // server-side banners. When JS DOES run, the submit handler below calls
+    // e.preventDefault() and the fetch path is unchanged (spinner, 15s
+    // timeout, inline status). A <noscript> block and an iframe hint
+    // (window.self !== window.top) give the reviewer escape hatches.
+    const installUrl = `${baseUrl}/oauth/install`;
+    const successBanner = `<p style="color:#047857;background:#ECFDF5;border:1px solid #6EE7B7;border-radius:8px;padding:14px 16px;font-size:14px;margin:0 0 12px;">Check your inbox — your sign-in link is on its way.</p>`;
+    const errorBanner =
+      notice?.kind === "error"
+        ? `<p style="color:#B91C1C;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 16px;font-size:14px;margin:0 0 12px;">${esc(notice.message)}</p>`
+        : "";
+    const supportLine = `<p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>`;
+
+    if (notice?.kind === "success") {
+      // ?sent=1 — the no-JS form POST succeeded: green banner IN PLACE OF the
+      // form (nothing left to submit, so the input/status/script are gone).
+      body = `${successBanner}${supportLine}`;
+    } else {
+      body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Sign in to install CollectionsCopilot. We'll email you a one-time sign-in link — no password needed.</p>
+      ${errorBanner}
+      <form id="magic-link-form" method="post" action="/api/account/request-magic-link" style="margin:0 0 12px;">
         <input type="email" id="magic-email" name="email" required placeholder="you@company.com" autocomplete="email" style="display:block;width:100%;box-sizing:border-box;padding:12px 14px;font-size:15px;border:1px solid #D1D5DB;border-radius:8px;margin-bottom:12px;" />
         <button type="submit" style="display:block;width:100%;background:#635BFF;color:#fff;border:0;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;cursor:pointer;">Email me a sign-in link</button>
       </form>
       <p id="magic-link-status" style="font-size:14px;margin:10px 0 0;min-height:20px;"></p>
-      <p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>
+      <noscript>
+        <p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 14px;font-size:13px;margin:12px 0 0;">This page needs JavaScript to sign in — open it in a new tab to continue: <a href="/oauth/install" style="color:#92400E;">Sign in page</a>. If the button does nothing, open this page in a new tab.</p>
+      </noscript>
+      ${supportLine}
       <script>
+        // NOTE: the status element is held in statusEl, NOT status — the
+        // bare name status collides with the legacy window.status accessor
+        // in some Chrome builds (typeof status === 'string' there), which
+        // made status.style.color = ... throw and killed the fetch before
+        // it fired. Renamed to keep the JS path working everywhere.
         var form = document.getElementById('magic-link-form');
-        var status = document.getElementById('magic-link-status');
+        var statusEl = document.getElementById('magic-link-status');
+        // Sandboxed-iframe escape hatch (Stripe review sandbox): this page can
+        // be rendered in an iframe where inline scripts don't run — the native
+        // form POST covers that. When scripts DO run but the page is framed,
+        // show a hint to open it in its own tab (some sandboxes also block
+        // form submission, so the button may still do nothing here).
+        if (form && window.self !== window.top) {
+          var hint = document.createElement('p');
+          hint.setAttribute('style', 'font-size:12px;color:#9CA3AF;margin:14px 0 0;');
+          hint.innerHTML = 'If the button does nothing, open this page in a new tab: <a href="${installUrl}" target="_blank" rel="noopener" style="color:#6B7280;">Open sign-in page</a>';
+          form.insertAdjacentHTML('afterend', hint.outerHTML);
+        }
         if (form) form.addEventListener('submit', function (e) {
           e.preventDefault();
           var email = (document.getElementById('magic-email').value || '').trim();
@@ -320,12 +378,12 @@ export function installPageHtml(
           btn.disabled = true;
           btn.textContent = 'Sending…';
           if (input) input.disabled = true;
-          status.innerHTML = '<span class="spinner"></span>Sending your sign-in link…';
-          status.style.color = '#6B7280';
+          statusEl.innerHTML = '<span class="spinner"></span>Sending your sign-in link…';
+          statusEl.style.color = '#6B7280';
           var done = function (message, color) {
-            status.innerHTML = '';
-            status.textContent = message;
-            status.style.color = color;
+            statusEl.innerHTML = '';
+            statusEl.textContent = message;
+            statusEl.style.color = color;
             btn.textContent = original;
           };
           // First completion wins — a 15s timeout, a response, or an error.
@@ -367,8 +425,8 @@ export function installPageHtml(
           });
         });
       </script>`;
+    }
   } else {
-    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const accountLine = `<p style="color:#6B7280;font-size:13px;margin:0 0 16px;">Signed in as <strong style="color:#374151;">${esc(account.email)}</strong> · <a href="#" onclick="fetch('/api/account/logout',{method:'POST'}).then(function(){window.location.href='/oauth/install';});return false;" style="color:#6B7280;">sign out</a></p>`;
     const connectedLine = dashboardUrl
       ? `<p style="color:#047857;font-size:13px;margin:0 0 14px;">✅ You're connected — <a href="${dashboardUrl}" style="color:#047857;font-weight:600;">open your dashboard</a></p>`
@@ -438,7 +496,11 @@ export function installPageHtml(
  * create-account card; valid → the Connect buttons + signed-in line. ?auto=1
  * skips the page and 302s straight into the authorize flow (useful for
  * programmatic links and tests — /oauth/install/start still enforces the
- * cookie). */
+ * cookie). ?sent=1 / ?error=<msg> (signed-out only) render the no-JS form
+ * POST's outcome as server-side banners — the sign-in card is a real
+ * method=post form (the Stripe review sandbox iframe blocks the inline
+ * script), and /api/account/request-magic-link 302s back here with those
+ * params. */
 export function handleAppInstallPage(db: Database, req: Request): Response {
   ensureDefaultMerchant(db);
   const baseUrl = baseUrlFor();
@@ -465,6 +527,25 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
   }
 
   const account = accountFromCookie(db, req);
+  // ── No-JS banner params ──
+  // The sign-in card's form POSTs natively (no JavaScript — the Stripe review
+  // sandbox iframe blocks the inline script), and the endpoint 302s back here
+  // with ?sent=1 (success) or ?error=<urlencoded message> (invalid /
+  // rate-limited). Render server-side banners from the query string so the
+  // no-JS flow gets real feedback. Only meaningful on the signed-out card — a
+  // signed-in visitor is past sign-in, so the params are ignored then
+  // (notice stays null; ?sent=1/error= on a signed-in page shows nothing).
+  let notice: { kind: "success" | "error"; message: string } | null = null;
+  if (!account) {
+    const errorParam = url.searchParams.get("error");
+    if (errorParam) {
+      // Defense in depth: these are our own fixed messages, but never trust
+      // the query string — length-cap here, and the renderer HTML-escapes.
+      notice = { kind: "error", message: errorParam.slice(0, 200) };
+    } else if (url.searchParams.get("sent") === "1") {
+      notice = { kind: "success", message: "Check your inbox — your sign-in link is on its way." };
+    }
+  }
   // Optional nicety: when the signed-in account already owns a connected
   // merchant, offer a direct link to the dashboard.
   const dashboardUrl = account
@@ -475,7 +556,7 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
       : null
     : null;
 
-  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl, chnlinkNotice), {
+  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl, chnlinkNotice, notice), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });

@@ -16,6 +16,12 @@
  *       (test + live), step instructions and "Signed in as … · sign out";
  *       ?auto=1 302s into the authorize flow (install/start still enforces
  *       the cookie)
+ *   (a2) NO-JS sign-in (the Stripe review sandbox iframe blocks inline
+ *       scripts): the sign-in card is a real method=post form (name=email);
+ *       ?sent=1 renders a green success banner in place of the form, ?error=…
+ *       a red banner above it (form kept for retry), error text HTML-escaped,
+ *       banners ignored when signed in; <noscript> + iframe escape-hatch
+ *       present in the markup
  *   (b) /oauth/install/start WITHOUT an account cookie → 302 back to
  *       /oauth/install (the reviewer's flow signs in BEFORE connecting);
  *       WITH the cookie → 302 to
@@ -263,6 +269,24 @@ async function main(): Promise<void> {
   check("a2: branded title", pageHtml.includes("Install CollectionsCopilot"), "");
   check("a2b: signed-out page shows the sign-in card (email input + magic-link button)", pageHtml.includes("Email me a sign-in link") && pageHtml.includes('type="email"') && pageHtml.includes("magic-link-form"), "");
   check("a2c: signed-out page shows NO connect buttons", !pageHtml.includes("oauth/install/start?link="), "");
+  // ── (a2) NO-JS sign-in: native form + server-rendered banners ──
+  // The Stripe review sandbox renders the install page in an iframe where the
+  // inline script does NOT execute — the sign-in card must work as a plain
+  // form (method=post action=…, name=email), and the endpoint's 302 feedback
+  // (?sent=1 / ?error=…) must render as banners without any JavaScript.
+  check("a2d: sign-in form is a native POST form (method + action + name=email)", pageHtml.includes('method="post" action="/api/account/request-magic-link"') && pageHtml.includes('name="email"'), "");
+  check("a2e: noscript fallback present (new-tab escape hatch)", pageHtml.includes("<noscript>") && pageHtml.includes("open it in a new tab"), "");
+  check("a2f: iframe escape-hint script present (window.self !== window.top)", pageHtml.includes("window.self !== window.top") && pageHtml.includes("Open sign-in page"), "");
+  const sentPage = await (await fetch(`${BASE}/oauth/install?sent=1`)).text();
+  check("a2g: ?sent=1 → green success banner IN PLACE of the form", sentPage.includes("Check your inbox — your sign-in link is on its way.") && !sentPage.includes("magic-link-form") && !sentPage.includes("Email me a sign-in link"), "");
+  const errPage = await (await fetch(`${BASE}/oauth/install?error=${encodeURIComponent("Enter a valid email address")}`)).text();
+  check("a2h: ?error=… → red banner AND form still visible (retry)", errPage.includes("Enter a valid email address") && errPage.includes("magic-link-form") && errPage.includes("Email me a sign-in link"), "");
+  const xssPage = await (await fetch(`${BASE}/oauth/install?error=${encodeURIComponent("<script>alert(1)</script>")}`)).text();
+  check("a2i: error text is HTML-escaped (no raw tag injection)", xssPage.includes("&lt;script&gt;alert(1)&lt;/script&gt;") && !xssPage.includes("<script>alert(1)</script>"), "");
+  // Signed-in decision: banners are signed-out-only — a signed-in visitor is
+  // past sign-in, so ?sent=1 is ignored and the connect buttons still show.
+  const sentPageIn = await (await fetch(`${BASE}/oauth/install?sent=1`, { headers: { Cookie: ACC_COOKIE } })).text();
+  check("a2j: ?sent=1 ignored when signed in (connect buttons still shown)", sentPageIn.includes("oauth/install/start?link=test") && !sentPageIn.includes("Check your inbox"), "");
   // Signed-IN state (account cookie): connect buttons + signed-in line.
   const pageIn = await (await fetch(`${BASE}/oauth/install`, { headers: { Cookie: ACC_COOKIE } })).text();
   check("a3: test-mode connect button (railway base from env)", pageIn.includes("https://stripe-cc-production.up.railway.app/oauth/install/start?link=test"), "");
