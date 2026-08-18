@@ -116,7 +116,8 @@ export async function handleAccountDelete(db: Database, merchantId: number): Pro
  * GET /account/export — JSON download of everything stored for the merchant,
  * keyed by table name (the full merchant-scoped inventory: sessions,
  * oauth_tokens, stripe_connections, invoices, reminder_tasks, send_logs,
- * subscriptions, unsubscribes, inbound_replies, subscription_events) plus the
+ * subscriptions, unsubscribes, inbound_replies, subscription_events,
+ * email_connections) plus the
  * linked platform account identity row (the user's own email). OAuth access
  * tokens are the merchant's own credentials for their own Stripe account —
  * their data to export. Transient auth infrastructure (account_magic_links,
@@ -170,6 +171,11 @@ export function handleAccountExport(db: Database, merchantId: number): Response 
       .all(merchantId),
     inbound_replies: db.query("SELECT * FROM inbound_replies WHERE merchant_id = ?").all(merchantId),
     subscription_events: db.query("SELECT * FROM subscription_events WHERE merchant_id = ?").all(merchantId),
+    email_connections: db
+      .query(
+        "SELECT id, provider, account_email, token_expires_at, scopes, created_at, updated_at FROM email_connections WHERE merchant_id = ?"
+      )
+      .all(merchantId),
   };
 
   return new Response(JSON.stringify(exportData, null, 2), { status: 200, headers });

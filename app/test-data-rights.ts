@@ -118,6 +118,8 @@ function seedFullMerchantData(): void {
   d.run("INSERT OR REPLACE INTO oauth_tokens (stripe_user_id, merchant_id, access_token, refresh_token, stripe_publishable_key, livemode, link_type, expires_at) VALUES ('acct_dr_oauth', 1, 'tok_oauth', 'rt_oauth', 'pk_test_x', 1, 'live', datetime('now','+1 hour'))");
   d.run("INSERT OR REPLACE INTO inbound_replies (id, merchant_id, invoice_id, sequence_key, received_at, from_email, body, idempotency_key, reply_status) VALUES (1, 1, 101, '101', datetime('now'), 'customer@example.com', 'I paid', 'idem-1', 'handled')");
   d.run("INSERT OR REPLACE INTO subscription_events (id, merchant_id, stripe_subscription_id, event, tier, status) VALUES (1, 1, 'sub_dr_export', 'created', 'standard', 'active')");
+  d.run("INSERT OR REPLACE INTO email_connections (id, merchant_id, provider, account_email, access_token, refresh_token, scopes) VALUES (1, 1, 'gmail', 'merchant1@gmail.com', 'tok_email', 'rt_email', 'https://www.googleapis.com/auth/gmail.send')");
+  d.run("INSERT OR REPLACE INTO email_oauth_states (state, merchant_id, provider, return_to) VALUES ('email-state-1', 1, 'gmail', '/dashboard')");
   d.close();
 }
 /** Cancel-clock test data: a cancellable subscription row for merchant 1. */
@@ -171,7 +173,7 @@ async function main(): Promise<void> {
       ["merchant", 1], ["account", 1], ["sessions", 1], ["oauth_tokens", 1],
       ["stripe_connections", 1], ["invoices", 2], ["reminder_tasks", 2],
       ["send_logs", 1], ["subscriptions", 1], ["unsubscribes", 1],
-      ["inbound_replies", 1], ["subscription_events", 1],
+      ["inbound_replies", 1], ["subscription_events", 1], ["email_connections", 1],
     ];
     for (const [key, expected] of keyChecks) {
       const actual = Array.isArray(data[key]) ? data[key].length : data[key] != null ? 1 : 0;
@@ -245,6 +247,8 @@ async function main(): Promise<void> {
     check("4k. oauth_tokens purged", count("SELECT * FROM oauth_tokens WHERE merchant_id=1") === 0);
     check("4l. inbound_replies purged", count("SELECT * FROM inbound_replies WHERE merchant_id=1") === 0);
     check("4m. subscription_events purged", count("SELECT * FROM subscription_events WHERE merchant_id=1") === 0);
+    check("4m2. email_connections purged", count("SELECT * FROM email_connections WHERE merchant_id=1") === 0);
+    check("4m3. email_oauth_states purged", count("SELECT * FROM email_oauth_states WHERE merchant_id=1") === 0);
     check("4n. merchant row gone", count("SELECT * FROM merchants WHERE id=1") === 0);
     check("4o. account layer gone (last merchant)", count("SELECT * FROM accounts WHERE id=1") === 0
       && count("SELECT * FROM account_sessions WHERE account_id=1") === 0

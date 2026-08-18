@@ -9,6 +9,7 @@ import { handleSettings } from "./routes/settings";
 import { handleBilling, billingSignInRequiredPage } from "./routes/billing";
 import { handleStripeConnect, handleStripeOAuthCallback, handleStripeConnectionStatus, handleOAuthSession, handleOAuthHandoff, handleOAuthSuccess } from "./routes/oauth";
 import { handleAppInstallPage, handleAppInstallStart, handleAppInstallCallback, syncMerchantInvoices } from "./routes/oauth-app-install";
+import { handleEmailOAuthStart, handleEmailOAuthCallback, handleEmailConnectionDelete } from "./routes/email-oauth";
 import { handleInvoices } from "./routes/invoices";
 import { handleSupport } from "./routes/support";
 import { handleAdminPage, handleAdminData, requireAdminToken } from "./routes/admin";
@@ -651,6 +652,31 @@ async function handleRequest(req: Request): Promise<Response> {
       // oauth-complete postMessage keeps its current origin.
       if (path === "/oauth/success" && req.method === "GET") {
         return handleOAuthSuccess(req);
+      }
+
+      // ── Per-merchant email OAuth (sender-identity Phase 1) ──
+      // GET /email/oauth/start — signed-in merchant mints a CSRF-safe state and
+      // 302s to Google's authorize URL (gmail.send, access_type=offline). 503
+      // "email sending not configured" when GOOGLE_OAUTH_CLIENT_ID/SECRET are
+      // unset (the production state until the owner adds creds — clean, no
+      // crash; the route never renders a raw 500).
+      if (path === "/email/oauth/start" && req.method === "GET") {
+        return await handleEmailOAuthStart(db, req);
+      }
+
+      // GET /email/oauth/callback — Google redirects back with code+state;
+      // validates/consumes the state, exchanges for tokens, stores the
+      // encrypted email_connections row, 302s back to the dashboard with a
+      // ?emailConnected=1 flash. error param / any failure → dashboard with
+      // ?emailError=… (no crash, no open redirect — returnTo is sanitized).
+      if (path === "/email/oauth/callback" && req.method === "GET") {
+        return await handleEmailOAuthCallback(db, req);
+      }
+
+      // DELETE /email/connection — disconnect: revoke (best-effort), delete the
+      // row, back to the dashboard.
+      if (path === "/email/connection" && req.method === "DELETE") {
+        return await handleEmailConnectionDelete(db, req);
       }
 
       // GET /stripe/connection — current connection status
