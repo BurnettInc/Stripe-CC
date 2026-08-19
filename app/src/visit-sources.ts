@@ -29,6 +29,15 @@
  *        linkedin.com / lnkd.in            → "linkedin"
  *        anything else                     → "referral:" + host
  *   3. Else → "direct".
+ *
+ * A search-engine referrer that is merely the engine's bare homepage — root
+ * path ("/" or empty) and no query string, e.g. "https://www.google.com/" or
+ * "http://bing.com/" — carries no search query, so it cannot be verified as a
+ * real search. It therefore falls through to "direct" (owner-approved
+ * 2026-08-19: a bot burst of 19 bare https://www.google.com/ referrers was
+ * counting as organic "Google" traffic). Real search URLs ("/search?q=x",
+ * "duckduckgo.com/?q=x") still bucket to their engine. utm_source still wins
+ * regardless (an explicit utm_source=google with a bare google referrer → "google").
  */
 
 export interface VisitForAttribution {
@@ -111,6 +120,40 @@ export function referrerHost(referrer: string): string {
   }
 }
 
+/**
+ * True when `referrer` is a search engine's bare homepage: the host matches the
+ * google.* / bing.* / duckduckgo.com patterns AND the URL has no path beyond
+ * "/" and no query string (e.g. "https://www.google.com/",
+ * "https://www.google.com", "http://bing.com/" — but NOT
+ * "https://www.google.com/search?q=x" or "https://duckduckgo.com/?q=x", which
+ * are real searches). A bare homepage carries no search query, so the visit
+ * cannot be verified as organic search; the caller attributes it as "direct".
+ * Pure + deterministic (no DB/IO); parses exactly like referrerHost so bare
+ * host strings work too.
+ */
+export function isBareSearchHomepage(referrer: string): boolean {
+  const r = referrer.trim();
+  if (!r) return false;
+  let url: URL;
+  try {
+    url = new URL(r);
+  } catch {
+    try {
+      url = new URL(`http://${r}`);
+    } catch {
+      return false;
+    }
+  }
+  const host = url.hostname.toLowerCase();
+  const isSearchHost =
+    /(^|\.)google\.([a-z]{2,3}|com)(\.[a-z]{2})?$/.test(host) ||
+    /(^|\.)bing\.([a-z]{2,3}|com)(\.[a-z]{2})?$/.test(host) ||
+    /(^|\.)duckduckgo\.com$/.test(host);
+  if (!isSearchHost) return false;
+  const path = url.pathname;
+  return (path === "" || path === "/") && url.search === "";
+}
+
 /** Deterministic channel bucket for one visit row. */
 export function bucketVisit(v: { utm_source?: string; referrer?: string }): string {
   const utm = (v.utm_source ?? "").trim().toLowerCase();
@@ -163,8 +206,11 @@ export function bucketVisit(v: { utm_source?: string; referrer?: string }): stri
   if (host === "stripe.com" || host.endsWith(".stripe.com")) {
     return "stripe";
   }
-  // google.* / bing.* — matches the bare TLD and the www./m./<country> variants
-  // (google.com, www.google.com, google.co.uk, www.google.co.uk, bing.com.au, ...).
+  // google.* / bing.* / duckduckgo.com — matches the bare TLD and the
+  // www./m./<country> variants (google.com, www.google.com, google.co.uk,
+  // www.google.co.uk, bing.com.au, ...). A bare homepage (root path, no query)
+  // proves no search happened → "direct" (see isBareSearchHomepage).
+  if (isBareSearchHomepage(v.referrer ?? "")) return "direct";
   if (/(^|\.)google\.([a-z]{2,3}|com)(\.[a-z]{2})?$/.test(host)) return "google";
   if (/(^|\.)bing\.([a-z]{2,3}|com)(\.[a-z]{2})?$/.test(host)) return "bing";
   if (/(^|\.)duckduckgo\.com$/.test(host)) return "duckduckgo";
