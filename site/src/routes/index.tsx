@@ -85,6 +85,165 @@ function Home() {
         </div>
       </section>
 
+      {/* Email Preview */}
+      <section className="py-16">
+        <div className="max-w-4xl mx-auto px-6">
+          <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">
+            See the difference
+          </h2>
+          <p className="text-center text-gray-600 max-w-lg mx-auto mb-10">
+            Same invoice, two very different follow-ups.
+          </p>
+          <div className="grid gap-8 md:grid-cols-2">
+            <div className="rounded-xl border border-gray-300 bg-white p-6">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">
+                Typical automated reminder
+              </p>
+              <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700 space-y-2">
+                <p className="font-medium">Subject: Invoice #1024 is overdue</p>
+                <p>Dear Client,</p>
+                <p>Your invoice #1024 for $450.00 is now 5 days overdue. Please remit payment at your earliest convenience.</p>
+                <p>Thank you,<br />ACME Services</p>
+              </div>
+            </div>
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-6 relative">
+              <span className="absolute -top-3 right-4 rounded-full bg-indigo-600 px-3 py-0.5 text-xs font-semibold text-white">
+                CollectionsCopilot
+              </span>
+              <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wide mb-4">
+                Personalized, relationship-aware
+              </p>
+              <div className="rounded-lg bg-white p-4 text-sm text-gray-700 space-y-2 shadow-sm">
+                <p className="font-medium">Subject: Quiet nudge — invoice #1024</p>
+                <p>Hi Sarah,</p>
+                <p>Hope the new site launch went well this week. Just a quick heads-up that invoice #1024 for the landing page redesign ($450) passed its due date — no rush if it's just slipped your mind.</p>
+                <p>Let me know if anything looks off. Cheers,<br />Alex at ACME Services</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="max-w-4xl mx-auto px-6 py-20">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
+          Simple pricing
+        </h2>
+        <p className="text-center text-gray-600 max-w-lg mx-auto mb-14">
+          <span className="font-semibold text-gray-900">
+            5 free drafts on your real invoices — no card required.
+          </span>{" "}
+          Approve every send yourself, or let Semi-Auto handle friendly Stage-1
+          reminders. Subscribe when you want more — no contracts, cancel in one
+          click.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {[
+            {
+              name: "Free — Draft Mode",
+              price: "Free forever, no card required",
+              period: "",
+              body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
+              features: [],
+              cta: "Install free",
+              highlight: false,
+              free: true,
+            },
+            {
+              name: "Standard",
+              price: "$15",
+              period: "/month",
+              priceSub: "$135/year (save $45)",
+              tier: "standard",
+              body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
+              features: [
+                "Up to 50 overdue invoices tracked",
+                "3-stage escalation ladder",
+                "Custom sender branding",
+                "Weekly recovery reports",
+                "Trust Mode selector + sending",
+              ],
+              highlight: true,
+              free: false,
+            },
+            {
+              name: "Pro",
+              price: "$29",
+              period: "/month",
+              priceSub: "$250/year (save $98)",
+              tier: "pro",
+              body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
+              features: [
+                "Everything in Standard",
+                "Unlimited overdue invoices",
+                "Custom escalation timing",
+                "Late-fee automation",
+                "Priority support — same-business-day first response (typically within 24 hours, weekdays)",
+              ],
+              highlight: true,
+              free: false,
+            },
+          ].map((plan) => (
+            <div
+              key={plan.name}
+              className={`rounded-2xl border p-8 ${
+                plan.highlight
+                  ? "border-indigo-300 ring-2 ring-indigo-600 shadow-lg"
+                  : "border-gray-200"
+              }`}
+            >
+              <h3 className="text-xl font-bold text-gray-900">{plan.name}</h3>
+              <p className={`mt-4 ${plan.free ? "text-lg font-semibold" : ""}`}>
+                <span className={plan.free ? "text-xl font-bold text-gray-900" : "text-4xl font-bold text-gray-900"}>
+                  {plan.price}
+                </span>
+                <span className="text-gray-500">{plan.period}</span>
+              </p>
+              {plan.priceSub && (
+                <p className="mt-1 text-sm text-gray-500">{plan.priceSub}</p>
+              )}
+              <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
+              <ul className="mt-6 space-y-3">
+                {plan.features.map((f) => (
+                  <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
+                    <span className="text-green-500 mt-0.5">✓</span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              {plan.free ? (
+                <a
+                  href={INSTALL_URL}
+                  className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  {plan.cta}
+                </a>
+              ) : (
+                <a
+                  href={INSTALL_URL}
+                  className={`mt-8 block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors ${
+                    plan.highlight
+                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                      : "border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  Install on the Stripe Marketplace
+                </a>
+              )}
+              {plan.name === "Pro" && (
+                <p className="mt-4 text-xs text-gray-400 leading-relaxed">
+                  Late fee legality and limits vary by state/country — you're responsible for confirming your late fee terms comply with applicable law before enabling this feature.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="mt-8 text-sm text-gray-500 text-center">
+          Install from the Stripe App Marketplace — subscribe inside the app after
+          connecting. $15/mo or $135/yr Standard · $29/mo or $250/yr Pro.
+        </p>
+      </section>
+
       {/* Why we're different */}
       <section className="bg-gray-50 py-20">
         <div className="max-w-4xl mx-auto px-6 text-center">
@@ -265,45 +424,6 @@ function Home() {
         </div>
       </section>
 
-      {/* Email Preview */}
-      <section className="py-16">
-        <div className="max-w-4xl mx-auto px-6">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">
-            See the difference
-          </h2>
-          <p className="text-center text-gray-600 max-w-lg mx-auto mb-10">
-            Same invoice, two very different follow-ups.
-          </p>
-          <div className="grid gap-8 md:grid-cols-2">
-            <div className="rounded-xl border border-gray-300 bg-white p-6">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">
-                Typical automated reminder
-              </p>
-              <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700 space-y-2">
-                <p className="font-medium">Subject: Invoice #1024 is overdue</p>
-                <p>Dear Client,</p>
-                <p>Your invoice #1024 for $450.00 is now 5 days overdue. Please remit payment at your earliest convenience.</p>
-                <p>Thank you,<br />ACME Services</p>
-              </div>
-            </div>
-            <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-6 relative">
-              <span className="absolute -top-3 right-4 rounded-full bg-indigo-600 px-3 py-0.5 text-xs font-semibold text-white">
-                CollectionsCopilot
-              </span>
-              <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wide mb-4">
-                Personalized, relationship-aware
-              </p>
-              <div className="rounded-lg bg-white p-4 text-sm text-gray-700 space-y-2 shadow-sm">
-                <p className="font-medium">Subject: Quiet nudge — invoice #1024</p>
-                <p>Hi Sarah,</p>
-                <p>Hope the new site launch went well this week. Just a quick heads-up that invoice #1024 for the landing page redesign ($450) passed its due date — no rush if it's just slipped your mind.</p>
-                <p>Let me know if anything looks off. Cheers,<br />Alex at ACME Services</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Trust & Transparency */}
       <section id="trust" className="bg-gray-50 py-20">
         <div className="max-w-4xl mx-auto px-6">
@@ -402,123 +522,6 @@ function Home() {
             </p>
           </div>
         </div>
-      </section>
-
-      {/* Pricing */}
-      <section id="pricing" className="max-w-4xl mx-auto px-6 py-20">
-        <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
-          Simple pricing
-        </h2>
-        <p className="text-center text-gray-600 max-w-lg mx-auto mb-14">
-          Draft up to 5 real overdue invoices for free — approve every send yourself,
-          or let Semi-Auto handle friendly Stage-1 reminders. Subscribe when you want
-          more — no contracts, cancel in one click.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {[
-            {
-              name: "Free — Draft Mode",
-              price: "Free forever, no card required",
-              period: "",
-              body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
-              features: [],
-              cta: "Install free",
-              highlight: false,
-              free: true,
-            },
-            {
-              name: "Standard",
-              price: "$15",
-              period: "/month",
-              priceSub: "$135/year (save $45)",
-              tier: "standard",
-              body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
-              features: [
-                "Up to 50 overdue invoices tracked",
-                "3-stage escalation ladder",
-                "Custom sender branding",
-                "Weekly recovery reports",
-                "Trust Mode selector + sending",
-              ],
-              highlight: true,
-              free: false,
-            },
-            {
-              name: "Pro",
-              price: "$29",
-              period: "/month",
-              priceSub: "$250/year (save $98)",
-              tier: "pro",
-              body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
-              features: [
-                "Everything in Standard",
-                "Unlimited overdue invoices",
-                "Custom escalation timing",
-                "Late-fee automation",
-                "Priority support — same-business-day first response (typically within 24 hours, weekdays)",
-              ],
-              highlight: true,
-              free: false,
-            },
-          ].map((plan) => (
-            <div
-              key={plan.name}
-              className={`rounded-2xl border p-8 ${
-                plan.highlight
-                  ? "border-indigo-300 ring-2 ring-indigo-600 shadow-lg"
-                  : "border-gray-200"
-              }`}
-            >
-              <h3 className="text-xl font-bold text-gray-900">{plan.name}</h3>
-              <p className={`mt-4 ${plan.free ? "text-lg font-semibold" : ""}`}>
-                <span className={plan.free ? "text-xl font-bold text-gray-900" : "text-4xl font-bold text-gray-900"}>
-                  {plan.price}
-                </span>
-                <span className="text-gray-500">{plan.period}</span>
-              </p>
-              {plan.priceSub && (
-                <p className="mt-1 text-sm text-gray-500">{plan.priceSub}</p>
-              )}
-              <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
-              <ul className="mt-6 space-y-3">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
-                    <span className="text-green-500 mt-0.5">✓</span>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              {plan.free ? (
-                <a
-                  href={INSTALL_URL}
-                  className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
-                >
-                  {plan.cta}
-                </a>
-              ) : (
-                <a
-                  href={INSTALL_URL}
-                  className={`mt-8 block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors ${
-                    plan.highlight
-                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                      : "border border-gray-300 text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Install on the Stripe Marketplace
-                </a>
-              )}
-              {plan.name === "Pro" && (
-                <p className="mt-4 text-xs text-gray-400 leading-relaxed">
-                  Late fee legality and limits vary by state/country — you're responsible for confirming your late fee terms comply with applicable law before enabling this feature.
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-        <p className="mt-8 text-sm text-gray-500 text-center">
-          Install from the Stripe App Marketplace — subscribe inside the app after
-          connecting. $15/mo or $135/yr Standard · $29/mo or $250/yr Pro.
-        </p>
       </section>
 
       {/* FAQ */}
