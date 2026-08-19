@@ -472,21 +472,26 @@ function Home() {
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-            {/* Permissions we request */}
+            {/* Permissions */}
             <div className="rounded-2xl border border-gray-200 bg-white p-8">
               <h3 className="text-lg font-bold text-gray-900">
-                Permissions we request
+                Permissions
               </h3>
               <p className="mt-2 text-sm text-gray-600 leading-relaxed">
-                Exactly two read-only permissions, nothing more, nothing hidden:
+                Matched to what Stripe shows you at install — nothing more, nothing
+                hidden:
               </p>
               <ul className="mt-4 space-y-3">
                 <li className="flex items-start gap-3 text-sm">
-                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 shrink-0">
-                    invoice_read
-                  </code>
                   <span className="text-gray-700">
-                    — so we can see which invoices are overdue.
+                    <span className="font-semibold text-gray-900">
+                      Account &amp; user information — read-only.
+                    </span>{" "}
+                    How we know which account you are.{" "}
+                    <span className="text-gray-500">
+                      (A baseline Stripe grants every app — we don't request or
+                      modify anything.)
+                    </span>
                   </span>
                 </li>
                 <li className="flex items-start gap-3 text-sm">
@@ -494,13 +499,36 @@ function Home() {
                     customer_read
                   </code>
                   <span className="text-gray-700">
-                    — so we know who to address and how.
+                    <span className="font-semibold text-gray-900">
+                      Customers — read-only.
+                    </span>{" "}
+                    Names &amp; emails, so reminders are addressed right.
+                  </span>
+                </li>
+                <li className="flex items-start gap-3 text-sm">
+                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 shrink-0">
+                    invoice_read
+                  </code>
+                  <span className="text-gray-700">
+                    <span className="font-semibold text-gray-900">
+                      Invoices — read-only.
+                    </span>{" "}
+                    Which invoices are overdue and by how much.
+                  </span>
+                </li>
+                <li className="flex items-start gap-3 text-sm">
+                  <span className="text-gray-700">
+                    <span className="font-semibold text-gray-900">
+                      External access — data sharing.
+                    </span>{" "}
+                    We connect to our own backend to prepare and send your reminders;
+                    no third parties.
                   </span>
                 </li>
               </ul>
               <p className="mt-4 text-sm text-gray-500">
                 No write permissions. The app can't modify invoices, customers, or
-                payment methods.
+                payment methods. Read-only means read-only — nothing is ever changed.
               </p>
             </div>
 
