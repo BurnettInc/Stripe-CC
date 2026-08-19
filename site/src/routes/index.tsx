@@ -36,7 +36,7 @@ function Home() {
           href={INSTALL_URL}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
         >
-          Install on Stripe
+          Install from the Stripe App Marketplace
         </a>
       </nav>
 
@@ -124,6 +124,30 @@ function Home() {
         </div>
       </section>
 
+      {/* Trust & permissions strip */}
+      <div className="max-w-4xl mx-auto px-6 pb-4">
+        <div className="rounded-xl border border-gray-300 bg-white p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm text-gray-600">
+            <div className="flex items-start gap-2">
+              <span className="text-green-500 mt-0.5">✓</span>
+              <span>Read-only access — we never modify your Stripe data</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-green-500 mt-0.5">✓</span>
+              <span>No write access — your customers' accounts stay untouched</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-green-500 mt-0.5">✓</span>
+              <span>Pause or stop anytime — the sequence halts the instant a payment is detected</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-green-500 mt-0.5">✓</span>
+              <span>You approve every send in Draft mode; trust grows from there</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Pricing */}
       <section id="pricing" className="max-w-4xl mx-auto px-6 py-20">
         <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
@@ -145,15 +169,17 @@ function Home() {
               period: "",
               body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
               features: [],
-              cta: "Install free",
+              cta: "Try it free",
               highlight: false,
               free: true,
             },
             {
               name: "Standard",
-              price: "$15",
+              was: "$15",
+              price: "$7.50",
               period: "/month",
               priceSub: "$135/year (save $45)",
+              foundingLabel: "Founding member price — first 50 to sign up",
               tier: "standard",
               body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
               features: [
@@ -168,9 +194,11 @@ function Home() {
             },
             {
               name: "Pro",
-              price: "$29",
+              was: "$29",
+              price: "$14.50",
               period: "/month",
               priceSub: "$250/year (save $98)",
+              foundingLabel: "Founding member price — first 50 to sign up",
               tier: "pro",
               body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
               features: [
@@ -194,6 +222,11 @@ function Home() {
             >
               <h3 className="text-xl font-bold text-gray-900">{plan.name}</h3>
               <p className={`mt-4 ${plan.free ? "text-lg font-semibold" : ""}`}>
+                {plan.was && (
+                  <span className="text-2xl font-bold text-gray-400 line-through mr-2">
+                    {plan.was}
+                  </span>
+                )}
                 <span className={plan.free ? "text-xl font-bold text-gray-900" : "text-4xl font-bold text-gray-900"}>
                   {plan.price}
                 </span>
@@ -201,6 +234,9 @@ function Home() {
               </p>
               {plan.priceSub && (
                 <p className="mt-1 text-sm text-gray-500">{plan.priceSub}</p>
+              )}
+              {plan.foundingLabel && (
+                <p className="mt-1 text-xs font-medium text-indigo-600">{plan.foundingLabel}</p>
               )}
               <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
               <ul className="mt-6 space-y-3">
@@ -227,7 +263,7 @@ function Home() {
                       : "border border-gray-300 text-gray-700 hover:bg-gray-50"
                   }`}
                 >
-                  Install on the Stripe Marketplace
+                  Install from the Stripe App Marketplace
                 </a>
               )}
               {plan.name === "Pro" && (
@@ -579,7 +615,7 @@ function Home() {
             Ready to stop chasing payments?
           </h2>
           <p className="text-gray-400 max-w-lg mx-auto mb-4">
-            Install CollectionsCopilot from the Stripe App Marketplace today.
+            Install from the Stripe App Marketplace.
             Polite, personalized, and persistent reminders — without you lifting a
             finger.
           </p>
