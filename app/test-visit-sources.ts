@@ -32,6 +32,7 @@ import {
   aggregateVisitsBySource,
   bucketVisit,
   displayBucketName,
+  isBareSearchHomepage,
   referrerHost,
   type VisitForAttribution,
 } from "./src/visit-sources";
@@ -78,6 +79,28 @@ check("l.facebook.com → facebook", bucketVisit({ referrer: "https://l.facebook
 check("fb.com shortener → facebook", bucketVisit({ referrer: "https://fb.com/abc123" }) === "facebook", bucketVisit({ referrer: "https://fb.com/abc123" }));
 check("unknown host → referral:<host>", bucketVisit({ referrer: "https://example.com/page" }) === "referral:example.com", bucketVisit({ referrer: "https://example.com/page" }));
 check("unknown host keeps subdomain in referral bucket", bucketVisit({ referrer: "https://sub.example.org/x" }) === "referral:sub.example.org", bucketVisit({ referrer: "https://sub.example.org/x" }));
+
+// ── (b2) bare search-engine homepages → direct (owner-approved 2026-08-19);
+//        utm_source still wins; real search URLs still map to their engine ──
+check("bare https://www.google.com/ → direct", bucketVisit({ referrer: "https://www.google.com/" }) === "direct", bucketVisit({ referrer: "https://www.google.com/" }));
+check("bare https://www.google.com (no trailing slash) → direct", bucketVisit({ referrer: "https://www.google.com" }) === "direct", bucketVisit({ referrer: "https://www.google.com" }));
+check("bare https://www.google.co.uk/ → direct", bucketVisit({ referrer: "https://www.google.co.uk/" }) === "direct", bucketVisit({ referrer: "https://www.google.co.uk/" }));
+check("bare https://www.bing.com/ → direct", bucketVisit({ referrer: "https://www.bing.com/" }) === "direct", bucketVisit({ referrer: "https://www.bing.com/" }));
+check("bare http://bing.com/ → direct", bucketVisit({ referrer: "http://bing.com/" }) === "direct", bucketVisit({ referrer: "http://bing.com/" }));
+check("bare https://duckduckgo.com/ → direct", bucketVisit({ referrer: "https://duckduckgo.com/" }) === "direct", bucketVisit({ referrer: "https://duckduckgo.com/" }));
+// Real search URLs still map to their engine (never treated as bare).
+check("google search URL → google", bucketVisit({ referrer: "https://www.google.com/search?q=x" }) === "google", bucketVisit({ referrer: "https://www.google.com/search?q=x" }));
+check("google search without query → google", bucketVisit({ referrer: "https://www.google.com/search" }) === "google", bucketVisit({ referrer: "https://www.google.com/search" }));
+check("google.co.uk search → google", bucketVisit({ referrer: "https://www.google.co.uk/search" }) === "google", bucketVisit({ referrer: "https://www.google.co.uk/search" }));
+check("bing search URL → bing", bucketVisit({ referrer: "https://www.bing.com/search?q=x" }) === "bing", bucketVisit({ referrer: "https://www.bing.com/search?q=x" }));
+check("duckduckgo root path WITH query is a search → duckduckgo", bucketVisit({ referrer: "https://duckduckgo.com/?q=x" }) === "duckduckgo", bucketVisit({ referrer: "https://duckduckgo.com/?q=x" }));
+// utm_source still wins over a bare search-engine referrer.
+check("utm_source=google + bare google referrer → google", bucketVisit({ utm_source: "google", referrer: "https://www.google.com/" }) === "google", bucketVisit({ utm_source: "google", referrer: "https://www.google.com/" }));
+// Helper itself (pure, deterministic).
+check("isBareSearchHomepage(bare google) true", isBareSearchHomepage("https://www.google.com/") === true, String(isBareSearchHomepage("https://www.google.com/")));
+check("isBareSearchHomepage(google search URL) false", isBareSearchHomepage("https://www.google.com/search?q=x") === false, String(isBareSearchHomepage("https://www.google.com/search?q=x")));
+check("isBareSearchHomepage(duckduckgo search) false", isBareSearchHomepage("https://duckduckgo.com/?q=x") === false, String(isBareSearchHomepage("https://duckduckgo.com/?q=x")));
+check("isBareSearchHomepage(non-search bare host) false", isBareSearchHomepage("https://twitter.com/") === false, String(isBareSearchHomepage("https://twitter.com/")));
 
 // ── (c) direct fallback ──
 check("no utm, no referrer → direct", bucketVisit({}) === "direct", bucketVisit({}));
