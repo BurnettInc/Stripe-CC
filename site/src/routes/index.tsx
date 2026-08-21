@@ -50,10 +50,10 @@ function Home() {
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-6 pt-20 pb-16 text-center">
-        <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700 mb-6">
+        <span className="inline-block rounded-full bg-white ring-1 ring-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700 mb-6">
           Now live on the Stripe App Marketplace
         </span>
-        <span className="inline-block rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700 mb-6 ml-2">
+        <span className="inline-block rounded-full bg-white ring-1 ring-purple-100 px-3 py-1 text-sm font-medium text-purple-700 mb-6 ml-2">
           We never sell your data
         </span>
         <h1 className="text-4xl font-bold tracking-tight sm:text-6xl text-gray-900">
@@ -224,8 +224,8 @@ function Home() {
               key={plan.name}
               className={`rounded-2xl border p-8 ${
                 plan.highlight
-                  ? "border-indigo-300 ring-2 ring-indigo-600 shadow-lg"
-                  : "border-gray-200"
+                  ? "border-indigo-300 ring-2 ring-indigo-600 shadow-lg bg-white"
+                  : "border-gray-200 bg-white"
               }`}
             >
               <h3 className="text-xl font-bold text-gray-900">{plan.name}</h3>
@@ -289,7 +289,7 @@ function Home() {
       </section>
 
       {/* Why we're different */}
-      <section className="bg-gray-50 py-20">
+      <section className="bg-white py-20">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-3xl font-bold text-gray-900 mb-6">
             Unlike other tools, we give you control from day one
@@ -344,7 +344,7 @@ function Home() {
       </section>
 
       {/* Trust Mode */}
-      <section className="bg-gray-50 py-20">
+      <section className="bg-white py-20">
         <div className="max-w-5xl mx-auto px-6">
           {/* Escalation ladder */}
           <h3 className="text-lg font-semibold text-gray-900 text-center mb-6">
@@ -370,7 +370,7 @@ function Home() {
             ].map((s) => (
               <div
                 key={s.when}
-                className="rounded-xl border border-gray-200 bg-white p-5"
+                className="rounded-xl border border-gray-200 bg-[#F3F1FC] p-5"
               >
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-xs font-bold uppercase tracking-wide text-indigo-600 shrink-0">
@@ -469,7 +469,7 @@ function Home() {
       </section>
 
       {/* Trust & Transparency */}
-      <section id="trust" className="bg-gray-50 py-20">
+      <section id="trust" className="bg-white py-20">
         <div className="max-w-4xl mx-auto px-6">
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
             Trust &amp; Transparency
@@ -481,7 +481,7 @@ function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
             {/* Permissions */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-8">
+            <div className="rounded-2xl border border-gray-200 bg-[#F3F1FC] p-8">
               <h3 className="text-lg font-bold text-gray-900">
                 Permissions
               </h3>
@@ -541,7 +541,7 @@ function Home() {
             </div>
 
             {/* Pause & cancel */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-8">
+            <div className="rounded-2xl border border-gray-200 bg-[#F3F1FC] p-8">
               <h3 className="text-lg font-bold text-gray-900">
                 Pause &amp; cancel, any time
               </h3>
@@ -569,7 +569,7 @@ function Home() {
           </div>
 
           {/* Not a debt collection service */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-8">
+          <div className="rounded-2xl border border-gray-200 bg-[#F3F1FC] p-8">
             <h3 className="text-lg font-bold text-gray-900">
               Not a debt collection service
             </h3>
@@ -633,7 +633,7 @@ function Home() {
           ].map((item) => (
             <div
               key={item.q}
-              className="rounded-xl border border-gray-200 p-6"
+              className="rounded-xl border border-gray-200 bg-white p-6"
             >
               <h3 className="font-semibold text-gray-900">{item.q}</h3>
               <p className="mt-2 text-sm text-gray-600 leading-relaxed">
