@@ -48,39 +48,83 @@ function Home() {
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="max-w-4xl mx-auto px-6 pt-20 pb-16 text-center">
-        <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700 mb-6">
-          Now live on the Stripe App Marketplace
-        </span>
-        <span className="inline-block rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700 mb-6 ml-2">
-          We never sell your data
-        </span>
-        <h1 className="text-4xl font-bold tracking-tight sm:text-6xl text-gray-900">
-          Recover Stripe Invoices Faster with AI
-        </h1>
-        <p className="mt-6 max-w-xl mx-auto text-lg text-gray-600 leading-relaxed">
-          The simplest AI collections assistant for solo Stripe users. Connect your
-          Stripe account in one click — right from the Stripe App Marketplace — and
-          we'll chase overdue invoices with personalized, escalating reminders, so
-          you get paid without lifting a finger.
-        </p>
-        <div className="mt-10 flex flex-col items-center gap-4">
-          <a
-            href={INSTALL_URL}
-            className="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
-          >
-            Install from the Stripe App Marketplace
-          </a>
-          <a
-            href="#how-it-works"
-            className="rounded-lg border border-gray-300 px-6 py-3 text-base font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            How it works
-          </a>
-          <p className="text-sm font-medium text-gray-500">Built for solo Stripe users</p>
+      {/* Hero — two column */}
+      <section className="max-w-6xl mx-auto px-6 pt-16 pb-14">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+          {/* Left column */}
+          <div className="text-left">
+            <div className="mb-6">
+              <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
+                Now live on the Stripe App Marketplace
+              </span>
+              <span className="inline-block rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700 ml-2 mt-2 sm:mt-0">
+                We never sell your data
+              </span>
+            </div>
+            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl text-gray-900">
+              Overdue invoices, followed up like you'd do it yourself
+            </h1>
+            <p className="mt-6 max-w-xl text-lg text-gray-600 leading-relaxed">
+              Not another form-letter reminder. CollectionsCopilot writes polite,
+              personalized follow-ups that escalate naturally — so you get paid without
+              damaging the relationship.
+            </p>
+            <div className="mt-8 flex flex-col sm:flex-row gap-4">
+              <a
+                href={INSTALL_URL}
+                className="rounded-lg bg-indigo-600 px-6 py-3 text-center text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+              >
+                Install from the Stripe App Marketplace
+              </a>
+              <a
+                href="#how-it-works"
+                className="rounded-lg border border-gray-300 px-6 py-3 text-center text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                How it works
+              </a>
+            </div>
+          </div>
+
+          {/* Right column — email preview */}
+          <div>
+            <div className="mx-auto max-w-md rounded-2xl border border-gray-200 bg-white shadow-lg">
+              {/* preview header */}
+              <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-base font-bold text-indigo-700">
+                  A
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-gray-900">
+                    Alex at ACME Services
+                  </p>
+                  <p className="text-xs text-gray-500">to Sarah</p>
+                </div>
+              </div>
+              {/* preview body */}
+              <div className="px-5 py-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
+                  Email preview
+                </p>
+                <p className="text-sm font-semibold text-gray-900">
+                  Quiet nudge — invoice #1024
+                </p>
+                <div className="mt-2 space-y-2 text-sm text-gray-700 leading-relaxed">
+                  <p>Hi Sarah,</p>
+                  <p>
+                    Hope the new site launch went well this week. Just a quick heads-up
+                    that invoice #1024 for the landing page redesign ($450) passed its
+                    due date — no rush if it's just slipped your mind.
+                  </p>
+                  <p>Let me know if anything looks off.</p>
+                  <p className="font-medium">Cheers, Alex at ACME Services</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="mt-10 mx-auto max-w-2xl rounded-2xl border border-indigo-200 bg-indigo-50 p-6 text-left">
+
+        {/* Founding Member Offer — full width below the grid */}
+        <div className="mt-10 mx-auto max-w-3xl rounded-2xl border border-indigo-200 bg-indigo-50 p-6 text-left">
           <p className="text-sm font-bold uppercase tracking-wide text-indigo-700 mb-2">
             Founding Member Offer — first 50 to sign up
           </p>
@@ -93,82 +137,202 @@ function Home() {
         </div>
       </section>
 
-      {/* Email Preview */}
-      <section className="py-16">
+      {/* Trust & Transparency */}
+      <section id="trust" className="bg-gray-50 py-16">
         <div className="max-w-4xl mx-auto px-6">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">
-            See the difference
+          <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
+            Trust &amp; Transparency
           </h2>
-          <p className="text-center text-gray-600 max-w-lg mx-auto mb-10">
+          <p className="text-center text-gray-600 max-w-xl mx-auto mb-8">
+            You're trusting us with your customers and your cash flow. Here's exactly
+            what we ask for — and what we never do.
+          </p>
+
+          {/* Condensed comparison */}
+          <h3 className="text-lg font-semibold text-gray-900 text-center mb-3">
+            Why we're different
+          </h3>
+          <p className="text-center text-sm text-gray-500 mb-6">
             Same invoice, two very different follow-ups.
           </p>
-          <div className="grid gap-8 md:grid-cols-2">
+          <div className="grid gap-6 md:grid-cols-2 mb-10">
             <div className="rounded-xl border border-gray-300 bg-white p-6">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
                 Typical automated reminder
               </p>
-              <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700 space-y-2">
+              <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">
                 <p className="font-medium">Subject: Invoice #1024 is overdue</p>
-                <p>Dear Client,</p>
-                <p>Your invoice #1024 for $450.00 is now 5 days overdue. Please remit payment at your earliest convenience.</p>
-                <p>Thank you,<br />ACME Services</p>
+                <p className="mt-1">Your invoice #1024 ($450) is 5 days overdue. Please remit payment.</p>
               </div>
             </div>
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-6 relative">
               <span className="absolute -top-3 right-4 rounded-full bg-indigo-600 px-3 py-0.5 text-xs font-semibold text-white">
                 CollectionsCopilot
               </span>
-              <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wide mb-4">
+              <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wide mb-3">
                 Personalized, relationship-aware
               </p>
-              <div className="rounded-lg bg-white p-4 text-sm text-gray-700 space-y-2 shadow-sm">
+              <div className="rounded-lg bg-white p-4 text-sm text-gray-700 shadow-sm">
                 <p className="font-medium">Subject: Quiet nudge — invoice #1024</p>
-                <p>Hi Sarah,</p>
-                <p>Hope the new site launch went well this week. Just a quick heads-up that invoice #1024 for the landing page redesign ($450) passed its due date — no rush if it's just slipped your mind.</p>
-                <p>Let me know if anything looks off. Cheers,<br />Alex at ACME Services</p>
+                <p className="mt-1">Hi Sarah, just a heads-up that invoice #1024 passed its due date — no rush.</p>
               </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            {/* Permissions */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-8">
+              <h3 className="text-lg font-bold text-gray-900">
+                Permissions
+              </h3>
+              <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+                Matched to what Stripe shows you at install — nothing more, nothing
+                hidden:
+              </p>
+              <ul className="mt-4 space-y-3">
+                <li className="flex items-start gap-3 text-sm">
+                  <span className="text-gray-700">
+                    <span className="font-semibold text-gray-900">
+                      Account &amp; user information — read-only.
+                    </span>{" "}
+                    How we know which account you are.{" "}
+                    <span className="text-gray-500">
+                      (A baseline Stripe grants every app — we don't request or
+                      modify anything.)
+                    </span>
+                  </span>
+                </li>
+                <li className="flex items-start gap-3 text-sm">
+                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 shrink-0">
+                    customer_read
+                  </code>
+                  <span className="text-gray-700">
+                    <span className="font-semibold text-gray-900">
+                      Customers — read-only.
+                    </span>{" "}
+                    Names &amp; emails, so reminders are addressed right.
+                  </span>
+                </li>
+                <li className="flex items-start gap-3 text-sm">
+                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 shrink-0">
+                    invoice_read
+                  </code>
+                  <span className="text-gray-700">
+                    <span className="font-semibold text-gray-900">
+                      Invoices — read-only.
+                    </span>{" "}
+                    Which invoices are overdue and by how much.
+                  </span>
+                </li>
+                <li className="flex items-start gap-3 text-sm">
+                  <span className="text-gray-700">
+                    <span className="font-semibold text-gray-900">
+                      External access — data sharing.
+                    </span>{" "}
+                    We connect to our own backend to prepare and send your reminders;
+                    no third parties.
+                  </span>
+                </li>
+              </ul>
+              <p className="mt-4 text-sm text-gray-500">
+                No write permissions. The app can't modify invoices, customers, or
+                payment methods. Read-only means read-only — nothing is ever changed.
+              </p>
+            </div>
+
+            {/* Pause & cancel */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-8">
+              <h3 className="text-lg font-bold text-gray-900">
+                Pause &amp; cancel, any time
+              </h3>
+              <ul className="mt-4 space-y-4 text-sm text-gray-700">
+                <li className="flex items-start gap-3">
+                  <span className="text-indigo-600 mt-0.5">✓</span>
+                  <span>
+                    <span className="font-semibold text-gray-900">Switch to Draft Mode</span>{" "}
+                    and all auto-sending pauses instantly. No emails go out without your
+                    approval in Draft mode.
+                  </span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="text-indigo-600 mt-0.5">✓</span>
+                  <span>
+                    You can{" "}
+                    <span className="font-semibold text-gray-900">
+                      disconnect your Stripe account
+                    </span>{" "}
+                    at any time from the Stripe Dashboard — sequences stop immediately.
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Not a debt collection service */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-8">
+            <h3 className="text-lg font-bold text-gray-900">
+              Not a debt collection service
+            </h3>
+            <p className="mt-3 text-sm text-gray-600 leading-relaxed">
+              CollectionsCopilot sends polite, personalized payment reminders — never
+              legal threats, never harassment. Our AI is explicitly instructed to
+              preserve your customer relationships, not damage them. If you need formal
+              debt collection, this isn't the tool for that.
+            </p>
+          </div>
+
+          {/* Reply handling */}
+          <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-8">
+            <h3 className="text-lg font-bold text-gray-900">
+              What happens if a customer replies?
+            </h3>
+            <p className="mt-3 text-sm text-gray-700 leading-relaxed">
+              If a customer replies to any reminder, their sequence pauses automatically
+              and you're notified immediately — no more reminders go out until you resume
+              it. Their message is also forwarded straight to your inbox, so you never
+              miss it.
+            </p>
+          </div>
+
+          {/* Your trust, in one summary strip */}
+          <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4">
+              <span className="text-indigo-600 mt-0.5 shrink-0">✓</span>
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold text-gray-900">Read-only access</span>
+                {" "}— we never modify your Stripe data.
+              </p>
+            </div>
+            <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4">
+              <span className="text-indigo-600 mt-0.5 shrink-0">✓</span>
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold text-gray-900">No write access</span>
+                {" "}— your customers' accounts stay untouched.
+              </p>
+            </div>
+            <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4">
+              <span className="text-indigo-600 mt-0.5 shrink-0">✓</span>
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold text-gray-900">Pause or stop anytime</span>
+                {" "}— the sequence halts the instant a payment is detected.
+              </p>
+            </div>
+            <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4">
+              <span className="text-indigo-600 mt-0.5 shrink-0">✓</span>
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold text-gray-900">You approve every send in Draft mode</span>
+                {" "}— trust grows from there.
+              </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Trust & permissions strip */}
-      <div className="max-w-4xl mx-auto px-6 pb-4">
-        <div className="rounded-xl border border-gray-300 bg-white p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm text-gray-600">
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>Read-only access — we never modify your Stripe data</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>No write access — your customers' accounts stay untouched</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>Pause or stop anytime — the sequence halts the instant a payment is detected</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-green-500 mt-0.5">✓</span>
-              <span>You approve every send in Draft mode; trust grows from there</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Pricing */}
-      <section id="pricing" className="max-w-4xl mx-auto px-6 py-20">
-        <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
+      <section id="pricing" className="max-w-4xl mx-auto px-6 py-16">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-10">
           Simple pricing
         </h2>
-        <p className="text-center text-gray-600 max-w-lg mx-auto mb-14">
-          <span className="font-semibold text-gray-900">
-            5 free drafts on your real invoices — no card required.
-          </span>{" "}
-          Approve every send yourself, or let Semi-Auto handle friendly Stage-1
-          reminders. Subscribe when you want more — no contracts, cancel in one
-          click.
-        </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
             {
@@ -178,7 +342,7 @@ function Home() {
               body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
               features: [],
               cta: "Try it free",
-              highlight: false,
+              highlight: true,
               free: true,
             },
             {
@@ -222,7 +386,7 @@ function Home() {
           ].map((plan) => (
             <div
               key={plan.name}
-              className={`rounded-2xl border p-8 ${
+              className={`flex flex-col rounded-2xl border p-8 ${
                 plan.highlight
                   ? "border-indigo-300 ring-2 ring-indigo-600 shadow-lg"
                   : "border-gray-200"
@@ -255,17 +419,22 @@ function Home() {
                   </li>
                 ))}
               </ul>
+              {plan.name === "Pro" && (
+                <p className="mt-4 text-xs text-gray-400 leading-relaxed">
+                  Late fee legality and limits vary by state/country — you're responsible for confirming your late fee terms comply with applicable law before enabling this feature.
+                </p>
+              )}
               {plan.free ? (
                 <a
                   href={INSTALL_URL}
-                  className="mt-8 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                  className="mt-auto block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                 >
                   {plan.cta}
                 </a>
               ) : (
                 <a
                   href={INSTALL_URL}
-                  className={`mt-8 block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors ${
+                  className={`mt-auto block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors ${
                     plan.highlight
                       ? "bg-indigo-600 text-white hover:bg-indigo-700"
                       : "border border-gray-300 text-gray-700 hover:bg-gray-50"
@@ -273,11 +442,6 @@ function Home() {
                 >
                   Install from the Stripe App Marketplace
                 </a>
-              )}
-              {plan.name === "Pro" && (
-                <p className="mt-4 text-xs text-gray-400 leading-relaxed">
-                  Late fee legality and limits vary by state/country — you're responsible for confirming your late fee terms comply with applicable law before enabling this feature.
-                </p>
               )}
             </div>
           ))}
@@ -288,69 +452,23 @@ function Home() {
         </p>
       </section>
 
-      {/* Why we're different */}
-      <section className="bg-gray-50 py-20">
-        <div className="max-w-4xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-6">
-            Unlike other tools, we give you control from day one
-          </h2>
-          <p className="text-gray-600 max-w-xl mx-auto leading-relaxed">
-            That's a hard sell when it's your customers on the other end of the email.
-            So we built it differently — you start exactly as hands-on as you want, and
-            earn your way to hands-off.
-          </p>
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section id="how-it-works" className="max-w-5xl mx-auto px-6 py-20">
-        <h2 className="text-3xl font-bold text-center text-gray-900 mb-4">
-          Set it and forget it
-        </h2>
-        <p className="text-center font-medium text-gray-500 mb-16">
-          Built for solo Stripe users
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-          {[
-            {
-              step: "1",
-              title: "Connect Stripe",
-              desc: "One click. No config files, no webhook setup, no API keys to copy. We handle everything.",
-            },
-            {
-              step: "2",
-              title: "Pick your Trust Mode",
-              desc: "Draft (you approve), Semi-Auto (friendly reminders auto-send), or Full Auto (hands-off). You're always in control.",
-            },
-            {
-              step: "3",
-              title: "Get paid",
-              desc: "When an invoice goes overdue, we send personalized, polite reminders that escalate naturally. Payment detected? Sequence stops instantly.",
-            },
-          ].map((item) => (
-            <div key={item.step} className="text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 font-bold text-lg">
-                {item.step}
-              </div>
-              <h3 className="mt-5 text-lg font-semibold text-gray-900">
-                {item.title}
-              </h3>
-              <p className="mt-3 text-sm text-gray-600 leading-relaxed">
-                {item.desc}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Trust Mode */}
-      <section className="bg-gray-50 py-20">
+      {/* How it works — detailed escalation */}
+      <section id="how-it-works" className="bg-gray-50 py-16">
         <div className="max-w-5xl mx-auto px-6">
+          <h2 className="text-3xl font-bold text-center text-gray-900 mb-4">
+            How it works
+          </h2>
+          <p className="text-center text-gray-600 max-w-xl mx-auto mb-8 leading-relaxed">
+            Unlike other tools, we give you control from day one — you start exactly as
+            hands-on as you want, and earn your way to hands-off. Here's what every
+            sequence and mode does.
+          </p>
+
           {/* Escalation ladder */}
           <h3 className="text-lg font-semibold text-gray-900 text-center mb-6">
             Every sequence escalates in three stages
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-14">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
             {[
               {
                 when: "Day 1–6",
@@ -468,140 +586,12 @@ function Home() {
         </div>
       </section>
 
-      {/* Trust & Transparency */}
-      <section id="trust" className="bg-gray-50 py-20">
-        <div className="max-w-4xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
-            Trust &amp; Transparency
-          </h2>
-          <p className="text-center text-gray-600 max-w-xl mx-auto mb-14">
-            You're trusting us with your customers and your cash flow. Here's exactly
-            what we ask for — and what we never do.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-            {/* Permissions */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-8">
-              <h3 className="text-lg font-bold text-gray-900">
-                Permissions
-              </h3>
-              <p className="mt-2 text-sm text-gray-600 leading-relaxed">
-                Matched to what Stripe shows you at install — nothing more, nothing
-                hidden:
-              </p>
-              <ul className="mt-4 space-y-3">
-                <li className="flex items-start gap-3 text-sm">
-                  <span className="text-gray-700">
-                    <span className="font-semibold text-gray-900">
-                      Account &amp; user information — read-only.
-                    </span>{" "}
-                    How we know which account you are.{" "}
-                    <span className="text-gray-500">
-                      (A baseline Stripe grants every app — we don't request or
-                      modify anything.)
-                    </span>
-                  </span>
-                </li>
-                <li className="flex items-start gap-3 text-sm">
-                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 shrink-0">
-                    customer_read
-                  </code>
-                  <span className="text-gray-700">
-                    <span className="font-semibold text-gray-900">
-                      Customers — read-only.
-                    </span>{" "}
-                    Names &amp; emails, so reminders are addressed right.
-                  </span>
-                </li>
-                <li className="flex items-start gap-3 text-sm">
-                  <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold text-indigo-700 shrink-0">
-                    invoice_read
-                  </code>
-                  <span className="text-gray-700">
-                    <span className="font-semibold text-gray-900">
-                      Invoices — read-only.
-                    </span>{" "}
-                    Which invoices are overdue and by how much.
-                  </span>
-                </li>
-                <li className="flex items-start gap-3 text-sm">
-                  <span className="text-gray-700">
-                    <span className="font-semibold text-gray-900">
-                      External access — data sharing.
-                    </span>{" "}
-                    We connect to our own backend to prepare and send your reminders;
-                    no third parties.
-                  </span>
-                </li>
-              </ul>
-              <p className="mt-4 text-sm text-gray-500">
-                No write permissions. The app can't modify invoices, customers, or
-                payment methods. Read-only means read-only — nothing is ever changed.
-              </p>
-            </div>
-
-            {/* Pause & cancel */}
-            <div className="rounded-2xl border border-gray-200 bg-white p-8">
-              <h3 className="text-lg font-bold text-gray-900">
-                Pause &amp; cancel, any time
-              </h3>
-              <ul className="mt-4 space-y-4 text-sm text-gray-700">
-                <li className="flex items-start gap-3">
-                  <span className="text-indigo-600 mt-0.5">✓</span>
-                  <span>
-                    <span className="font-semibold text-gray-900">Switch to Draft Mode</span>{" "}
-                    and all auto-sending pauses instantly. No emails go out without your
-                    approval in Draft mode.
-                  </span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <span className="text-indigo-600 mt-0.5">✓</span>
-                  <span>
-                    You can{" "}
-                    <span className="font-semibold text-gray-900">
-                      disconnect your Stripe account
-                    </span>{" "}
-                    at any time from the Stripe Dashboard — sequences stop immediately.
-                  </span>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Not a debt collection service */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-8">
-            <h3 className="text-lg font-bold text-gray-900">
-              Not a debt collection service
-            </h3>
-            <p className="mt-3 text-sm text-gray-600 leading-relaxed">
-              CollectionsCopilot sends polite, personalized payment reminders — never
-              legal threats, never harassment. Our AI is explicitly instructed to
-              preserve your customer relationships, not damage them. If you need formal
-              debt collection, this isn't the tool for that.
-            </p>
-          </div>
-
-          {/* Reply handling */}
-          <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-8">
-            <h3 className="text-lg font-bold text-gray-900">
-              What happens if a customer replies?
-            </h3>
-            <p className="mt-3 text-sm text-gray-700 leading-relaxed">
-              If a customer replies to any reminder, their sequence pauses automatically
-              and you're notified immediately — no more reminders go out until you resume
-              it. Their message is also forwarded straight to your inbox, so you never
-              miss it.
-            </p>
-          </div>
-        </div>
-      </section>
-
       {/* FAQ */}
-      <section id="faq" className="max-w-4xl mx-auto px-6 py-20">
+      <section id="faq" className="max-w-4xl mx-auto px-6 py-16">
         <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
           Frequently asked questions
         </h2>
-        <p className="text-center text-gray-600 max-w-xl mx-auto mb-14">
+        <p className="text-center text-gray-600 max-w-xl mx-auto mb-8">
           The honest answers to the questions we'd ask, if we were you.
         </p>
         <div className="space-y-6">
@@ -611,16 +601,8 @@ function Home() {
               a: "No. Each email is either AI-generated using your invoice history and customer context, or uses carefully written fallback templates that vary by stage. The AI is prompted to write like a human who cares about the relationship — never copy-paste, never robotic. Want to hear it before subscribing? Free Draft Mode lets you preview real drafts from your own invoices.",
             },
             {
-              q: "Can I stop it instantly?",
-              a: "Yes. Switch to Draft Mode — nothing sends without your approval. You can also disconnect your Stripe account from the Stripe Dashboard at any time, and the moment a customer pays, their sequence stops on its own.",
-            },
-            {
               q: "Does this work with one-off invoices as well as recurring ones?",
               a: "Yes. CollectionsCopilot monitors your Stripe invoices regardless of whether they're one-off or subscription-based. If it's overdue in Stripe, we'll help you follow up.",
-            },
-            {
-              q: "Can I try it before paying?",
-              a: "Yes — Free Draft Mode is free forever, no card required. Connect your Stripe account and see real AI-drafted reminders for up to 5 of your overdue invoices. You approve every send yourself, or switch to Semi-Auto and let friendly Stage-1 reminders go out on their own.",
             },
             {
               q: "How is this different from Stripe's built-in reminders?",
@@ -645,7 +627,7 @@ function Home() {
       </section>
 
       {/* CTA */}
-      <section className="bg-gray-900 py-20">
+      <section className="bg-gray-900 py-16">
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 className="text-3xl font-bold text-white mb-4">
             Ready to stop chasing payments?
@@ -689,7 +671,7 @@ function Home() {
             href="mailto:support@getcollectionscopilot.com"
             className="hover:text-gray-700 transition-colors"
           >
-support@getcollectionscopilot.com
+            support@getcollectionscopilot.com
           </a>
         </div>
         <p>
