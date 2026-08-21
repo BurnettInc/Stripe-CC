@@ -667,12 +667,6 @@ function Home() {
           <a href="/support" className="hover:text-gray-700 transition-colors">
             Support
           </a>
-          <a
-            href="mailto:support@getcollectionscopilot.com"
-            className="hover:text-gray-700 transition-colors"
-          >
-            support@getcollectionscopilot.com
-          </a>
         </div>
         <p>
           {businessName || "CollectionsCopilot"}
