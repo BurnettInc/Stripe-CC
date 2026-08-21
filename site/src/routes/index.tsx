@@ -27,17 +27,25 @@ function Home() {
       {/* Nav */}
       <nav className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-6 py-4 max-w-6xl mx-auto">
         <div className="flex items-center gap-3">
-          <img src="/icon.svg" alt="CollectionsCopilot" className="h-8 w-auto" />
-          <span className="font-bold text-base sm:text-lg text-indigo-600">
-            {businessName || "CollectionsCopilot"}
+          <span className="inline-flex items-center justify-center rounded-lg bg-indigo-50 p-1.5 ring-1 ring-indigo-100">
+            <img src="/icon.svg" alt="CollectionsCopilot" className="h-9 w-auto" />
+          </span>
+          <span className="text-lg sm:text-xl tracking-tight text-gray-900">
+            {(() => {
+              const name = businessName || "CollectionsCopilot";
+              const idx = name.lastIndexOf("Copilot");
+              if (idx > 0) {
+                return (
+                  <>
+                    {name.slice(0, idx)}
+                    <span className="font-bold text-indigo-700">{name.slice(idx)}</span>
+                  </>
+                );
+              }
+              return name;
+            })()}
           </span>
         </div>
-        <a
-          href={INSTALL_URL}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
-        >
-          Install from the Stripe App Marketplace
-        </a>
       </nav>
 
       {/* Hero */}
