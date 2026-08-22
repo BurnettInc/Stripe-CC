@@ -62,7 +62,7 @@ function Home() {
               </span>
             </div>
             <h1 className="text-4xl font-bold tracking-tight sm:text-5xl text-gray-900">
-              Overdue invoices, followed up like you'd do it yourself
+              Built for solo Stripe sellers — no Xero, no QuickBooks, no AR team required
             </h1>
             <p className="mt-6 max-w-xl text-lg text-gray-600 leading-relaxed">
               Not another form-letter reminder. CollectionsCopilot writes polite,
@@ -137,6 +137,20 @@ function Home() {
         </div>
       </section>
 
+      {/* Why we're different from Stripe — moved up from the FAQ */}
+      <section className="max-w-4xl mx-auto px-6 py-12">
+        <div className="rounded-2xl border border-gray-200 bg-white p-8 sm:p-10">
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">
+            How is this different from Stripe's built-in reminders?
+          </h2>
+          <p className="text-gray-600 leading-relaxed">
+            Stripe's native reminders send one-size-fits-all notifications —
+            CollectionsCopilot escalates through multiple stages with personalized
+            context, and gives you control over when and how each follow-up goes out.
+            Stripe's tool reminds; ours recovers.
+          </p>
+        </div>
+      </section>
       {/* Trust & Transparency */}
       <section id="trust" className="bg-gray-50 py-16">
         <div className="max-w-4xl mx-auto px-6">
@@ -605,12 +619,8 @@ function Home() {
               a: "Yes. CollectionsCopilot monitors your Stripe invoices regardless of whether they're one-off or subscription-based. If it's overdue in Stripe, we'll help you follow up.",
             },
             {
-              q: "How is this different from Stripe's built-in reminders?",
-              a: "Stripe's native reminders send one-size-fits-all notifications — CollectionsCopilot escalates through multiple stages with personalized context, and gives you control over when and how each follow-up goes out. Stripe's tool reminds; ours recovers.",
-            },
-            {
-              q: "What if a customer disputes an invoice, or wants to stop getting reminders?",
-              a: "If a customer disputes an invoice, the sequence pauses immediately — you'll be notified and can decide how to proceed. If someone wants to opt out, they can use the link in any reminder to stop follow-ups on that invoice. You can also manually pause or cancel any sequence from the dashboard.",
+              q: "What happens if an invoice is disputed, voided, or marked uncollectible?",
+              a: "Reminders halt automatically when an invoice is paid, voided, disputed, or marked uncollectible.",
             },
           ].map((item) => (
             <div
