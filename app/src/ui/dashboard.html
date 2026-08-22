@@ -1190,6 +1190,22 @@
           </div>
         </div>
       </div>
+      <!-- Beta tester? card — hidden by default; shown to merchants who have no
+           active subscription and are not already dev-flagged Pro (see
+           loadSubscription). POSTs the code to /api/beta/redeem which flips the
+           merchant to dev_pro=1 (active Pro preview); on success we prompt a
+           refresh so the /subscription-derived Pro billing state loads in. -->
+      <div id="beta-redeem-card" style="display:none;border:1px dashed var(--border-strong);border-radius:var(--radius);background:#fff;padding:24px;box-shadow:var(--shadow);margin:0 0 20px;">
+        <h3 style="margin:0 0 6px;">🔑 Beta tester?</h3>
+        <p style="margin:0 0 14px;font-size:0.85rem;color:var(--muted);">Have an invite code? Redeem it to unlock Pro free.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <input id="beta-code-input" type="text" placeholder="Enter your invite code" autocomplete="off"
+            style="flex:1;min-width:220px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;" />
+          <button id="beta-redeem-btn" class="btn-outline" style="font-size:0.85rem;white-space:nowrap;" onclick="redeemBetaCode()">Redeem</button>
+        </div>
+        <p id="beta-redeem-msg" style="margin:10px 0 0;font-size:0.85rem;display:none;"></p>
+        <p id="beta-refresh-prompt" style="display:none;margin:10px 0 0;font-size:0.85rem;color:var(--success);">Pro is now active — refresh the page to load your Pro billing state.</p>
+      </div>
       <div id="sub-error" style="margin-top: 14px; font-size: 0.85rem; display: none;"></div>
       <div id="sub-actions" style="margin-top: 20px; display: none;">
         <button onclick="manageBilling()" class="btn-outline" style="font-size:0.85rem;">⚙️ Manage Billing</button>
@@ -1624,6 +1640,7 @@
       var subActions = document.getElementById('sub-actions');
       var pricing = document.getElementById('pricing');
       var planCard = document.getElementById('plan-card');
+      var betaCard = document.getElementById('beta-redeem-card');
       var fullAutoPill = document.querySelector('.trust-pill[data-mode="full"]');
       try {
         var res = await fetch('/subscription');
@@ -1661,6 +1678,7 @@
               : 'Since ' + dateStr + (IS_FOUNDER ? ' · Founding Member — lifetime 50% off' : '');
             if (planCard) planCard.style.display = 'block';
             if (pricing) pricing.style.display = 'none';
+            if (betaCard) betaCard.style.display = 'none';
             statusEl.innerHTML = '';
             // Plan card carries its own Manage Billing button — hide the old one
             subActions.style.display = 'none';
@@ -1705,6 +1723,7 @@
               '</div>';
             if (planCard) planCard.style.display = 'none';
             if (pricing) pricing.style.display = 'block';
+            if (betaCard) betaCard.style.display = 'block';
             subActions.style.display = 'none';
             proBadge.style.display = 'none';
           } else {
@@ -1713,6 +1732,7 @@
               '<p style="color:var(--muted);font-size:0.85rem;">No active subscription. Choose a plan below to get started.</p>';
             if (planCard) planCard.style.display = 'none';
             if (pricing) pricing.style.display = 'block';
+            if (betaCard) betaCard.style.display = 'block';
             subActions.style.display = 'none';
             proBadge.style.display = 'none';
           }
@@ -1720,6 +1740,45 @@
         }
       } catch (e) {
         console.error('Failed to load subscription:', e);
+      }
+    }
+
+    // ── Beta-code redemption ──
+    // POSTs the entered code to /api/beta/redeem. On success the merchant is
+    // flipped to dev_pro=1 (active Pro preview) server-side; we prompt a
+    // refresh so /subscription re-derives and renders the Pro billing state.
+    // Friendly server errors (invalid / expired / already redeemed) show inline.
+    async function redeemBetaCode() {
+      var input = document.getElementById('beta-code-input');
+      var msg = document.getElementById('beta-redeem-msg');
+      var btn = document.getElementById('beta-redeem-btn');
+      var code = (input && input.value || '').trim();
+      if (!code) {
+        if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--danger)'; msg.textContent = 'Enter your invite code first.'; }
+        return;
+      }
+      if (btn) btn.disabled = true;
+      if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--muted)'; msg.textContent = 'Redeeming…'; }
+      try {
+        var res = await fetch('/api/beta/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: code }),
+        });
+        var data = await res.json();
+        if (res.ok) {
+          if (msg) { msg.style.display = 'none'; }
+          if (input) input.style.display = 'none';
+          if (btn) btn.style.display = 'none';
+          var promptEl = document.getElementById('beta-refresh-prompt');
+          if (promptEl) promptEl.style.display = 'block';
+        } else {
+          if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = data.error || 'Could not redeem that code.'; }
+        }
+      } catch (e) {
+        if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = 'Something went wrong. Please try again.'; }
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 

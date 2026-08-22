@@ -16,6 +16,7 @@ import { handleAdminPage, handleAdminData, requireAdminToken } from "./routes/ad
 import { handleTrack } from "./routes/track";
 import { handleWaitlist } from "./routes/waitlist";
 import { handleAccountRequestMagicLink, handleAccountVerify, handleAccountMe, handleAccountLogout } from "./routes/accounts";
+import { handleBetaRedeem, handleBetaMint } from "./routes/beta";
 import { startScheduler } from "./pipeline/scheduler";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -959,6 +960,23 @@ async function handleRequest(req: Request): Promise<Response> {
         const response = await handleAccountDelete(db, auth.merchant_id);
         for (const [key, value] of Object.entries(corsHeadersFor(req))) response.headers.set(key, value);
         return response;
+      }
+
+      // POST /api/beta/redeem — self-serve tester unlock. Resolves the merchant
+      // from the SAME session cookie as every other dashboard route
+      // (requireSession), then atomically redeems a valid beta code: sets
+      // merchants.dev_pro = 1 (active Pro preview) and records the redemption.
+      // Friendly JSON errors for invalid / expired / already-redeemed so the
+      // dashboard's "Beta tester?" card can show a helpful message.
+      if (path === "/api/beta/redeem" && req.method === "POST") {
+        return await handleBetaRedeem(db, req);
+      }
+
+      // POST /api/beta/mint — mint beta codes by curl (team/owner), token-gated
+      // with the SAME `Authorization: Bearer <SUPPORT_API_TOKEN>` check the
+      // /support/* routes use. Idempotent: already-existing codes are skipped.
+      if (path === "/api/beta/mint" && req.method === "POST") {
+        return await handleBetaMint(db, req);
       }
 
       // ── Marketing site fallback ──
