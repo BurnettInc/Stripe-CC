@@ -3,7 +3,8 @@
  *
  * Covers:
  *   POST /api/beta/mint   (Bearer <SUPPORT_API_TOKEN>): 403 without token,
- *                         creates single/multi/expired codes, idempotent on dup
+ *                         creates single/multi/expired codes, idempotent on dup;
+ *                         omitted expires_at defaults to now+3 months.
  *   POST /api/beta/redeem (session-authed): valid → dev_pro=1 + 200 + audit
  *                         row; second redeem of a single-use code →
  *                         "already redeemed"; unknown → "invalid"; expired →
@@ -32,6 +33,7 @@ const S1 = "beta-session-merchant-1";
 const S2 = "beta-session-merchant-2";
 const S3 = "beta-session-merchant-3";
 const S4 = "beta-session-merchant-4";
+const S5 = "beta-session-merchant-5";
 
 let passed = 0;
 let failed = 0;
@@ -66,7 +68,7 @@ function seed(): void {
   // Fresh tables for a clean run.
   d.run("DELETE FROM beta_redemptions");
   d.run("DELETE FROM beta_codes");
-  d.run("UPDATE merchants SET dev_pro = 0 WHERE id IN (1,2,3,4)");
+  d.run("UPDATE merchants SET dev_pro = 0 WHERE id IN (1,2,3,4,5)");
   // merchant 1 is the acct_default placeholder (auto-created). merchants 2–4
   // are distinct testers for the multi-use path (a multi-use code is shared
   // across DIFFERENT testers; one merchant redeems at most once).
@@ -75,11 +77,13 @@ function seed(): void {
   mk(2, "acct_beta_two", "beta2@example.com");
   mk(3, "acct_beta_three", "beta3@example.com");
   mk(4, "acct_beta_four", "beta4@example.com");
+  mk(5, "acct_beta_five", "beta5@example.com");
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 1, datetime('now','+30 days'))", [S1]);
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 2, datetime('now','+30 days'))", [S2]);
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 3, datetime('now','+30 days'))", [S3]);
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 4, datetime('now','+30 days'))", [S4]);
-  d.run("UPDATE merchants SET dev_pro=0 WHERE id IN (2,3,4)");
+  d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 5, datetime('now','+30 days'))", [S5]);
+  d.run("UPDATE merchants SET dev_pro=0 WHERE id IN (2,3,4,5)");
   d.close();
 }
 
@@ -115,6 +119,27 @@ async function main(): Promise<void> {
   const reMintJson = await reMint.json() as { created: string[] };
   ok(reMintJson.created.length === 1 && reMintJson.created[0] === "TEST-BRAND-NEW",
     `re-mint skipped dup, created only TEST-BRAND-NEW (got ${reMintJson.created.join(",")})`);
+
+  // --- mint default expiry: omitted expires_at → now+3 months (owner 8/22) ---
+  const mintNoExp = await post("/api/beta/mint", { codes: ["TEST-NO-EXPIRY"] }, { headers: { Authorization: mintsig(TOKEN) } });
+  ok(mintNoExp.status === 200, `mint without expires_at → 200 (got ${mintNoExp.status})`);
+  {
+    const check = db();
+    const rowE = check.query("SELECT expires_at FROM beta_codes WHERE code='TEST-NO-EXPIRY'").get() as { expires_at: string | null } | undefined;
+    const expectedE = (check.query("SELECT datetime('now','+3 months') AS e").get() as { e: string }).e;
+    ok(!!rowE && rowE.expires_at !== null,
+      `no-expires_at mint stored a non-null expiry (got ${JSON.stringify(rowE)})`);
+    if (rowE && rowE.expires_at) {
+      const storedMs = new Date(rowE.expires_at.replace(" ", "T") + "Z").getTime();
+      const expectedMs = new Date(expectedE.replace(" ", "T") + "Z").getTime();
+      ok(Math.abs(storedMs - expectedMs) < 5000,
+        `default expiry ≈ now+3 months (stored ${rowE.expires_at}, expected ${expectedE}, delta ${Math.abs(storedMs - expectedMs)}ms)`);
+    }
+    check.close();
+  }
+  // a now+3-month code still redeems normally (fresh merchant 5).
+  const redeemDefault = await redeem("TEST-NO-EXPIRY", S5);
+  ok(redeemDefault.status === 200, `redeem of default-expiry code → 200 (got ${redeemDefault.status})`);
 
   // --- redeem: unknown code → invalid ---
   const unknown = await redeem("DOES-NOT-EXIST", S1);

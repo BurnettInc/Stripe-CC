@@ -125,7 +125,12 @@ export async function handleBetaMint(db: Database, req: Request): Promise<Respon
     return json({ error: "codes must be a non-empty array of strings" }, 400);
   }
 
-  const expiresAt = normalizeExpiresAt(body.expires_at);
+  // Explicit expires_at wins; otherwise (omitted/null/empty) default to a
+  // code that expires 3 months after minting (owner 8/22). Stored in the same
+  // UTC 'YYYY-MM-DD HH:MM:SS' format, so the redeem comparison stays
+  // lexicographic. There is deliberately no "permanent code by omission".
+  const expiresAt = normalizeExpiresAt(body.expires_at) ??
+    (db.query("SELECT datetime('now', '+3 months') AS e").get() as { e: string }).e;
   const maxUsesRaw = body.max_uses === undefined ? 1 : Number(body.max_uses);
   const maxUses = Number.isInteger(maxUsesRaw) && maxUsesRaw >= 1 ? maxUsesRaw : 1;
   const label = typeof body.label === "string" ? body.label.trim() : null;
