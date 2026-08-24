@@ -137,6 +137,112 @@ function Home() {
         </div>
       </section>
 
+      {/* Sample — see it before you connect anything (honest, illustrative example) */}
+      <section className="max-w-6xl mx-auto px-6 py-14">
+        <div className="mb-5">
+          <span className="inline-block rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
+            Sample · see it before you connect anything
+          </span>
+        </div>
+        <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+          Here's a sample account with{" "}
+          <span className="text-amber-500">$18,420</span> in overdue invoices.
+        </h2>
+        <p className="mt-4 max-w-3xl text-lg text-gray-600 leading-relaxed">
+          No Stripe connection needed to see this — this is an illustrative
+          example, not a real customer's data. Here's what CollectionsCopilot
+          would draft for one invoice from that account, start to finish.
+        </p>
+
+        {/* Sample invoice card */}
+        <div className="mt-8 max-w-xl rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-gray-900">
+                Acme LLC — Invoice #1042
+              </p>
+              <p className="mt-0.5 text-xs text-gray-500">
+                23 days overdue · last contacted 9 days ago
+              </p>
+            </div>
+            <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+              Recommended: Stage 2
+            </span>
+          </div>
+          <div className="px-5 py-4">
+            <p className="text-2xl font-bold text-gray-900">$7,500</p>
+          </div>
+        </div>
+
+        {/* Three-stage sequence */}
+        <h3 className="mt-10 text-lg font-semibold text-gray-900">
+          What CollectionsCopilot would draft for this invoice
+        </h3>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Stage 1 — calm teal */}
+          <div className="rounded-xl border border-teal-200 bg-teal-50 p-5">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-teal-700">
+                Stage 1 · Friendly
+              </span>
+              <span className="text-right text-xs font-medium text-gray-500">
+                Day 1–6
+              </span>
+            </div>
+            <p className="text-sm text-gray-700 italic leading-relaxed">
+              \u201cHey Sarah, just a heads-up that invoice #1042 passed its due date — no rush if it slipped your mind.\u201d
+            </p>
+          </div>
+          {/* Stage 2 — amber */}
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-amber-700">
+                Stage 2 · Firmer
+              </span>
+              <span className="text-right text-xs font-medium text-gray-500">
+                Day 7–20
+              </span>
+            </div>
+            <p className="text-sm text-gray-700 italic leading-relaxed">
+              \u201cFollowing up on invoice #1042 ($7,500, due last month). It's now 23 days past due — is anything blocking payment on your end?\u201d
+            </p>
+          </div>
+          {/* Stage 3 — muted red */}
+          <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-red-700">
+                Stage 3 · Final
+              </span>
+              <span className="text-right text-xs font-medium text-gray-500">
+                Day 21+
+              </span>
+            </div>
+            <p className="text-sm text-gray-700 italic leading-relaxed">
+              \u201cFinal notice before further follow-up. Please settle invoice #1042 at your earliest convenience.\u201d
+            </p>
+          </div>
+        </div>
+
+        {/* Footer — CTA */}
+        <div className="mt-10 flex flex-col items-start justify-between gap-6 rounded-2xl border border-gray-200 bg-gray-50 p-6 md:flex-row md:items-center">
+          <p className="max-w-xl text-sm text-gray-600 leading-relaxed">
+            Connect Stripe to see this same breakdown for your actual invoices —
+            read-only access, and nothing sends without your approval in Draft Mode.
+          </p>
+          <div className="flex flex-col items-start gap-2 md:items-end">
+            <a
+              href={INSTALL_URL}
+              className="rounded-lg bg-indigo-600 px-6 py-3 text-center text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+            >
+              Connect Stripe to see your numbers
+            </a>
+            <span className="text-xs text-gray-500">
+              Free forever in Draft Mode · no card required
+            </span>
+          </div>
+        </div>
+      </section>
+
       {/* Why we're different from Stripe — moved up from the FAQ */}
       <section className="max-w-4xl mx-auto px-6 py-12">
         <div className="rounded-2xl border border-gray-200 bg-white p-8 sm:p-10">
