@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { countWaitlistSignups, listWaitlistEntries, type WaitlistEntry } from "../db";
 import { aggregateUtmCampaigns, aggregateVisitsBySource, bucketVisit, displayBucketName, referrerHost, type VisitForAttribution } from "../visit-sources";
+import { botStatusFor, classifyDevice, isBotUa } from "../visitor-signals";
 
 /**
  * Admin-only internal customer tracking dashboard (owner request 2026-08-12).
@@ -295,6 +296,76 @@ function visitRows(db: Database): VisitForAttribution[] {
 }
 
 /**
+ * Attach per-visit device/bot/geo signals to one raw page_visits row (owner
+ * follow-up 2026-08-26: capture IP+UA so query-less / no-referrer visits are no
+ * longer an unclassifiable "direct" blob). Keeps every existing field intact
+ * and ADDS: ip (already masked at capture), user_agent (raw), country, plus the
+ * derived {device, os, browser, bot_status, is_bot}. Pure + deterministic.
+ */
+function decorateVisit(v: Record<string, unknown>): Record<string, unknown> {
+  const ua = typeof v.user_agent === "string" ? v.user_agent : "";
+  const referrer = typeof v.referrer === "string" ? v.referrer : "";
+  const dc = classifyDevice(ua);
+  const botStatus = botStatusFor(ua, referrer);
+  return {
+    ...v,
+    device: dc.device,
+    os: dc.os,
+    browser: dc.browser,
+    bot_status: botStatus,
+    is_bot: botStatus === "bot" || botStatus === "likely_bot" || isBotUa(ua),
+  };
+}
+
+/** Sort a Record<string,number> by count desc, then key asc (deterministic). */
+function sortCounts(map: Record<string, number>): Array<{ key: string; count: number }> {
+  return Object.entries(map)
+    .filter(([, n]) => n > 0)
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+/**
+ * Aggregated visitor-signal breakdown over ALL page_visits (device / OS /
+ * browser / bot-vs-human / country), for the admin "Visitor signals" panel
+ * (owner 2026-08-26). Pure — reads every row once, counts by classification.
+ */
+function visitorSignals(db: Database) {
+  const rows = db.query("SELECT user_agent, referrer, ip, country FROM page_visits").all() as Array<{
+    user_agent: string;
+    referrer: string;
+    ip: string;
+    country: string;
+  }>;
+  const device: Record<string, number> = {};
+  const os: Record<string, number> = {};
+  const browser: Record<string, number> = {};
+  const bot: Record<string, number> = { bot: 0, likely_bot: 0, human: 0, unknown: 0 };
+  const country: Record<string, number> = {};
+  let withIp = 0;
+  for (const r of rows) {
+    const dc = classifyDevice(r.user_agent ?? "");
+    device[dc.device] = (device[dc.device] ?? 0) + 1;
+    os[dc.os] = (os[dc.os] ?? 0) + 1;
+    browser[dc.browser] = (browser[dc.browser] ?? 0) + 1;
+    const bs = botStatusFor(r.user_agent ?? "", r.referrer ?? "");
+    bot[bs] = (bot[bs] ?? 0) + 1;
+    const co = (r.country ?? "").toUpperCase().trim();
+    if (co) country[co] = (country[co] ?? 0) + 1;
+    if (r.ip) withIp += 1;
+  }
+  return {
+    total: rows.length,
+    with_ip: withIp,
+    device: sortCounts(device),
+    os: sortCounts(os),
+    browser: sortCounts(browser),
+    bot,
+    country: sortCounts(country),
+  };
+}
+
+/**
  * Recovery + response-rate outcomes for the admin dashboard (owner direction
  * 2026-08-17: measure real outcomes from the first real user — admin-side
  * telemetry only, no merchant-facing UI reads it).
@@ -412,9 +483,9 @@ export function handleAdminData(db: Database, req: Request): Response {
   if (!requireAdminToken(req)) {
     return json({ error: "Unauthorized — missing or invalid ADMIN_TOKEN" }, 403);
   }
-  const visits = db.query(
-    "SELECT id, visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts FROM page_visits ORDER BY id DESC LIMIT 50"
-  ).all();
+  const visits = (db.query(
+    "SELECT id, visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts, ip, user_agent, country FROM page_visits ORDER BY id DESC LIMIT 50"
+  ).all() as Array<Record<string, unknown>>).map(decorateVisit);
   const subscriptionEvents = db.query(
     "SELECT * FROM subscription_events ORDER BY id DESC LIMIT 50"
   ).all();
@@ -425,6 +496,7 @@ export function handleAdminData(db: Database, req: Request): Response {
     visits,
     visits_by_source: visitsBySource(db),
     utm_campaigns: utmCampaigns(db),
+    visitor_signals: visitorSignals(db),
     subscription_events: subscriptionEvents,
     outcomes: outcomes(db),
     conversions: conversions(db),
