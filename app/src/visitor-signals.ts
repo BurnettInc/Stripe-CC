@@ -72,24 +72,33 @@ export function classifyDevice(ua: string): DeviceClass {
 
 /**
  * Determine a visit's bot-vs-human estimate from its User-Agent and referrer:
- *   "bot"        — UA matches a known bot/crawler substring, OR the UA is empty
- *                  (machines / exotic pre-render clients routinely send no UA,
- *                  which no human browser does) → counted as likely-automated.
- *   "likely_bot" — UA looks human-ish but the referrer is a search engine's
- *                  BARE homepage (root path, no query → cannot be a real
- *                  search; the classic crawler burst pattern, see
- *                  isBareSearchHomepage in visit-sources.ts).
- *   "human"      — UA is present and non-bot, and the referrer is not a bare
- *                  search homepage.
- *   "unknown"    — no signal at all (no UA AND no referrer to reason from).
+ *   "bot"        — UA matches a known bot/crawler substring. ONLY a matching UA
+ *                  proves a bot (owner finding 2026-08: a real referral click
+ *                  from a curated directory like Indie Hackers was flagged bot
+ *                  solely because its stored UA was '' — the server header
+ *                  simply wasn't captured for many early visits).
+ *   "likely_bot" — referrer is a search engine's BARE homepage (root path, no
+ *                  query → cannot be a real search; the classic crawler burst
+ *                  pattern, see isBareSearchHomepage in visit-sources.ts). This
+ *                  is checked even when the UA is empty: the bare homepage is
+ *                  itself bot evidence (kept from PR #145).
+ *   "human"      — positive human evidence: a present, non-bot UA, OR a real
+ *                  non-search referrer (a person following a link from a real
+ *                  site — indiehackers.com, t.co, a product page, etc.). An
+ *                  absent UA is NOT treated as bot evidence; a credible
+ *                  referrer leans human even when the UA is missing/empty.
+ *   "unknown"    — no signal at all (no UA AND no real referrer to reason from).
  */
 export function botStatusFor(ua: string, referrer: string): string {
+  if (isBotUa(ua)) return "bot";
+  const ref = (referrer || "").trim();
+  if (ref && isBareSearchHomepage(ref)) return "likely_bot";
+  // Positive human evidence = a present UA, OR any non-empty referrer that is
+  // not a bare search homepage.
   const hasUa = !!(ua || "").trim();
-  const hasReferrer = !!(referrer || "").trim();
-  if (!hasUa && !hasReferrer) return "unknown";
-  if (!hasUa || isBotUa(ua)) return "bot";
-  if (isBareSearchHomepage(referrer || "")) return "likely_bot";
-  return "human";
+  const nonSearchReferrer = ref !== "" && !isBareSearchHomepage(ref);
+  if (hasUa || nonSearchReferrer) return "human";
+  return "unknown";
 }
 
 /**

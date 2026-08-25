@@ -476,6 +476,34 @@ function outcomes(db: Database) {
 }
 
 /**
+ * Daily-visit counts for the admin dashboard bar chart (owner direction):
+ * reuse the existing page_visits table — no new tracking, no schema change.
+ * Buckets by CALENDAR DAY IN UTC (page_visits.ts is the client ISO timestamp,
+ * and the rest of the dashboard + SQLite datetimes are UTC, so UTC keeps the
+ * chart aligned with what "today" means elsewhere; local-time variance would
+ * make day boundaries shift per viewer). Zero-fills every day in the trailing
+ * 30 days (oldest → newest) so gaps render as flat, not skipped — an empty
+ * stretch reads as a zero-height bar rather than disappearing.
+ */
+function visitsByDay(db: Database): { days: number; tz: string; data: Array<{ date: string; count: number }> } {
+  const rows = db.query("SELECT ts FROM page_visits").all() as Array<{ ts: string | null }>;
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const ms = epochMs(r.ts);
+    if (ms == null) continue;
+    const day = new Date(ms).toISOString().slice(0, 10); // UTC "YYYY-MM-DD"
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  // Trailing 30 days as of today (UTC), oldest first.
+  const todayMs = Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z");
+  const data: Array<{ date: string; count: number }> = [];
+  for (let i = 29; i >= 0; i--) {
+    const day = new Date(todayMs - i * 86400000).toISOString().slice(0, 10);
+    data.push({ date: day, count: counts.get(day) ?? 0 });
+  }
+  return { days: 30, tz: "UTC", data };
+}
+/**
  * GET /admin/data — the funnel + merchant + visit + subscription-event data
  * behind the admin page. Token-gated identically to GET /admin.
  */
@@ -495,6 +523,7 @@ export function handleAdminData(db: Database, req: Request): Response {
     merchants: merchantsList(db),
     visits,
     visits_by_source: visitsBySource(db),
+    visits_by_day: visitsByDay(db),
     utm_campaigns: utmCampaigns(db),
     visitor_signals: visitorSignals(db),
     subscription_events: subscriptionEvents,
