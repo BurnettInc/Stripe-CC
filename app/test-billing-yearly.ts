@@ -104,7 +104,7 @@ function seedSession(): void {
 function ensureMerchants(ids: number[]): void {
   const d = db();
   for (const id of ids) {
-    d.run("INSERT OR REPLACE INTO merchants (id, stripe_account_id, email) VALUES (?, ?, ?)", [id, `acct_m${id}`, `m${id}@example.com`]);
+    d.run("INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, created_at) VALUES (?, ?, ?, datetime('now', '-40 days'))", [id, `acct_m${id}`, `m${id}@example.com`]);
   }
   d.close();
 }

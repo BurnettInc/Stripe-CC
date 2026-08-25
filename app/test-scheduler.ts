@@ -382,8 +382,9 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   // m12: paid Standard, real email, created 10 days before fake now → due.
   const m12 = seedMerchant("acct_m12", { email: "m12@example.com", createdDaysAgo: 10 });
   seedStandardSub(m12, "standard");
-  // m13: FREE → never sent.
-  const m13 = seedMerchant("acct_m13", { email: "m13@example.com", createdDaysAgo: 10 });
+  // m13: FREE → never sent. Aged 40 days so it is OUTSIDE the 30-day free
+  // trial (a fresh merchant is full-access/in-trial and would earn a summary).
+  const m13 = seedMerchant("acct_m13", { email: "m13@example.com", createdDaysAgo: 40 });
   // m14: paid but only 3 days old → not due yet (first summary after a week).
   const m14 = seedMerchant("acct_m14", { email: "m14@example.com", createdDaysAgo: 3 });
   seedStandardSub(m14, "standard");

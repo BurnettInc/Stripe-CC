@@ -133,7 +133,7 @@ async function main(): Promise<void> {
   const PREFIX = `devpro_${Date.now()}`;
   const d = db();
   // Merchants 2–4 (merchant 1 already exists as the default). dev_pro defaults 0.
-  d.run("INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode) VALUES (2, 'acct_free_control', 'free@control.com', 'draft')");
+  d.run("INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode, created_at) VALUES (2, 'acct_free_control', 'free@control.com', 'draft', datetime('now', '-40 days'))");
   d.run("INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode) VALUES (3, 'acct_std_control', 'std@control.com', 'draft')");
   d.run("INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode) VALUES (4, 'acct_pro_control', 'pro@control.com', 'draft')");
   // Real subscription rows for the control merchants (dev_pro must have NONE).

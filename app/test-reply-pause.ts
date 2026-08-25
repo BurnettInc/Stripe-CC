@@ -105,7 +105,7 @@ function seedInvoice(sid: string, opts: { status?: string; daysOverdue?: number;
 function seed(): void {
   const d = db();
   d.run(
-    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode, sender_name, reply_to) VALUES (?, 'acct_reply', 'merchant@example.com', 'draft', 'Reply Co', ?)",
+    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode, sender_name, reply_to, created_at) VALUES (?, 'acct_reply', 'merchant@example.com', 'draft', 'Reply Co', ?, datetime('now', '-40 days'))",
     [MERCHANT, FORWARD_TARGET]
   );
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))", [SESSION, MERCHANT]);

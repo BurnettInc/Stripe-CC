@@ -182,7 +182,7 @@ function weeklySummaryRowCount(): number {
 function seedRealMerchant(): void {
   const d = db();
   d.run(
-    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode) VALUES (2, 'acct_summary_real', 'real@example.com', 'draft')"
+    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode, created_at) VALUES (2, 'acct_summary_real', 'real@example.com', 'draft', datetime('now', '-40 days'))"
   );
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, 2, datetime('now', '+30 days'))", [SESSION_REAL]);
   const existing = d.query("SELECT id FROM subscriptions WHERE merchant_id=2").get() as { id: number } | null;
