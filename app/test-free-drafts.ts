@@ -41,7 +41,7 @@ function db(): Database {
 function seedMerchant(): void {
   const d = db();
   d.run(
-    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode, drafts_used) VALUES (?, 'acct_free_drafts', 'free@example.com', 'draft', 0)",
+    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode, drafts_used, created_at) VALUES (?, 'acct_free_drafts', 'free@example.com', 'draft', 0, datetime('now', '-40 days'))",
     [MERCHANT]
   );
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))", [SESSION, MERCHANT]);

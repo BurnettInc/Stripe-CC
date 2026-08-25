@@ -1300,6 +1300,16 @@
           : 'Connect your Stripe account so CollectionsCopilot can watch for overdue invoices and send payment reminders.';
         actions.innerHTML = '<a class="connect-banner-btn" href="/stripe/connect">' +
           (s.stripeDisconnected ? 'Reconnect Stripe &rarr;' : 'Connect Stripe &rarr;') + '</a>';
+      } else if (s.free_trial) {
+        // 30-day full-access free trial (active merchant, no paid subscription
+        // yet). Full access, so do NOT block with the "subscription required"
+        // / "Choose a plan" banner. Honest copy: they are on a free trial, not
+        // a paying customer (sub_status stays 'none' — handled here).
+        banner.classList.add('banner-ok');
+        dot.className = 'status-banner-dot ok';
+        title.textContent = 'Free trial — full access';
+        sub.textContent = 'Your 30-day free trial is active: all features are unlocked. No card required — it ends automatically.';
+        actions.innerHTML = '';
       } else if (s.sub_status !== 'active') {
         banner.classList.add('banner-warn');
         dot.className = 'status-banner-dot warn';
@@ -1346,7 +1356,16 @@
           var freeDraftsSub = document.getElementById('stat-free-drafts-sub');
           var freeDraftsLink = document.getElementById('stat-free-drafts-link');
           var freeDraftsHint = document.getElementById('stat-free-drafts-hint');
-          if (s.free_drafts_unlimited) {
+          // Free-trial merchants (30-day full access, no paid subscription):
+          // show "Unlimited" with honest free-trial copy and NO "Manage plan"
+          // link (they have no plan to manage). After expiry free_trial is
+          // false and they fall through to the normal free countdown.
+          if (s.free_trial && !IS_DEV_PRO) {
+            if (freeDraftsValue) freeDraftsValue.textContent = 'Unlimited';
+            if (freeDraftsSub) freeDraftsSub.textContent = 'full access during your free trial';
+            if (freeDraftsLink) { freeDraftsLink.removeAttribute('href'); freeDraftsLink.title = 'Free trial \u2014 full access'; }
+            if (freeDraftsHint) freeDraftsHint.textContent = 'Free trial \u00b7 no card needed';
+          } else if (s.free_drafts_unlimited) {
             if (freeDraftsValue) freeDraftsValue.textContent = 'Unlimited';
             if (freeDraftsSub) freeDraftsSub.textContent = 'no limit on your plan';
             if (freeDraftsLink) {

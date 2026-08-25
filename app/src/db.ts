@@ -369,9 +369,53 @@ export function getSubscriptionByMerchantId(db: Database, merchantId: number) {
     .get(merchantId) as Subscription | null;
 }
 
+/**
+ * Length of the automatic full-access free trial, anchored to the OAuth
+ * connect/install time (merchants.created_at, a SQLite datetime('now') set at
+ * connect). Purely time-based: no manual per-merchant flag and no manual
+ * expiry step — the same merchant drops back to the normal 5-draft free tier
+ * automatically once this window elapses.
+ */
+export const FREE_TRIAL_DAYS = 30;
+/**
+ * Whether the merchant is inside its automatic full-access free trial (owner
+ * directive: give newly installed merchants FULL access for 30 days from
+ * install, then lock them to the normal 5-draft free tier).
+ *
+ * Time-based and self-expiring: returns true only while "now" is strictly
+ * before created_at + FREE_TRIAL_DAYS, computed in SQLite against
+ * merchants.created_at (so the comparison is timezone-consistent with the
+ * datetime('now') value stored at connect).
+ *
+ * A merchant with an ACTIVE paid subscription is NEVER "in free trial" (the
+ * trial only ever ADDS full access to a non-subscriber; it can never downgrade
+ * an active subscriber — see the entitlement helpers below, all of which route
+ * through this and then fall back to the real subscription). dev_pro merchants
+ * are always full-access via the dev flag and are likewise not "in trial".
+ *
+ * Exact-boundary semantics: at exactly FREE_TRIAL_DAYS after created_at the
+ * window has elapsed (strict `<`), so `datetime('now','-30 days')` is already
+ * out of trial and `datetime('now','-29 days')` is still in trial. A merchant
+ * whose created_at predates this feature by more than 30 days is immediately
+ * on the normal free tier (no retroactive trial).
+ */
+export function isWithinFreeTrial(db: Database, merchantId: number): boolean {
+  if (isDevPro(db, merchantId)) return false;
+  const sub = getSubscriptionByMerchantId(db, merchantId);
+  if (sub && sub.status === "active") return false; // active subscriber always wins
+  const row = db
+    .query("SELECT (datetime('now') < datetime(created_at, ?)) AS within FROM merchants WHERE id=?")
+    .get(`+${FREE_TRIAL_DAYS} days`, merchantId) as { within: number } | null;
+  return row?.within === 1;
+}
 /** Whether the merchant's most recent subscription is currently active. */
 export function hasActiveSubscription(db: Database, merchantId: number): boolean {
   if (isDevPro(db, merchantId)) return true;
+  // A merchant inside its 30-day full-access free trial is treated as paid for
+  // entitlement purposes: the free-draft send gates (which key off
+  // `!hasActiveSubscription(...) && freeDraftsRemaining(...) <= 0`) must be
+  // bypassed during the trial, exactly as for an active subscriber.
+  if (isWithinFreeTrial(db, merchantId)) return true;
   const sub = getSubscriptionByMerchantId(db, merchantId);
   return sub?.status === "active";
 }
@@ -385,6 +429,12 @@ export function hasActiveSubscription(db: Database, merchantId: number): boolean
  */
 export function isActiveProSubscriber(db: Database, merchantId: number): boolean {
   if (isDevPro(db, merchantId)) return true;
+  // The 30-day free trial grants Pro-equivalent FULL access to a
+  // non-subscriber: Pro-only gates (Full Auto trust mode, Pro settings)
+  // pass, and enforceTierTrustMode keeps a trial merchant's "full" intact.
+  // Once the trial lapses (with no active paid sub) this returns false and
+  // the same gates re-lock, demoting "full" back to "semi".
+  if (isWithinFreeTrial(db, merchantId)) return true;
   const sub = getSubscriptionByMerchantId(db, merchantId);
   return !!sub && sub.status === "active" && sub.tier === "pro";
 }
@@ -669,6 +719,13 @@ export function invoiceLimitFor(db: Database, merchantId: number): number | null
  */
 export function isActivePaidSubscriber(db: Database, merchantId: number): boolean {
   if (isDevPro(db, merchantId)) return true;
+  // The 30-day free trial grants paid-equivalent FULL access to a
+  // non-subscriber: GET /stats reports free_drafts_unlimited (so the
+  // dashboard renders "Unlimited" instead of a depleted "N of 5" countdown)
+  // and every paid send path treats the merchant as subscribed. Once the
+  // trial lapses (with no active paid sub) this returns false and the
+  // standard free-tier behavior returns.
+  if (isWithinFreeTrial(db, merchantId)) return true;
   const sub = getSubscriptionByMerchantId(db, merchantId);
   return !!sub && sub.status === "active" && (sub.tier === "standard" || sub.tier === "pro");
 }

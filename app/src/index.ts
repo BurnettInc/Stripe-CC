@@ -1,4 +1,4 @@
-import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscriber, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor, isMerchantDisconnected, getSubscriptionByMerchantId, isDevPro } from "./db";
+import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscriber, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor, isMerchantDisconnected, getSubscriptionByMerchantId, isDevPro, isWithinFreeTrial } from "./db";
 import { corsHeadersFor } from "./middleware/cors";
 import { handleWebhook } from "./routes/webhook";
 import { handlePastDuePage, handleRemindersPage } from "./routes/pages";
@@ -316,8 +316,15 @@ async function handleRequest(req: Request): Promise<Response> {
         // paid subscription. Paid merchants (Standard or Pro active) have no
         // draft cap — the dashboard renders "Unlimited" instead of the
         // misleading countdown (which would otherwise show a number for a plan
-        // that has no limit).
+        // that has no limit). A merchant inside its 30-day full-access free
+        // trial counts as paid-equivalent here too, so it is shown as
+        // full-access (Unlimited) rather than a depleted free account.
         const freeDraftsUnlimited = isActivePaidSubscriber(db, merchantId);
+        // True while the merchant is inside its automatic 30-day full-access
+        // free trial (isWithinFreeTrial) — lets the dashboard show honest
+        // "Free trial" copy instead of claiming the merchant is a paying
+        // customer (plan/sub_status stay 'free'/'none' — nothing fabricated).
+        const freeTrialOn = isWithinFreeTrial(db, merchantId);
 
         // Total reminders sent (send_logs with type='reminder' and status='success')
         const remindersSentRow = db.query(
@@ -366,6 +373,7 @@ async function handleRequest(req: Request): Promise<Response> {
           overInvoiceLimit,
           free_drafts_remaining: freeDrafts,
           free_drafts_unlimited: freeDraftsUnlimited,
+          free_trial: freeTrialOn,
           stripeConnected,
           stripeDisconnected,
           stripeAccountId,
