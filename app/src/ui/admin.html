@@ -86,7 +86,7 @@
     .barwrap { background: var(--card-2); border-radius: 999px; height: 8px; min-width: 60px; }
     .bar { display: block; height: 8px; border-radius: 999px; background: var(--primary); min-width: 2px; }
     td.bucket { color: var(--text); font-weight: 600; white-space: nowrap; }
-    td .hosts { color: var(--muted); font-size: 11px; margin-top: 2px; white-space: normal; word-break: break-all; }
+    td .hosts { color: var(--muted); font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     .srcnote { padding: 12px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); line-height: 1.5; }
 
     /* ── Mobile: stacked card layout below 640px (#10) ── */
