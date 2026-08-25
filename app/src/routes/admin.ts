@@ -478,6 +478,12 @@ function outcomes(db: Database) {
 /**
  * Daily-visit counts for the admin dashboard bar chart (owner direction):
  * reuse the existing page_visits table — no new tracking, no schema change.
+ * Counts HUMAN visits only: a visit is excluded when botStatusFor() is
+ * anything other than "human" — known-bot User-Agents ("bot") and bare
+ * search-engine homepage referrers with no query ("likely_bot", the classic
+ * query-less crawler burst the owner approved excluding on 8/19) are both
+ * left out, as is "unknown" (no positive human signal). Logging is untouched —
+ * every visit is still stored for auditing; only the chart totals filter.
  * Buckets by CALENDAR DAY IN UTC (page_visits.ts is the client ISO timestamp,
  * and the rest of the dashboard + SQLite datetimes are UTC, so UTC keeps the
  * chart aligned with what "today" means elsewhere; local-time variance would
@@ -486,11 +492,13 @@ function outcomes(db: Database) {
  * stretch reads as a zero-height bar rather than disappearing.
  */
 function visitsByDay(db: Database): { days: number; tz: string; data: Array<{ date: string; count: number }> } {
-  const rows = db.query("SELECT ts FROM page_visits").all() as Array<{ ts: string | null }>;
+  const rows = db.query("SELECT ts, user_agent, referrer FROM page_visits").all() as
+    Array<{ ts: string | null; user_agent: string | null; referrer: string | null }>;
   const counts = new Map<string, number>();
   for (const r of rows) {
     const ms = epochMs(r.ts);
     if (ms == null) continue;
+    if (botStatusFor(r.user_agent ?? "", r.referrer ?? "") !== "human") continue; // bot + likely_bot + unknown excluded
     const day = new Date(ms).toISOString().slice(0, 10); // UTC "YYYY-MM-DD"
     counts.set(day, (counts.get(day) ?? 0) + 1);
   }

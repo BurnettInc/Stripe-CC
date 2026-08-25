@@ -98,6 +98,7 @@
     .dv-col { flex: 1 1 0; min-width: 18px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
     .dv-fill { position: relative; flex: 1 1 0; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
     .dv-rect { width: 62%; min-width: 4px; background: var(--primary); border-radius: 3px 3px 0 0; }
+    .dv-count { font-size: 10px; font-weight: 600; color: var(--text); padding-bottom: 2px; line-height: 1; }
     .dv-date { text-align: center; font-size: 9px; color: var(--muted); padding-top: 4px; white-space: nowrap; }
     .dv-note { padding: 8px 16px 12px; color: var(--muted); font-size: 11px; }
 
@@ -147,7 +148,7 @@
       <div class="grid">
         <div class="panel">
           <div class="dv-head">
-            <h3>Daily visits <span class="muted" id="dailyVisitsHint">— last 14 days (UTC)</span></h3>
+            <h3>Daily visits <span class="muted" id="dailyVisitsHint">— last 14 days (UTC, human visits)</span></h3>
             <div class="dv-toggle">
               <span class="dv-t" id="dvToggle14">14d</span>
               <span class="dv-t" id="dvToggle30">30d</span>
@@ -308,7 +309,7 @@
       var hint = document.getElementById("dailyVisitsHint");
       document.getElementById("dvToggle14").classList.toggle("active", dvDays === 14);
       document.getElementById("dvToggle30").classList.toggle("active", dvDays === 30);
-      hint.innerHTML = "— last " + dvDays + " days (UTC)";
+      hint.innerHTML = "— last " + dvDays + " days (UTC, human visits)";
       var seriesTotal = (dvAll || []).reduce(function (a, b) { return a + (b && b.count || 0); }, 0);
       if (!dvAll || !dvAll.length || seriesTotal === 0) {
         box.style.display = "";
@@ -327,6 +328,9 @@
         var col = document.createElement("div");
         col.className = "dv-col";
         col.title = d.date + " — " + d.count + " visit" + (d.count === 1 ? "" : "s");
+        var count = document.createElement("div");
+        count.className = "dv-count";
+        count.textContent = d.count;
         var fill = document.createElement("div");
         fill.className = "dv-fill";
         var rect = document.createElement("div");
@@ -336,13 +340,14 @@
         var date = document.createElement("div");
         date.className = "dv-date";
         date.textContent = fmtDvDate(d.date);
+        col.appendChild(count);
         col.appendChild(fill);
         col.appendChild(date);
         wrap.appendChild(col);
       });
       var total = slice.reduce(function (a, b) { return a + b.count; }, 0);
       var peak = slice.reduce(function (a, b) { return Math.max(a, b.count); }, 0);
-      note.textContent = total + " visits · peak " + peak + " in one day";
+      note.textContent = total + " human visits · peak " + peak + " in one day";
     }
     document.getElementById("dvToggle14").addEventListener("click", function () { dvDays = 14; renderDailyVisits(); });
     document.getElementById("dvToggle30").addEventListener("click", function () { dvDays = 30; renderDailyVisits(); });
