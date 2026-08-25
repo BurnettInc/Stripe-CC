@@ -32,6 +32,11 @@
  *       visits_7d, first_touch_visitors}, medium from the first row seen per
  *       campaign, sort (visits_total desc then campaign asc), and the
  *       newsletter utm_source bucket (title-cased display + referrer hosts)
+ *   (j) /admin/data visits_by_day counts HUMAN visits only — a bot-UA visit and
+ *       bare search-homepage (likely_bot) visits are excluded while a human
+ *       visit counts, keeping the 30-day zero-filled {days,tz,data} shape; and
+ *       the admin page renders the per-day count label (dv-count) + human-only
+ *       chart copy
  *
  * Runs against a booted server sharing its SQLite DB:
  *
@@ -465,6 +470,47 @@ async function main(): Promise<void> {
   const listTpl = readFileSync(join(import.meta.dir, "src", "ui", "list-page.html"), "utf-8");
   check("list-page.html template embeds the tracking beacon (for /reminders + /past-due)",
     listTpl.indexOf("navigator.sendBeacon('/api/track'") !== -1, "beacon missing");
+
+  // ── (j) visits_by_day counts HUMAN visits only (exclude bot + likely_bot) ──
+  // The daily-visits chart must ignore bot traffic entirely. Seed page_visits
+  // rows directly (deterministic user_agent/referrer, isolated on the PREVIOUS
+  // UTC day so no other seeded rows land in the same bucket): one real-browser
+  // human visit (counted), one known-bot UA (excluded), and two bare
+  // search-homepage referrer rows — one with no UA, one with a real UA (the
+  // likely_bot test is independent of UA). Only the human seed may count.
+  {
+    const d = new Database(DB_PATH);
+    const prevDay = new Date(Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00.000Z") - 86400000)
+      .toISOString().slice(0, 10);
+    const pv = (vid: string, ua: string, ref: string) =>
+      d.run("INSERT OR IGNORE INTO page_visits (visitor_id, page, referrer, ts, user_agent) VALUES (?, '/', ?, ?, ?)",
+        [vid, ref, prevDay + "T12:00:00.000Z", ua]);
+    pv("dv-human", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", ""); // human
+    pv("dv-bot", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", "");                                      // bot UA → excluded
+    pv("dv-lb1", "", "https://www.google.com/");                                                                                     // bare search homepage, no UA → likely_bot
+    pv("dv-lb2", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0", "https://www.google.com/");                                // bare search homepage, real UA → likely_bot
+    d.close();
+    const dvd = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
+      visits_by_day: { days: number; tz: string; data: Array<{ date: string; count: number }> };
+    };
+    const bucket = dvd.visits_by_day.data.find((x) => x.date === prevDay);
+    check("visits_by_day keeps 30-day zero-filled shape {days,tz,data}",
+      dvd.visits_by_day.days === 30 && dvd.visits_by_day.tz === "UTC" &&
+      Array.isArray(dvd.visits_by_day.data) && dvd.visits_by_day.data.length === 30,
+      JSON.stringify(dvd.visits_by_day));
+    check("visits_by_day excludes bot + likely_bot, counts the human visit only",
+      !!bucket && bucket.count === 1, `prev-day(${prevDay}) count=${bucket?.count ?? "missing"}`);
+  }
+  // The rendered chart markup carries the printed per-day count label and the
+  // human-only copy (note + hint) in the served admin page.
+  r = await fetch(`${BASE}/admin?token=${TOKEN}`);
+  const htmlDV = await r.text();
+  check("admin chart renders the per-day count label (dv-count)",
+    htmlDV.includes("dv-count") && htmlDV.includes('count.className = "dv-count"') && htmlDV.includes("count.textContent = d.count"),
+    "dv-count markup missing");
+  check("admin chart copy is human-only (note + static hint)",
+    htmlDV.includes("human visits") && htmlDV.includes("(UTC, human visits)"),
+    "human-only copy missing");
   console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll admin/track checks passed");
   process.exit(failures ? 1 : 0);
 }
