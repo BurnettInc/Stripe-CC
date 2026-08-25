@@ -123,6 +123,21 @@ export function isLinkType(value: string): value is LinkType {
   return value === "test" || value === "live";
 }
 
+// ── visitor_id (visitor→merchant tracing, owner 8/25) ──
+// The landing page's tracking snippet keeps a per-browser UUID in localStorage
+// `cc_vid` and the install CTAs append it as ?cc_vid=<id> (see site/__root.tsx).
+// This module sanitizes it exactly like routes/track.ts treats visitor_id
+// (trim; a value over 128 chars is invalid) so the value stored on the
+// merchant row matches a page_visits.visitor_id row byte-for-byte — the admin
+// dashboard's /admin/data join depends on that. A missing/blank/overlong value
+// is a graceful no-op (empty string) — it never breaks an install.
+const VISITOR_ID_MAX = 128;
+export function sanitizeVisitorId(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const v = raw.trim();
+  return v.length > VISITOR_ID_MAX ? "" : v;
+}
+
 /** App developer API key matching the link type (docs: use the key that
  * matches the link type — test links only work with test-mode keys). For
  * live links the key falls back to STRIPE_SECRET_KEY when STRIPE_APP_LIVE_KEY
@@ -189,28 +204,43 @@ export function missingEnvFor(linkType: LinkType): string[] {
 // the row also records WHICH platform account started the install
 // (account_id, nullable for legacy rows) — the callback reads it back to link
 // the created merchant to the account (account → merchant → subscription).
-export function createInstallState(db: Database, linkType: LinkType, accountId: number | null = null): string {
+export function createInstallState(db: Database, linkType: LinkType, accountId: number | null = null, visitorId = ""): string {
   // Opportunistic cleanup of expired rows (also enforced at read).
   db.run("DELETE FROM oauth_install_states WHERE created_at < datetime('now', ?)", [`-${STATE_TTL_MINUTES} minutes`]);
   const state = `${randomBytes(24).toString("hex")}:${linkType}`;
-  db.run("INSERT INTO oauth_install_states (state, link_type, account_id) VALUES (?, ?, ?)", [state, linkType, accountId]);
+  db.run(
+    "INSERT INTO oauth_install_states (state, link_type, account_id, visitor_id) VALUES (?, ?, ?, ?)",
+    [state, linkType, accountId, visitorId]
+  );
   return state;
 }
 
-/** Verify + consume a state row. Returns the link type + the account that
- * started the install (null for legacy/back-compat rows), or null when the
- * state is unknown, expired, or already used. One-time by construction. */
+/** Verify + consume a state row. Returns the link type, the account that
+ * started the install (null for legacy/back-compat rows), and the landing-page
+ * visitor_id carried through the flow ("" when none — see createInstallState),
+ * or null when the state is unknown, expired, or already used. One-time by
+ * construction. */
 export function consumeInstallState(
   db: Database,
   state: string
-): { link_type: LinkType; account_id: number | null } | null {
+): { link_type: LinkType; account_id: number | null; visitor_id: string } | null {
   if (!state) return null;
   const row = db
-    .query("SELECT link_type, account_id FROM oauth_install_states WHERE state = ? AND created_at >= datetime('now', ?)")
-    .get(state, `-${STATE_TTL_MINUTES} minutes`) as { link_type: LinkType; account_id: number | null } | null;
+    .query(
+      "SELECT link_type, account_id, visitor_id FROM oauth_install_states WHERE state = ? AND created_at >= datetime('now', ?)"
+    )
+    .get(state, `-${STATE_TTL_MINUTES} minutes`) as {
+      link_type: LinkType;
+      account_id: number | null;
+      visitor_id: string | null;
+    } | null;
   if (!row) return null;
   db.run("DELETE FROM oauth_install_states WHERE state = ?", [state]);
-  return { link_type: row.link_type, account_id: row.account_id ?? null };
+  return {
+    link_type: row.link_type,
+    account_id: row.account_id ?? null,
+    visitor_id: row.visitor_id || "",
+  };
 }
 
 // ── Authorize URL ──
@@ -302,12 +332,18 @@ export function installPageHtml(
   missingEnv: Record<LinkType, string[]>,
   account?: { email: string } | null,
   dashboardUrl?: string | null,
-  notice?: { kind: "success" | "error"; message: string } | null
+  notice?: { kind: "success" | "error"; message: string } | null,
+  visitorId = ""
 ): string {
   // HTML-escape for any server-rendered user-visible text (error banner).
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // The landing-page visitor_id (?cc_vid=…) rides every hop that continues the
+  // install flow so the /oauth/callback can stamp the created merchant (the
+  // state row carries it; see createInstallState). encodeURIComponent keeps the
+  // query clean even for an arbitrary-string visitor_id. No-op when absent.
+  const visitorQuery = visitorId ? `&cc_vid=${encodeURIComponent(visitorId)}` : "";
   const buttonFor = (linkType: LinkType, label: string) =>
-    `<a href="${baseUrl}/oauth/install/start?link=${linkType}" style="display:block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;margin:10px 0;text-align:center;">${label}</a>`;
+    `<a href="${baseUrl}/oauth/install/start?link=${linkType}${visitorQuery}" style="display:block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;margin:10px 0;text-align:center;">${label}</a>`;
 
   // PUBLISHED → LIVE-ONLY RENDER GATE (2026-08-18): the app is APPROVED and
   // this page is the PUBLIC marketplace install surface, so test mode must
@@ -363,13 +399,19 @@ export function installPageHtml(
     // e.preventDefault() and the fetch path is unchanged (spinner, 15s
     // timeout, inline status). A <noscript> block and an iframe hint
     // (window.self !== window.top) give the reviewer escape hatches.
-    const installUrl = `${baseUrl}/oauth/install`;
+    const installUrl = `${baseUrl}/oauth/install${visitorId ? `?cc_vid=${encodeURIComponent(visitorId)}` : ""}`;
     const successBanner = `<p style="color:#047857;background:#ECFDF5;border:1px solid #6EE7B7;border-radius:8px;padding:14px 16px;font-size:14px;margin:0 0 12px;">Check your inbox — your sign-in link is on its way.</p>`;
     const errorBanner =
       notice?.kind === "error"
         ? `<p style="color:#B91C1C;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:12px 16px;font-size:14px;margin:0 0 12px;">${esc(notice.message)}</p>`
         : "";
     const supportLine = `<p style="color:#9CA3AF;font-size:12px;margin:16px 0 0;">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>`;
+    // The landing-page visitor_id rides the sign-in form as a hidden field so
+    // the request-magic-link post (JSON or bare form) can fold it into the
+    // verify-link's ?next= and the visitor is still attributed after signing
+    // in (see routes/accounts.ts). HTML-escaped (it is stored and echoed into
+    // an email URL) — no-op when absent.
+    const visitorHidden = visitorId ? `<input type="hidden" name="cc_vid" value="${esc(visitorId)}" />` : "";
 
     if (notice?.kind === "success") {
       // ?sent=1 — the no-JS form POST succeeded: green banner IN PLACE OF the
@@ -380,6 +422,7 @@ export function installPageHtml(
       ${errorBanner}
       <form id="magic-link-form" method="post" action="/api/account/request-magic-link" style="margin:0 0 12px;">
         <input type="email" id="magic-email" name="email" required placeholder="you@company.com" autocomplete="email" style="display:block;width:100%;box-sizing:border-box;padding:12px 14px;font-size:15px;border:1px solid #D1D5DB;border-radius:8px;margin-bottom:12px;" />
+        ${visitorHidden}
         <button type="submit" style="display:block;width:100%;background:#635BFF;color:#fff;border:0;font-weight:600;font-size:16px;padding:14px 24px;border-radius:8px;cursor:pointer;">Email me a sign-in link</button>
       </form>
       <p id="magic-link-status" style="font-size:14px;margin:10px 0 0;min-height:20px;"></p>
@@ -449,7 +492,7 @@ export function installPageHtml(
           fetch('/api/account/request-magic-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email })
+            body: JSON.stringify({ email: email, cc_vid: ${JSON.stringify(visitorId)} })
           }).then(function (res) {
             return res.json().catch(function () { return {}; }).then(function (data) { return { res: res, data: data }; });
           }).then(function (r) {
@@ -550,9 +593,21 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
   const missingEnv: Record<LinkType, string[]> = { test: missingEnvFor("test"), live: missingEnvFor("live") };
 
   const url = new URL(req.url);
+  // The landing-page visitor_id the install CTA carried in (?cc_vid=…). It
+  // travels every subsequent hop — Connect button → install/start → state row
+  // → callback merchant stamp (see sanitizeVisitorId / createInstallState) so
+  // /admin/data can trace this merchant back to its source page visit. A
+  // missing/blank/overlong value is a graceful no-op (empty → nothing is
+  // appended and the flow is byte-identical to before).
+  const visitorId = sanitizeVisitorId(url.searchParams.get("cc_vid"));
   if (url.searchParams.get("auto") === "1") {
     const link = isLinkType(url.searchParams.get("link") ?? "") ? url.searchParams.get("link")! : "live";
-    return new Response(null, { status: 302, headers: { Location: `${baseUrl}/oauth/install/start?link=${link}` } });
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: `${baseUrl}/oauth/install/start?link=${link}${visitorId ? `&cc_vid=${encodeURIComponent(visitorId)}` : ""}`,
+      },
+    });
   }
 
   const account = accountFromCookie(db, req);
@@ -585,7 +640,7 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
       : null
     : null;
 
-  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl, notice), {
+  return new Response(installPageHtml(baseUrl, configuredModes, missingEnv, account, dashboardUrl, notice, visitorId), {
     status: 200,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
@@ -605,10 +660,10 @@ export function handleAppInstallPage(db: Database, req: Request): Response {
  * goes through this one function, so no code path can ever produce a
  * state-less marketplace authorize redirect.
  */
-export function installStartResponse(db: Database, linkType: LinkType, accountId: number | null): Response {
+export function installStartResponse(db: Database, linkType: LinkType, accountId: number | null, visitorId = ""): Response {
   let state: string;
   try {
-    state = createInstallState(db, linkType, accountId);
+    state = createInstallState(db, linkType, accountId, visitorId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[oauth-app] install start: FAILED to persist state (link=${linkType}, account=${accountId ?? "legacy"}): ${msg} — refusing to redirect`);
@@ -649,8 +704,12 @@ export function handleAppInstallStart(db: Database, req: Request): Response {
   // Default link type is LIVE — the production install mode (reviewer fix #4);
   // ?link=test remains for QA.
   const linkType: LinkType = isLinkType(linkParam) ? linkParam : "live";
+  // The landing-page visitor_id the install page carried into this start link
+  // (?cc_vid=…); sanitized and stored in the state row so the callback can
+  // stamp the created merchant for visitor→merchant tracing. No-op when absent.
+  const visitorId = sanitizeVisitorId(url.searchParams.get("cc_vid"));
 
-  return installStartResponse(db, linkType, account.id);
+  return installStartResponse(db, linkType, account.id, visitorId);
 }
 
 // ── Token exchange + storage ──
@@ -915,11 +974,12 @@ export function findOrCreateMerchant(
   db: Database,
   stripeUserId: string,
   email?: string | null,
-  accountId?: number | null
+  accountId?: number | null,
+  visitorId = ""
 ): number {
   const existing = db
-    .query("SELECT id, email FROM merchants WHERE stripe_account_id = ?")
-    .get(stripeUserId) as { id: number; email: string | null } | null;
+    .query("SELECT id, email, visitor_id FROM merchants WHERE stripe_account_id = ?")
+    .get(stripeUserId) as { id: number; email: string | null; visitor_id: string } | null;
   if (existing) {
     if (accountId) db.run("UPDATE merchants SET account_id = ? WHERE id = ?", [accountId, existing.id]);
     // Email-gap repair: a merchant created before a real email was known (the
@@ -929,12 +989,19 @@ export function findOrCreateMerchant(
     if (email && email.includes("@") && (existing.email ?? "").endsWith("@install.local")) {
       db.run("UPDATE merchants SET email = ? WHERE id = ?", [email, existing.id]);
     }
+    // visitor-gap repair (visitor→merchant tracing): if this merchant was
+    // created before capture existed (visitor_id still the empty default) and
+    // THIS install carries a visitor_id, stamp it now so /admin/data can trace
+    // the merchant to its source visit. Never overwrite an already-set id.
+    if (visitorId && !existing.visitor_id) {
+      db.run("UPDATE merchants SET visitor_id = ? WHERE id = ?", [visitorId, existing.id]);
+    }
     return existing.id;
   }
   const finalEmail = email && email.includes("@") ? email : `user_${stripeUserId}@install.local`;
   const info = db.run(
-    "INSERT INTO merchants (stripe_account_id, email, trust_mode, account_id) VALUES (?, ?, 'draft', ?)",
-    [stripeUserId, finalEmail, accountId ?? null]
+    "INSERT INTO merchants (stripe_account_id, email, trust_mode, account_id, visitor_id) VALUES (?, ?, 'draft', ?, ?)",
+    [stripeUserId, finalEmail, accountId ?? null, visitorId]
   );
   return Number(info.lastInsertRowid);
 }
@@ -1331,8 +1398,8 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
-  const { link_type: linkType, account_id: installAccountId } = consumed;
-  console.log(`[oauth-app] callback: state OK (link=${linkType}, account=${installAccountId ?? "legacy"}) — exchanging code (prefix ${code.slice(0, 12)}…)`);
+  const { link_type: linkType, account_id: installAccountId, visitor_id: installVisitorId } = consumed;
+  console.log(`[oauth-app] callback: state OK (link=${linkType}, account=${installAccountId ?? "legacy"}, visitor=${installVisitorId ? "present" : "none"}) — exchanging code (prefix ${code.slice(0, 12)}…)`);
 
   const exchanged = await exchangeCodeForTokens(code, linkType);
   if (!exchanged.ok) {
@@ -1378,7 +1445,7 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
   // the account → merchant → subscription chain the reviewer asked for: the
   // purchased subscription (getSubscriptionByMerchantId) becomes reachable
   // from the account through the merchant. Billing itself is unchanged.
-  const merchantId = findOrCreateMerchant(db, tokens.stripe_user_id, merchantEmail, installAccountId);
+  const merchantId = findOrCreateMerchant(db, tokens.stripe_user_id, merchantEmail, installAccountId, installVisitorId);
   saveAppOAuthTokens(db, {
     stripe_user_id: tokens.stripe_user_id,
     merchant_id: merchantId,

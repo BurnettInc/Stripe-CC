@@ -195,15 +195,17 @@ function startStub(): void {
           // code_legacy drives the "legacy state row (no account)" callback
           // test — it must mint tokens for a DIFFERENT Stripe user so the
           // callback creates a fresh merchant instead of reusing the c-series
-          // one (whose email is already real).
+          // one (whose email is already real). code_visitor drives the
+          // visitor→merchant attribution test with yet another fresh merchant.
           const legacy = bodyText.includes("code=code_legacy");
+          const visitor = bodyText.includes("code=code_visitor");
           return Response.json({
             access_token: "acct_access_token",
             livemode: false,
             refresh_token: "rt_code",
             scope: "stripe_apps",
             stripe_publishable_key: "pk_test_abc",
-            stripe_user_id: legacy ? "acct_legacy_test" : "acct_market_test",
+            stripe_user_id: legacy ? "acct_legacy_test" : visitor ? "acct_visitor_test" : "acct_market_test",
             token_type: "bearer",
           });
         }
@@ -493,6 +495,23 @@ async function main(): Promise<void> {
   check("c37c: dev-key account fetch carried the Stripe-Account header for the connected account", !!devLegacyCall && devLegacyCall.stripeAccount === "acct_legacy_test", JSON.stringify(stub.calls.filter((c) => c.path === "/v1/account")));
   d8b.close();
 
+  // ── (c38) visitor→merchant end-to-end: the landing-page visitor_id rides the
+  // state row into the created merchant (visitor→merchant tracing) ──
+  // State rows persisted with a visitor_id through /oauth/install/start are
+  // consumed here by the callback; the merchant INSERT must carry it. Written
+  // straight into the shared server DB via createInstallState (visitor_id
+  // argument), exactly like the account_id carrier.
+  const d9 = db();
+  const visitorState = mod.createInstallState(d9, "test", ACC_ID, "visitor-uuid-1234");
+  d9.close();
+  resetStub();
+  const cbVisitor = await get(`${BASE}/oauth/callback?code=code_visitor&state=${encodeURIComponent(visitorState)}`);
+  check("c38: visitor-carried install still 302s", cbVisitor.status === 302 && (cbVisitor.headers.get("location") || "").includes("/oauth/session"), `status=${cbVisitor.status}`);
+  const d9b = db();
+  const merchVisitor = d9b.query("SELECT email, visitor_id FROM merchants WHERE stripe_account_id = 'acct_visitor_test'").get() as { email: string; visitor_id: string } | null;
+  check("c39: merchant created with the landing-page visitor_id stamped", merchVisitor?.visitor_id === "visitor-uuid-1234", JSON.stringify(merchVisitor));
+  d9b.close();
+
   // ── (d) state replay fails cleanly ──
   resetStub();
   const replay = await get(`${BASE}/oauth/callback?code=code_again&state=${encodeURIComponent(stateTest)}`);
@@ -549,6 +568,13 @@ async function main(): Promise<void> {
   check("g6: account_id roundtrips through create/consume", consumed2?.link_type === "live" && consumed2.account_id === 7, JSON.stringify(consumed2));
   const s3 = mod.createInstallState(u, "test", null);
   check("g7: legacy create (no account) → consumed account_id null", mod.consumeInstallState(u, s3)?.account_id === null, "");
+  // ── (g) visitor_id through the state row (visitor→merchant tracing) ──
+  const s3b = mod.createInstallState(u, "test", null);
+  check("g10: legacy create → consumed visitor_id empty (no-op default)", mod.consumeInstallState(u, s3b)?.visitor_id === "", JSON.stringify(mod.consumeInstallState(u, s3b)));
+  const s4 = mod.createInstallState(u, "live", 7, "vid-abc-123");
+  const consumed4 = mod.consumeInstallState(u, s4);
+  check("g11: visitor_id roundtrips through create/consume", consumed4?.link_type === "live" && consumed4.account_id === 7 && consumed4.visitor_id === "vid-abc-123", JSON.stringify(consumed4));
+  check("g12: sanitizeVisitorId trims + caps at 128 (matches track.ts)", mod.sanitizeVisitorId("   abc  ") === "abc" && mod.sanitizeVisitorId("x".repeat(129)) === "" && mod.sanitizeVisitorId(123) === "" && mod.sanitizeVisitorId("") === "", "");
 
   // ── (g2) unit: installStartResponse is FAIL-CLOSED ──
   // If the state cannot be persisted (DB without the table), the builder must
@@ -923,6 +949,23 @@ async function main(): Promise<void> {
   const mGarbage = mod.findOrCreateMerchant(u2, "acct_unit_garbage", "not-an-email", null);
   const mGarbageRow = u2.query("SELECT email FROM merchants WHERE id = ?").get(mGarbage) as { email: string };
   check("n5: invalid email (no @) → placeholder fallback", mGarbageRow.email === "user_acct_unit_garbage@install.local", JSON.stringify(mGarbageRow));
+  // ── (n3) visitor_id stamping on findOrCreateMerchant (visitor→merchant) ──
+  const mVis = mod.findOrCreateMerchant(u2, "acct_unit_visitor", "v@example.com", null, "visitor-abc");
+  const mVisRow = u2.query("SELECT visitor_id FROM merchants WHERE id = ?").get(mVis) as { visitor_id: string };
+  check("n8: create with visitor_id → stamped on the merchant row", mVisRow.visitor_id === "visitor-abc", JSON.stringify(mVisRow));
+  // Re-install with NO visitor → existing visitor_id preserved (never cleared).
+  const mVis2 = mod.findOrCreateMerchant(u2, "acct_unit_visitor", "v@example.com", null, "");
+  const mVisRow2 = u2.query("SELECT visitor_id FROM merchants WHERE id = ?").get(mVis2) as { visitor_id: string };
+  check("n9: visitor_id never cleared by a visitorless re-install", mVisRow2.visitor_id === "visitor-abc", JSON.stringify(mVisRow2));
+  // Pre-capture merchant (visitor_id empty default) + this install carries one → repaired.
+  const mPrev = mod.findOrCreateMerchant(u2, "acct_unit_prev", null, null);
+  const mPrevRepair = mod.findOrCreateMerchant(u2, "acct_unit_prev", null, null, "visitor-late");
+  const mPrevRow = u2.query("SELECT visitor_id FROM merchants WHERE id = ?").get(mPrevRepair) as { visitor_id: string };
+  check("n10: pre-capture merchant repaired with the visitor_id when empty", mPrevRow.visitor_id === "visitor-late", JSON.stringify(mPrevRow));
+  // Create WITHOUT a visitor → empty string (graceful no-op, never a crash).
+  const mNoVis = mod.findOrCreateMerchant(u2, "acct_unit_novis", null, null);
+  const mNoVisRow = u2.query("SELECT visitor_id FROM merchants WHERE id = ?").get(mNoVis) as { visitor_id: string };
+  check("n11: create without visitor_id → empty (no-op default)", mNoVisRow.visitor_id === "", JSON.stringify(mNoVisRow));
   u2.close();
 
   // ── (n2) unit: fetchAccountDetailsViaDevKey (the secondary email source) ──
