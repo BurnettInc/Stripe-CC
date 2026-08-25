@@ -80,14 +80,16 @@ check("fb.com shortener → facebook", bucketVisit({ referrer: "https://fb.com/a
 check("unknown host → referral:<host>", bucketVisit({ referrer: "https://example.com/page" }) === "referral:example.com", bucketVisit({ referrer: "https://example.com/page" }));
 check("unknown host keeps subdomain in referral bucket", bucketVisit({ referrer: "https://sub.example.org/x" }) === "referral:sub.example.org", bucketVisit({ referrer: "https://sub.example.org/x" }));
 
-// ── (b2) bare search-engine homepages → direct (owner-approved 2026-08-19);
-//        utm_source still wins; real search URLs still map to their engine ──
-check("bare https://www.google.com/ → direct", bucketVisit({ referrer: "https://www.google.com/" }) === "direct", bucketVisit({ referrer: "https://www.google.com/" }));
-check("bare https://www.google.com (no trailing slash) → direct", bucketVisit({ referrer: "https://www.google.com" }) === "direct", bucketVisit({ referrer: "https://www.google.com" }));
-check("bare https://www.google.co.uk/ → direct", bucketVisit({ referrer: "https://www.google.co.uk/" }) === "direct", bucketVisit({ referrer: "https://www.google.co.uk/" }));
-check("bare https://www.bing.com/ → direct", bucketVisit({ referrer: "https://www.bing.com/" }) === "direct", bucketVisit({ referrer: "https://www.bing.com/" }));
-check("bare http://bing.com/ → direct", bucketVisit({ referrer: "http://bing.com/" }) === "direct", bucketVisit({ referrer: "http://bing.com/" }));
-check("bare https://duckduckgo.com/ → direct", bucketVisit({ referrer: "https://duckduckgo.com/" }) === "direct", bucketVisit({ referrer: "https://duckduckgo.com/" }));
+// ── (b2) bare search-engine homepages → search_homepage_no_query (PR #145):
+//        since the 2026-08 reclassification these are NOT "direct" — a bare
+//        homepage carries no search query so it can't be verified as organic
+//        search, and gets its own "likely bot" bucket. utm_source still wins.
+check("bare https://www.google.com/ → search_homepage_no_query", bucketVisit({ referrer: "https://www.google.com/" }) === "search_homepage_no_query", bucketVisit({ referrer: "https://www.google.com/" }));
+check("bare https://www.google.com (no trailing slash) → search_homepage_no_query", bucketVisit({ referrer: "https://www.google.com" }) === "search_homepage_no_query", bucketVisit({ referrer: "https://www.google.com" }));
+check("bare https://www.google.co.uk/ → search_homepage_no_query", bucketVisit({ referrer: "https://www.google.co.uk/" }) === "search_homepage_no_query", bucketVisit({ referrer: "https://www.google.co.uk/" }));
+check("bare https://www.bing.com/ → search_homepage_no_query", bucketVisit({ referrer: "https://www.bing.com/" }) === "search_homepage_no_query", bucketVisit({ referrer: "https://www.bing.com/" }));
+check("bare http://bing.com/ → search_homepage_no_query", bucketVisit({ referrer: "http://bing.com/" }) === "search_homepage_no_query", bucketVisit({ referrer: "http://bing.com/" }));
+check("bare https://duckduckgo.com/ → search_homepage_no_query", bucketVisit({ referrer: "https://duckduckgo.com/" }) === "search_homepage_no_query", bucketVisit({ referrer: "https://duckduckgo.com/" }));
 // Real search URLs still map to their engine (never treated as bare).
 check("google search URL → google", bucketVisit({ referrer: "https://www.google.com/search?q=x" }) === "google", bucketVisit({ referrer: "https://www.google.com/search?q=x" }));
 check("google search without query → google", bucketVisit({ referrer: "https://www.google.com/search" }) === "google", bucketVisit({ referrer: "https://www.google.com/search" }));
