@@ -33,9 +33,11 @@
  * A search-engine referrer that is merely the engine's bare homepage — root
  * path ("/" or empty) and no query string, e.g. "https://www.google.com/" or
  * "http://bing.com/" — carries no search query, so it cannot be verified as a
- * real search. It therefore falls through to "direct" (owner-approved
- * 2026-08-19: a bot burst of 19 bare https://www.google.com/ referrers was
- * counting as organic "Google" traffic). Real search URLs ("/search?q=x",
+ * real search. It is therefore bucketed into its OWN explicit bucket
+ * "search_homepage_no_query" ("Search homepage (no query) — likely bot"),
+ * NOT "direct" (owner-approved 8/19 filtered bots out of organic Google; this
+ * follow-up 2026-08-26 stops them polluting the "direct" bucket so "direct"
+ * stays a true no-referrer signal). Real search URLs ("/search?q=x",
  * "duckduckgo.com/?q=x") still bucket to their engine. utm_source still wins
  * regardless (an explicit utm_source=google with a bare google referrer → "google").
  */
@@ -93,6 +95,7 @@ export function displayBucketName(bucket: string): string {
     linkedin: "LinkedIn",
     facebook: "Facebook",
     direct: "Direct",
+    search_homepage_no_query: "Search homepage (no query) — likely bot",
   };
   if (known[b]) return known[b];
   if (b.startsWith("referral:")) return b.slice("referral:".length);
@@ -127,7 +130,9 @@ export function referrerHost(referrer: string): string {
  * "https://www.google.com", "http://bing.com/" — but NOT
  * "https://www.google.com/search?q=x" or "https://duckduckgo.com/?q=x", which
  * are real searches). A bare homepage carries no search query, so the visit
- * cannot be verified as organic search; the caller attributes it as "direct".
+ * cannot be verified as organic search; the caller attributes it to the
+ * explicit "search_homepage_no_query" bucket (likely bot) rather than a real
+ * engine or "direct".
  * Pure + deterministic (no DB/IO); parses exactly like referrerHost so bare
  * host strings work too.
  */
@@ -208,9 +213,13 @@ export function bucketVisit(v: { utm_source?: string; referrer?: string }): stri
   }
   // google.* / bing.* / duckduckgo.com — matches the bare TLD and the
   // www./m./<country> variants (google.com, www.google.com, google.co.uk,
-  // www.google.co.uk, bing.com.au, ...). A bare homepage (root path, no query)
-  // proves no search happened → "direct" (see isBareSearchHomepage).
-  if (isBareSearchHomepage(v.referrer ?? "")) return "direct";
+  // www.google.co.uk, bing.com.au, ...). A bare homepage (root path, no query,
+  // e.g. "https://www.google.com/") proves no search happened — a likely-bot
+  // burst. It gets its OWN explicit bucket (search_homepage_no_query) so it
+  // stops drowning the "direct" bucket (owner follow-up 2026-08-26): a search
+  // engine's bare homepage is NOT a "direct" visit, and "direct" should mean
+  // true no-referrer traffic. Real search URLs still bucket to their engine.
+  if (isBareSearchHomepage(v.referrer ?? "")) return "search_homepage_no_query";
   if (/(^|\.)google\.([a-z]{2,3}|com)(\.[a-z]{2})?$/.test(host)) return "google";
   if (/(^|\.)bing\.([a-z]{2,3}|com)(\.[a-z]{2})?$/.test(host)) return "bing";
   if (/(^|\.)duckduckgo\.com$/.test(host)) return "duckduckgo";

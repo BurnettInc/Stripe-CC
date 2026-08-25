@@ -704,12 +704,18 @@ export function getSubscriptionByStripeId(db: Database, stripeSubscriptionId: st
 // admin-only funnel dashboard (GET /admin). See migrations/012_add_admin_tracking.sql.
 
 /**
- * Record a landing-page visit (POST /api/track). Privacy-minimal: only the
- * fields the snippet sends (visitor_id, page, referrer, utm_*, ts) — no IP, no
- * UA, no cookies. Idempotent-ish: the UNIQUE(visitor_id, page, ts) index makes
- * a retried beacon with an identical payload a no-op (ts is generated per page
- * load, so an identical ts means the same visit). Returns whether a row was
- * actually inserted.
+ * Record a landing-page visit (POST /api/track). First-party, internal-only
+ * analytics: the fields the snippet sends (visitor_id, page, referrer, utm_*,
+ * ts) plus server-derived, privacy-masked signals for device/bot/geo
+ * classification (owner approved 2026-08-26):
+ *   * ip        — MASKED IP (see visitor-signals.ts maskIp: IPv4 /24, IPv6 /64;
+ *                 raw IP never stored) — "" when none derivable.
+ *   * user_agent — the request's User-Agent header (≤512 chars).
+ *   * country    — proxy country header (CF-IPCountry) when forwarded; "" otherwise.
+ * Idempotent-ish: the UNIQUE(visitor_id, page, ts) index makes a retried
+ * beacon with an identical payload a no-op (ts is generated per page load, so
+ * an identical ts means the same visit). Returns whether a row was actually
+ * inserted.
  */
 export function recordPageVisit(
   db: Database,
@@ -722,12 +728,19 @@ export function recordPageVisit(
     utm_campaign: string;
     utm_content: string;
     ts: string;
+    ip?: string;
+    user_agent?: string;
+    country?: string;
   }
 ): boolean {
   const result = db.run(
-    `INSERT OR IGNORE INTO page_visits (visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [params.visitor_id, params.page, params.referrer, params.utm_source, params.utm_medium, params.utm_campaign, params.utm_content, params.ts]
+    `INSERT OR IGNORE INTO page_visits (visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts, ip, user_agent, country)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      params.visitor_id, params.page, params.referrer, params.utm_source, params.utm_medium,
+      params.utm_campaign, params.utm_content, params.ts,
+      params.ip ?? "", params.user_agent ?? "", params.country ?? "",
+    ]
   );
   return result.changes > 0;
 }
