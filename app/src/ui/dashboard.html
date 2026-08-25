@@ -1,6 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- First-party dashboard visit tracking — mirrors the landing beacon in
+       site/src/routes/__root.tsx: SAME cc_vid localStorage id (so a visitor who
+       went landing → install → dashboard is one browser), SAME /api/track
+       endpoint + page_visits storage, SAME cc_skip opt-out. Runs on the app's
+       own web routes (/dashboard, /reminders, /past-due) so product activation
+       (signup → opens the dashboard) is measurable in the admin dashboard.
+       page = the real pathname. Privacy-by-default: no external service, no
+       merchant data, token-gated; IP is masked + country derived server-side. -->
+  <script>
+    (function(){try{var p=location.pathname;if(localStorage.getItem('cc_skip')==='1')return;if(p==='/support'||p==='/privacy'||p==='/terms'||p==='/admin'||p.indexOf('/support/')===0||p.indexOf('/privacy/')===0||p.indexOf('/terms/')===0||p.indexOf('/admin/')===0)return;var k='cc_vid',v=localStorage.getItem(k);if(!v){v=(crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)}));localStorage.setItem(k,v)}var q=new URLSearchParams(location.search),p2={visitor_id:v,page:p,referrer:document.referrer.slice(0,500),utm_source:q.get('utm_source')||'',utm_medium:q.get('utm_medium')||'',utm_campaign:q.get('utm_campaign')||'',utm_content:q.get('utm_content')||'',ua:navigator.userAgent,ts:new Date().toISOString()},b=new Blob([JSON.stringify(p2)],{type:'application/json'});if(navigator.sendBeacon){navigator.sendBeacon('/api/track',b)}else{var x=new XMLHttpRequest();x.open('POST','/api/track',true);x.send(b)}}catch(e){}})();
+  </script>
+<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CollectionsCopilot — Dashboard</title>
