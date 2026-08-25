@@ -42,6 +42,8 @@
  * signature-less test mode (server booted on localhost without
  * STRIPE_WEBHOOK_SECRET — the handler logs "skipping signature verification").
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
 const BASE = process.env.TEST_BASE || "http://localhost:3100";
 const DB_PATH = process.env.TEST_DB_PATH || "/tmp/cc-admin.db";
@@ -153,7 +155,6 @@ async function main(): Promise<void> {
   };
   check("funnel visits_total matches recorded rows", data2.funnel.visits_total === 2, `total=${data2.funnel.visits_total}`);
   check("funnel visits_24h counts the recent rows", data2.funnel.visits_24h === 2, `24h=${data2.funnel.visits_24h}`);
-
   // ── (e) /billing webhook → subscription_events + merchant derivation ──
   // checkout.session.completed (test mode — no signature secret on localhost).
   const subId = "sub_admin_test_1";
@@ -415,6 +416,55 @@ async function main(): Promise<void> {
     html3.includes("<th>Source</th>") && html3.includes('colspan="4"') && html3.includes("source_bucket"),
     "source column markup missing");
 
+  // ── (c2) /api/track accepts DASHBOARD page paths (product activation) ──
+  // The dashboard beacon (app/src/ui/dashboard.html + list-page.html) posts the
+  // REAL pathname (/dashboard, /reminders, /past-due) to the SAME /api/track
+  // endpoint, so activation (signup → opens the dashboard) is measurable in the
+  // admin dashboard — same page_visits storage, same cc_vid, same cc_skip.
+  // Runs at the END so these extra direct/no-utm visits + the new visitor do
+  // not perturb the source-attribution count assertions above.
+  const dv = "22222222-3333-4444-8555-666666666666";
+  const totalBefore = (q("SELECT COUNT(*) AS n FROM page_visits")[0] as { n: number }).n;
+  r = await postJson("/api/track", { visitor_id: dv, page: "/dashboard", ts: new Date(Date.now() + 2000).toISOString() });
+  check("track dashboard page /dashboard → 200", r.status === 200, `got ${r.status}`);
+  r = await postJson("/api/track", { visitor_id: dv, page: "/reminders", ts: new Date(Date.now() + 3000).toISOString() });
+  check("track list page /reminders → 200", r.status === 200, `got ${r.status}`);
+  r = await postJson("/api/track", { visitor_id: dv, page: "/past-due", ts: new Date(Date.now() + 4000).toISOString() });
+  check("track list page /past-due → 200", r.status === 200, `got ${r.status}`);
+  const dash = q("SELECT page FROM page_visits WHERE visitor_id = ? ORDER BY id ASC", dv) as Array<{ page: string }>;
+  check("dashboard pages all stored in page_visits",
+    dash.length === 3 &&
+    dash.some((x) => x.page === "/dashboard") &&
+    dash.some((x) => x.page === "/reminders") &&
+    dash.some((x) => x.page === "/past-due"),
+    JSON.stringify(dash.map((x) => x.page)));
+  const totalAfter = (q("SELECT COUNT(*) AS n FROM page_visits")[0] as { n: number }).n;
+  check("dashboard beacons added exactly 3 page_visits rows",
+    totalAfter === totalBefore + 3, `before=${totalBefore} after=${totalAfter}`);
+  // They surface in the admin rollup: funnel totals + the recent-visits list.
+  const dataDash = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
+    funnel: { visits_total: number; visits_24h: number };
+    visits: Array<Record<string, unknown>>;
+  };
+  check("admin recent-visits list contains the dashboard page",
+    dataDash.visits.some((v) => v.page === "/dashboard"),
+    JSON.stringify((dataDash.visits as Array<{ page: unknown }>).map((v) => String(v.page ?? ""))));
+  check("admin recent-visits list contains /reminders + /past-due",
+    dataDash.visits.some((v) => v.page === "/reminders") && dataDash.visits.some((v) => v.page === "/past-due"),
+    JSON.stringify((dataDash.visits as Array<{ page: unknown }>).map((v) => String(v.page ?? ""))));
+  // The rendered dashboard HTML carries the beacon (fires on load, posts the
+  // real pathname, reuses cc_vid, honors cc_skip). /dashboard is served by the
+  // backend for anyone (the session guard is client-side); /reminders|/past-due
+  // require a session, so assert the shared list-page TEMPLATE embeds it too.
+  const dashHtml = await (await fetch(`${BASE}/dashboard`)).text();
+  check("served /dashboard HTML embeds the tracking beacon",
+    dashHtml.indexOf("navigator.sendBeacon('/api/track'") !== -1, "beacon missing");
+  const dashTpl = readFileSync(join(import.meta.dir, "src", "ui", "dashboard.html"), "utf-8");
+  check("dashboard.html template embeds the tracking beacon",
+    dashTpl.indexOf("navigator.sendBeacon('/api/track'") !== -1, "beacon missing");
+  const listTpl = readFileSync(join(import.meta.dir, "src", "ui", "list-page.html"), "utf-8");
+  check("list-page.html template embeds the tracking beacon (for /reminders + /past-due)",
+    listTpl.indexOf("navigator.sendBeacon('/api/track'") !== -1, "beacon missing");
   console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll admin/track checks passed");
   process.exit(failures ? 1 : 0);
 }
