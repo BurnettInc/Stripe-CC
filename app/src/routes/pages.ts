@@ -1,6 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getEscalationStage } from "../pipeline/escalation";
+import { appendCanspamFooter } from "../pipeline/canspam";
+import { buildFromAddress, trackedReplyToForTask } from "../pipeline/sender";
 
 // Server-side rendered list pages for the dashboard's drill-down links:
 //   GET /past-due  — past-due (overdue) invoices
@@ -170,7 +173,39 @@ export function handlePastDuePage(db: Database, merchantId: number, statusParam:
   ).all(merchantId) as Array<{
     id: number; stripe_invoice_id: string; customer_name: string; customer_email: string;
     amount_cents: number; currency: string; due_date: string; status: string; created_at: string;
+    stage_override: number | null;
   }>;
+
+  // Merchant ladder timing for the automatic days-overdue stage (same default
+  // 6/20 ladder the watcher uses; Pro may customize stage1_days/stage2_days).
+  const timing = db.query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?").get(merchantId) as { stage1_days: number; stage2_days: number } | null;
+  const autoStageFor = (dueDate: string): number | null => {
+    const days = daysOverdue(dueDate);
+    return days === null ? null : getEscalationStage(days, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+  };
+  // A per-row Stage control: Auto (automatic progression) or a manual 1|2|3
+  // override. The effective stage shown is the override when set, else the
+  // auto stage. A "manually set" pill marks any overridden row at a glance.
+  const stageControl = (inv: { id: number; stage_override: number | null; due_date: string }, autoStage: number | null) => {
+    const override = inv.stage_override;
+    const effective = override ?? autoStage;
+    const options = [null, 1, 2, 3].map((o) => {
+      const val = o === null ? "" : String(o);
+      const label = o === null ? "Auto" : `Stage ${o}`;
+      const sel = override === o ? " selected" : "";
+      return `<option value="${val}"${sel}>${label}</option>`;
+    }).join("");
+    const saved = override !== null ? `data-saved="${override}"` : "";
+    return (
+      `<td data-sort="${effective ?? ""}">` +
+        `<div class="stage-cell">` +
+          (effective ? `<span class="chip chip-stage st${effective}">Stage ${effective}</span>` : '<span class="cell-muted">—</span>') +
+          `<select class="stage-override" data-invoice-id="${inv.id}" aria-label="Override escalation stage" ${saved}>${options}</select>` +
+        `</div>` +
+        (override !== null ? `<div class="cell-muted" style="font-size:0.7rem;margin-top:4px;"><span class="pill pill-manual">manually set</span></div>` : "") +
+      `</td>`
+    );
+  };
 
   let rows = "";
   if (invoices.length === 0) {
@@ -179,16 +214,13 @@ export function handlePastDuePage(db: Database, merchantId: number, statusParam:
       `${esc(view.emptyBody)}</div>`;
   } else {
     for (const inv of invoices) {
-      // Most recent reminder task for this invoice (stage badge + reminder count).
+      // Most recent reminder task for this invoice (reminder count only).
       const taskRow = db.query(
-        "SELECT stage, COUNT(*) AS reminders FROM reminder_tasks WHERE invoice_id=? GROUP BY stage ORDER BY created_at DESC, id DESC LIMIT 1"
-      ).get(inv.id) as { stage: number; reminders: number } | null;
-      const stage = taskRow?.stage ?? null;
+        "SELECT COUNT(*) AS reminders FROM reminder_tasks WHERE invoice_id=?"
+      ).get(inv.id) as { reminders: number } | null;
       const reminders = taskRow?.reminders ?? 0;
       const days = daysOverdue(inv.due_date);
-      const stageChip = stage
-        ? `<span class="chip chip-stage st${stage}">Stage ${stage}</span>`
-        : '<span class="cell-muted">—</span>';
+      const autoStage = autoStageFor(inv.due_date);
       rows +=
         "<tr>" +
           `<td><div class="cell-strong">${esc(inv.customer_name || "Unknown customer")}</div>` +
@@ -197,7 +229,7 @@ export function handlePastDuePage(db: Database, merchantId: number, statusParam:
           `<td class="cell-amount" data-sort="${inv.amount_cents}">${esc(formatMoney(inv.amount_cents, inv.currency))}</td>` +
           `<td class="cell-muted" data-sort="${esc(inv.due_date)}">${esc(formatDate(inv.due_date))}</td>` +
           `<td class="cell-strong" data-sort="${days ?? ""}">${days != null ? days + (days === 1 ? " day" : " days") : "—"}</td>` +
-          `<td data-sort="${stage ?? ""}">${stageChip}</td>` +
+          stageControl(inv, autoStage) +
           `<td class="cell-muted" style="font-size:0.75rem;" data-sort="${reminders}">${reminders > 0 ? reminders + " reminder" + (reminders === 1 ? "" : "s") : "no reminders yet"}</td>` +
         "</tr>";
     }
@@ -213,11 +245,13 @@ export function handlePastDuePage(db: Database, merchantId: number, statusParam:
 
 const LOG_COLUMNS = `
   SELECT sl.id, sl.status, sl.provider_message, sl.created_at AS sent_at,
-         rt.id AS task_id, rt.stage, rt.draft_subject,
-         i.customer_name, i.customer_email, i.amount_cents, i.currency, i.due_date, i.stripe_invoice_id
+         rt.id AS task_id, rt.stage, rt.draft_subject, rt.draft_body, rt.invoice_id,
+         i.id AS invoice_id, i.merchant_id, i.customer_name, i.customer_email, i.amount_cents, i.currency, i.due_date, i.stripe_invoice_id,
+         m.sender_name
   FROM send_logs sl
   JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id
   JOIN invoices i ON rt.invoice_id = i.id
+  JOIN merchants m ON i.merchant_id = m.id
   WHERE sl.type='reminder' AND sl.status='success' AND i.merchant_id=?`;
 // A "real send" is any successful reminder send whose provider_message is
 // not a test-mode [STUB SEND] (matches GET /stats emailsSent; the no-fake-
@@ -234,14 +268,33 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
   // merchants never see internal test sends).
   // ORDER BY sl.created_at DESC, sl.id DESC = newest first (matches the
   // subtitle copy; id DESC breaks ties deterministically for same-second rows).
+  // Each row carries a "View email" toggle that reveals the EXACT sent
+  // content: the persisted draft (draft_subject/draft_body — never
+  // regenerated), the sender's From address (global FROM_EMAIL + the
+  // merchant's sender_name display-name branding), the system-tracked
+  // Reply-To (reply+{invoice_id}@{REPLY_DOMAIN}), and the CAN-SPAM footer
+  // (appended at send time by appendCanspamFooter — reconstructed
+  // deterministically here so what the recipient saw is shown).
 
   const logs = db.query(
     `${LOG_COLUMNS} ORDER BY sl.created_at DESC, sl.id DESC LIMIT 200`
   ).all(merchantId) as Array<{
     id: number; status: string; provider_message: string; sent_at: string;
-    task_id: number; stage: number; draft_subject: string;
-    customer_name: string; customer_email: string; amount_cents: number; currency: string; due_date: string; stripe_invoice_id: string;
+    task_id: number; stage: number; draft_subject: string; draft_body: string; invoice_id: number;
+    merchant_id: number; customer_name: string; customer_email: string; amount_cents: number; currency: string; due_date: string; stripe_invoice_id: string;
+    sender_name: string | null;
   }>;
+
+  // The footer is deterministic (process.env.BASE_URL / BUSINESS_ADDRESS +
+  // merchant + customer scope): reconstruct it exactly as the send appended it.
+  const sentBodyFor = (log: typeof logs[number]): string => {
+    const body = String(log.draft_body ?? "").trimEnd();
+    return body ? appendCanspamFooter(body, log.merchant_id, log.customer_email) : "";
+  };
+  const fromFor = (log: typeof logs[number]): string =>
+    buildFromAddress(process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com", log.sender_name);
+  const replyToFor = (log: typeof logs[number]): string | undefined =>
+    trackedReplyToForTask({ invoice_id: log.invoice_id } as { invoice_id: number });
 
   let rows = "";
   if (logs.length === 0) {
@@ -252,8 +305,22 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
   } else {
     for (const log of logs) {
       const isStub = String(log.provider_message).includes("[STUB SEND]");
+      const body = sentBodyFor(log);
+      const from = fromFor(log);
+      const replyTo = replyToFor(log);
+      const detail =
+        `<button type="button" class="email-toggle" data-id="${log.id}" aria-expanded="false">View email</button>` +
+        `<div class="email-body" id="emailbody-${log.id}" hidden>` +
+          `<dl class="email-meta">` +
+            `<div class="meta-row"><dt>From</dt><dd>${esc(from)}</dd></div>` +
+            (replyTo ? `<div class="meta-row"><dt>Reply-To</dt><dd>${esc(replyTo)}</dd></div>` : "") +
+            `<div class="meta-row"><dt>Subject</dt><dd>${log.draft_subject ? esc(log.draft_subject) : '<span class="cell-muted">—</span>'}</dd></div>` +
+          `</dl>` +
+          `<pre class="email-pre">${body ? esc(body) : '<span class="cell-muted">(no body recorded for this send)</span>'}</pre>` +
+        `</div>`;
       rows +=
         "<tr" + (isStub ? ' class="row-test"' : "") + ">" +
+          `<td class="cell-toggle">${detail}</td>` +
           `<td><div class="cell-strong">${esc(log.customer_name || "Unknown customer")}` +
           (isStub ? ` <span class="pill pill-muted">Test send</span>` : "") +
           "</div>" +
@@ -267,13 +334,13 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
         "</tr>";
     }
     rows = `<div class="table-wrap"><table>
-      <thead><tr><th scope="col">Customer</th>${thSort("amount", "Amount")}${thSort("stage", "Stage")}${thSort("sent_at", "Sent at")}${thSort("subject", "Subject")}<th scope="col">Result</th></tr></thead>
+      <thead><tr><th scope="col">Email</th><th scope="col">Customer</th>${thSort("amount", "Amount")}${thSort("stage", "Stage")}${thSort("sent_at", "Sent at")}${thSort("subject", "Subject")}<th scope="col">Result</th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
   }
 
   return renderPage(
     "Sent reminders",
-    "Reminder emails sent to your customers, newest first. Test sends are labeled “Test send”.",
+    "Reminder emails sent to your customers, newest first. Test sends are labeled “Test send”. Open any row to see the full email exactly as sent.",
     "",
     rows
   );

@@ -1,0 +1,22 @@
+-- Manual escalation-stage override per invoice (owner feature, 2026-08-27).
+--
+-- invoices.stage_override pins the escalation stage (1|2|3) for a single
+-- invoice, so the account owner can escalate early for an unresponsive
+-- customer or hold a stage back when a payment plan is agreed.
+--
+-- Layered, NOT a replacement: automatic days-overdue progression still
+-- applies to any invoice WITHOUT an override. While an override is set it
+-- wins; clearing it to NULL restores automatic getEscalationStage() behavior.
+-- The effective stage is honored everywhere the pipeline derives an invoice's
+-- stage:
+--   - watcher.ts createTaskForOverdueInvoice  (auto stage → stage_override ?? auto)
+--   - scheduler.ts escalation-advance pass      (expected = stage_override ?? auto)
+-- Set/cleared via the auth'd dashboard mutation PUT /invoices/:id/stage
+-- (routes/invoices.ts), which also reconciles the invoice's current open
+-- task so the very next reminder reflects the override immediately.
+--
+-- Applied once via the schema_migrations tracker (same ADD COLUMN pattern as
+-- 022/030 — SQLite has no ADD COLUMN IF NOT EXISTS, so any accidental re-run
+-- fails loudly with "duplicate column name", never silently corrupts).
+-- Nullable with a NULL default → pre-existing rows are untouched (auto).
+ALTER TABLE invoices ADD COLUMN stage_override INTEGER CHECK (stage_override IN (1, 2, 3));

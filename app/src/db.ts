@@ -1093,6 +1093,11 @@ export interface Invoice {
   manually_paused_at: string | null;
   /** ISO timestamp set by the D1b opt_out classification — stops THIS invoice's reminders only. */
   reply_opt_out_at: string | null;
+  /** Manual escalation-stage override (1|2|3) or NULL for auto progression
+   *  (migration 031). When set it PINS the invoice's effective stage; clearing
+   *  to null restores automatic getEscalationStage() behavior. Honored by the
+   *  watcher task factory + the scheduler escalation-advance pass. */
+  stage_override: number | null;
   created_at: string;
 }
 

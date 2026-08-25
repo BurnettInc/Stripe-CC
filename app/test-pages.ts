@@ -48,7 +48,7 @@ function db(): Database {
 function seed(): void {
   const d = db();
   d.run(
-    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode) VALUES (?, 'acct_pages', 'pages@example.com', 'draft')",
+    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode, sender_name) VALUES (?, 'acct_pages', 'pages@example.com', 'draft', 'Acme Widgets')",
     [MERCHANT]
   );
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))", [SESSION, MERCHANT]);
@@ -67,8 +67,14 @@ function seed(): void {
   inv("pgs_paid_c", "Paid Gamma", 25000, due(20), "paid");
   inv("pgs_paid_d", "Refunded Delta", 8000, due(30), "paid", undefined, "re_pgs");
   inv("pgs_ovd_e", "Disputed Epsilon", 150000, due(45), "overdue", "dp_pgs");
-  const tA = d.query("INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject) VALUES ((SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_a'), 1, 'sent', 'Payment reminder') RETURNING id").get() as { id: number };
-  const tB = d.query("INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject) VALUES ((SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_b'), 3, 'sent', 'Final notice') RETURNING id").get() as { id: number };
+  // draft_subject/draft_body are the PERSISTED sent content (read back by the
+  // reminders full-email viewer — never regenerated). Bodies are plain text.
+  const tA = d.query("INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body) VALUES ((SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_a'), 1, 'sent', 'Payment reminder', 'Hi Ovd Alpha,\n\nJust a friendly reminder that invoice pgs_ovd_a is due.\n\nThanks!') RETURNING id").get() as { id: number };
+  const tB = d.query("INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body) VALUES ((SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_b'), 3, 'sent', 'Final notice', 'Hi Ovd Beta,\n\nThis is your final notice for invoice pgs_ovd_b before we escalate further.\n\nRegards') RETURNING id").get() as { id: number };
+  // An OPEN (reviewed) task for ovd_a so the stage-override reconciliation has
+  // a pending task to re-stage immediately (the send_log above references the
+  // separate SENT task tA — the reminders page lists sends, not tasks).
+  d.run("INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body) VALUES ((SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_a'), 2, 'reviewed', 'Following up', 'Hi Ovd Alpha,\n\nFollowing up on invoice pgs_ovd_a.\n\nThanks')");
   d.run("INSERT INTO send_logs (reminder_task_id, type, status, provider_message, created_at) VALUES (?, 'reminder', 'success', 'Sent via Resend re_pgs', datetime('now','-1 day'))", [tA.id]);
   d.run("INSERT INTO send_logs (reminder_task_id, type, status, provider_message, created_at) VALUES (?, 'reminder', 'success', '[STUB SEND] Would send email: Beta', datetime('now','-2 days'))", [tB.id]);
   d.close();
@@ -142,6 +148,86 @@ async function main(): Promise<void> {
   check("query-param routes still require session auth", unauth.status === 401, `status=${unauth.status}`);
   const unauthRem = await fetch(BASE + "/reminders?type=real", { headers: { Cookie: "session=nope" } });
   check("reminders query-param route still requires session auth", unauthRem.status === 401, `status=${unauthRem.status}`);
+
+  // ── FEATURE 1: sent-email full-content viewer on /reminders ──
+  // Each row has a "View email" toggle; the hidden detail panel holds the
+  // EXACT sent content (persisted draft_subject/draft_body + reconstructed
+  // From/Reply-To/CAN-SPAM footer — never regenerated).
+  const ovdAId = (db().query("SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_a'").get() as { id: number }).id;
+  const ovdBId = (db().query("SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_b'").get() as { id: number }).id;
+
+  check("reminders renders a View email toggle per row", (remAll.match(/class="email-toggle"/g) || []).length >= 2, `toggles=${(remAll.match(/class="email-toggle"/g) || []).length}`);
+  check("reminders detail panel present per row (hidden by default)", (remAll.match(/class="email-body" id="emailbody-/g) || []).length >= 2, `panels=${(remAll.match(/class="email-body" id="emailbody-/g) || []).length}`);
+  // From: global FROM_EMAIL + merchant sender_name display-name branding.
+  check("reminders detail From uses merchant sender-name branding", remAll.includes("Acme Widgets") && remAll.includes("noreply@stripecollectionscopilot.com"), "");
+  // Reply-To: system-tracked reply+{invoice_id}@{REPLY_DOMAIN} (per-task/invoice).
+  check("reminders detail shows tracked Reply-To for real row", remAll.includes(`reply+${ovdAId}@replies.getcollectionscopilot.com`), `reply+${ovdAId}@replies.getcollectionscopilot.com`);
+  check("reminders detail shows tracked Reply-To for stub row (distinct per invoice)", remAll.includes(`reply+${ovdBId}@replies.getcollectionscopilot.com`), `reply+${ovdBId}@replies.getcollectionscopilot.com`);
+  // Subject surfaced in the detail panel.
+  check("reminders detail shows the sent subject", remAll.includes(">Payment reminder</dd>"), "");
+  // Body: the exact persisted plain-text body + the deterministically
+  // reconstructed CAN-SPAM footer (what the recipient actually saw).
+  check("reminders detail shows full sent body (real row)", remAll.includes("friendly reminder that invoice pgs_ovd_a is due") && remAll.includes("This is your final notice for invoice pgs_ovd_b"), "");
+  check("reminders detail includes the CAN-SPAM footer", remAll.includes("Unsubscribe:") && remAll.includes("To stop receiving reminders for this invoice") && remAll.includes("CollectionsCopilot") && remAll.includes("Texas, USA"), "");
+
+  // ── FEATURE 2: manual escalation-stage override on /past-due ──
+  // Auto-is-the-default: every row renders a Stage select defaulting to Auto,
+  // and no "manually set" pill appears until an override is set.
+  check("past-due renders a stage-override control per row (Auto default)", (base.match(/class="stage-override"/g) || []).length === 3, `n=${(base.match(/class="stage-override"/g) || []).length}`);
+  check("past-due stage controls offer Auto/1/2/3", /<option value=""[^>]*>Auto<\/option>/.test(base) && base.includes('<option value="1">Stage 1</option>') && base.includes('<option value="2">Stage 2</option>') && base.includes('<option value="3">Stage 3</option>'), "");
+  check("past-due no manual indicator until an override is set", (base.match(/class="pill pill-manual"/g) || []).length === 0, `n=${(base.match(/class="pill pill-manual"/g) || []).length}`);
+  // Effective stage is auto from days-overdue: pgs_ovd_a is 10d → Stage 2,
+  // pgs_ovd_b is 3d → Stage 1, pgs_ovd_e is 45d → Stage 3.
+  check("past-due shows auto effective stage chip per row", base.includes('chip-stage st2">Stage 2') && base.includes('chip-stage st1">Stage 1') && base.includes('chip-stage st3">Stage 3'), "");
+
+  // Set an override on pgs_ovd_a (10 days overdue → auto Stage 2) to Stage 3.
+  const setRes = await fetch(BASE + `/invoices/${ovdAId}/stage`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` },
+    body: JSON.stringify({ stage: 3 }),
+  });
+  const setBody = await setRes.json();
+  check("PUT stage override returns 200 with is_overridden", setRes.status === 200 && setBody.is_overridden === true && setBody.stage_override === 3 && setBody.effective_stage === 3, JSON.stringify(setBody));
+  // Immediate effect on the invoice's open pending task (stage + re-drafted
+  // content follow the override).
+  const ovdATask = db().query("SELECT stage, draft_subject, status FROM reminder_tasks WHERE invoice_id=? ORDER BY created_at DESC, id DESC LIMIT 1").get(ovdAId) as { stage: number; draft_subject: string; status: string };
+  check("override wins immediately: open task stage updated to 3", ovdATask.stage === 3, `stage=${ovdATask.stage}`);
+  check("override re-drafts task content at the new stage (Final notice prefix)", typeof ovdATask.draft_subject === "string" && /Final notice/i.test(ovdATask.draft_subject), ovdATask.draft_subject);
+  check("override-affected task is still open (reviewed, not sent)", ovdATask.status === "reviewed", `status=${ovdATask.status}`);
+  // GET /invoices/:id reflects the override.
+  const invRes = await (await fetch(BASE + `/invoices/${ovdAId}`, { headers: { Cookie: `session=${SESSION}` } })).json();
+  check("GET /invoices/:id returns stage_override + is_overridden", invRes.is_overridden === true && invRes.stage_override === 3, JSON.stringify({ s: invRes.stage_override, o: invRes.is_overridden }));
+  // /past-due now shows the manual indicator + select state for that row.
+  const baseSet = await get("/past-due");
+  const rowA = baseSet.match(new RegExp(`<tr>.*?data-invoice-id="${ovdAId}".*?</tr>`, "s"));
+  const rowAStr = rowA ? rowA[0] : "";
+  check("past-due shows manual indicator after override", rowAStr.includes('class="pill pill-manual"') && rowAStr.includes("manually set"), "");
+  check("past-due select reflects the override value", rowAStr.includes(`data-invoice-id="${ovdAId}"`) && /<option value="3" selected>Stage 3<\/option>/.test(rowAStr), "");
+
+  // Clear the override → Auto restored + effective stage back to days-overdue.
+  const clearRes = await fetch(BASE + `/invoices/${ovdAId}/stage`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` },
+    body: JSON.stringify({ stage: null }),
+  });
+  const clearBody = await clearRes.json();
+  check("PUT stage null clears the override", clearRes.status === 200 && clearBody.is_overridden === false && clearBody.stage_override === null, JSON.stringify(clearBody));
+  const ovdATask2 = db().query("SELECT stage FROM reminder_tasks WHERE invoice_id=? ORDER BY created_at DESC, id DESC LIMIT 1").get(ovdAId) as { stage: number };
+  check("clearing restores auto: open task stage back to auto (Stage 2 at 10d)", ovdATask2.stage === 2, `stage=${ovdATask2.stage}`);
+  const baseClear = await get("/past-due");
+  check("past-due manual indicator removed after clear", (baseClear.match(/class="pill pill-manual"/g) || []).length === 0, `n=${(baseClear.match(/class="pill pill-manual"/g) || []).length}`);
+  const invRes2 = await (await fetch(BASE + `/invoices/${ovdAId}`, { headers: { Cookie: `session=${SESSION}` } })).json();
+  check("GET /invoices/:id reflects cleared override", invRes2.is_overridden === false && invRes2.stage_override === null, JSON.stringify({ s: invRes2.stage_override, o: invRes2.is_overridden }));
+
+  // Auth + validation on the stage endpoint.
+  const unauthStage = await fetch(BASE + `/invoices/${ovdAId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: 2 }),
+  });
+  check("stage override endpoint requires session auth", unauthStage.status === 401, `status=${unauthStage.status}`);
+  const badStage = await fetch(BASE + `/invoices/${ovdAId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: 9 }),
+  });
+  check("stage override rejects invalid stage", badStage.status === 400, `status=${badStage.status}`);
 
   // ── Reply-pause copy pass (owner 2026-08-12): landing page + dashboard UI ──
   // The backend serves the built TanStack site at "/" (SSR, unauthenticated)

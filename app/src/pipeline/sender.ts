@@ -68,7 +68,7 @@ export function buildFromAddress(email: string, senderName?: string | null): str
  * exists (Cloudflare Email Routing is configured for the default below);
  * never depends on a config call.
  */
-export function trackedReplyToForTask(task: ReminderTask | null): string | undefined {
+export function trackedReplyToForTask(task: { invoice_id: number } | null): string | undefined {
   if (!task) return undefined;
   const domain = process.env.REPLY_DOMAIN || "replies.getcollectionscopilot.com";
   return `reply+${task.invoice_id}@${domain}`;
