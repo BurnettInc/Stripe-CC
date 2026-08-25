@@ -44,7 +44,7 @@ export function corsHeadersFor(req: Request): Record<string, string> {
       "Access-Control-Allow-Origin": origin,
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, X-Stripe-Mode",
       "Vary": "Origin",
     };
   }

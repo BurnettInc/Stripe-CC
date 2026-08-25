@@ -79,6 +79,14 @@ async function main(): Promise<void> {
     check(`OPTIONS /subscription echoes ${origin}`, acao === origin, `acao=${acao}`);
     const methods = res.headers.get("access-control-allow-methods");
     check(`OPTIONS /subscription methods for ${origin}`, methods === "GET, POST, PUT, OPTIONS", `methods=${methods}`);
+    // The drawer sends a custom X-Stripe-Mode header on EVERY request (api.ts:
+    // apiFetch always sets it). The preflight MUST allow it or the browser
+    // blocks the request with "Request header field x-stripe-mode is not
+    // allowed by Access-Control-Allow-Headers" -> net::ERR_FAILED -> the
+    // drawer shows "Failed to fetch". This is a live regression guard.
+    const headers = res.headers.get("access-control-allow-headers");
+    check(`OPTIONS /subscription allow-headers includes X-Stripe-Mode for ${origin}`,
+      !!headers && headers.includes("X-Stripe-Mode"), `headers=${headers}`);
   }
   for (const origin of DENIED) {
     const res = await fetch(`${BASE}/subscription`, {
