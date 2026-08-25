@@ -38,6 +38,8 @@ function setSubscription(tier: "standard" | "pro" | null): void {
   if (existing) {
     if (tier === null) {
       d.run("UPDATE subscriptions SET status='cancelled' WHERE merchant_id=1");
+      // Free phase = out-of-trial free merchant (age past the 30-day trial).
+      d.run("UPDATE merchants SET created_at=datetime('now', '-40 days') WHERE id=1");
     } else {
       d.run("UPDATE subscriptions SET status='active', tier=? WHERE merchant_id=1", [tier]);
     }

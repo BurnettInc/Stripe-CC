@@ -39,6 +39,10 @@ function bootstrap() {
   } else {
     d.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (1, 'sub_e2e', 'pro', 'active')");
   }
+  // Merchant 1 is the acct_default placeholder (created fresh, inside the
+  // 30-day full-access free trial). Age it so its free/no-sub phases (e.g.
+  // the 402 upgrade gate) behave like an out-of-trial free merchant.
+  d.run("UPDATE merchants SET created_at=datetime('now', '-40 days') WHERE id=1");
   d.close();
 }
 
