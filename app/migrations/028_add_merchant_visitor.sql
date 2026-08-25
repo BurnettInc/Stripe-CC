@@ -1,0 +1,22 @@
+-- Capture visitor_id on merchants so the admin dashboard can trace a landing
+-- page visitor (page_visits.visitor_id) all the way to the merchant they
+-- became — the owner's admin-dashboard asks (#8, 2026-08-25). Applied once
+-- via the schema_migrations tracker (same pattern as 016/017's ADD COLUMN:
+-- SQLite has no ADD COLUMN IF NOT EXISTS, so a re-run fails loudly with
+-- "duplicate column name" rather than silently corrupting anything).
+--
+-- How the join works across time:
+--   * GOING FORWARD: whoever produces the merchant is expected to stamp
+--     `visitor_id` here at connect time (the OAuth install callback — the
+--     site's tracking snippet keeps the value in localStorage `cc_vid`; the
+--     install URL carries it). /admin/data then joins page_visits.visitor_id
+--     -> merchants.visitor_id directly. That capture lives in the connect
+--     route (out of this admin-only change's scope) — this migration only
+--     makes the column exist to receive it.
+--   * HISTORICAL: for rows created before capture existed, /admin/data bridges
+--     through the (now-removed) waitlist table — waitlist rows carry both
+--     visitor_id and email, and merchants carry email — so a visitor who also
+--     signed the waitlist with the same email they later connected with can
+--     be traced. See conversions() in routes/admin.ts.
+ALTER TABLE merchants ADD COLUMN visitor_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_merchants_visitor ON merchants(visitor_id);

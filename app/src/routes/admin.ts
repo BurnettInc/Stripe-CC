@@ -209,8 +209,52 @@ function merchantsList(db: Database) {
       draft_count: Number(r.draft_count ?? 0),
       invoice_count: Number(r.invoice_count ?? 0),
       last_activity: lastActivity,
+      visitor_id: typeof r.visitor_id === "string" && r.visitor_id ? r.visitor_id : "",
     };
   });
+}
+
+/**
+ * Visitor → merchant conversion map (owner admin ask #8, 2026-08-25): which
+ * landing-page visitor_id later became which merchant, so the "Recent visits"
+ * table isn't a dead-end list of UUIDs. Returns an object keyed by visitor_id,
+ * each value being a list of {merchant_id, email} for every merchant that
+ * visitor became (one visitor can connect multiple Stripe accounts — one per
+ * merchant row).
+ *
+ * Sources, in order:
+ *   1. Direct: merchants.visitor_id (migration 028) — populated going forward
+ *      by connect-time capture. Populated only for future connects today.
+ *   2. Historical bridge: the waitlist table carries both visitor_id and email,
+ *      and merchants carry email — join on normalized email so a visitor who
+ *      also signed the (since-removed) waitlist with the same address they
+ *      later connected with can be traced back. Honest limitation: historical
+ *      rows can only be traced for visitors who both signed the waitlist AND
+ *      connected with the same email; everyone else's prior visits have no
+ *      direct link until connect-time capture is live.
+ */
+function conversions(db: Database): Record<string, Array<{ merchant_id: number; email: string }>> {
+  const byVisitor: Record<string, Array<{ merchant_id: number; email: string }>> = {};
+  const add = (vid: string, merchantId: number, email: string) => {
+    if (!vid) return;
+    (byVisitor[vid] = byVisitor[vid] || []).push({ merchant_id: merchantId, email });
+  };
+  // 1. Direct (going-forward) capture.
+  const direct = db
+    .query("SELECT id, email, visitor_id FROM merchants WHERE visitor_id IS NOT NULL AND visitor_id != ''")
+    .all() as Array<{ id: number; email: string; visitor_id: string }>;
+  for (const m of direct) add(m.visitor_id, m.id, m.email);
+  // 2. Historical waitlist-email bridge.
+  const viaWaitlist = db
+    .query(
+      `SELECT m.id AS merchant_id, m.email AS email, w.visitor_id AS visitor_id
+       FROM merchants m
+       JOIN waitlist w ON lower(trim(w.email)) = lower(trim(m.email))
+       WHERE w.visitor_id IS NOT NULL AND w.visitor_id != ''`
+    )
+    .all() as Array<{ merchant_id: number; email: string; visitor_id: string }>;
+  for (const r of viaWaitlist) add(r.visitor_id, r.merchant_id, r.email);
+  return byVisitor;
 }
 
 /**
@@ -383,6 +427,7 @@ export function handleAdminData(db: Database, req: Request): Response {
     utm_campaigns: utmCampaigns(db),
     subscription_events: subscriptionEvents,
     outcomes: outcomes(db),
+    conversions: conversions(db),
     waitlist: {
       total: countWaitlistSignups(db),
       entries: listWaitlistEntries(db).map(waitlistEntryWithSource),
