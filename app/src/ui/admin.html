@@ -30,17 +30,39 @@
     h1 { font-size: 22px; font-weight: 700; }
     .sub { color: var(--muted); font-size: 13px; }
     .gen { color: var(--muted); font-size: 12px; margin-left: auto; }
-    main { max-width: 1100px; margin: 0 auto; display: grid; gap: 20px; }
+    main { max-width: 1100px; margin: 0 auto; display: grid; gap: 28px; }
+
+    /* ── Section grouping (#11): Growth / Revenue / Product Health ── */
+    .section > .sec-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px; }
+    .section > .sec-head h2 { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+    .section > .sec-head .sec-note { color: var(--muted); font-size: 12px; }
+    .section > .grid { display: grid; gap: 16px; }
+
+    /* ── Funnel (#5) ── */
+    .funnel { display: grid; grid-template-columns: auto 1fr auto 1fr auto; align-items: center; gap: 18px;
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; }
+    .fstep { text-align: center; }
+    .fstep .num { font-size: 34px; font-weight: 800; line-height: 1; }
+    .fstep .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; margin-top: 8px; }
+    .fstep .pct { color: var(--primary); font-size: 13px; font-weight: 700; margin-top: 6px; }
+    .farrow { position: relative; text-align: center; }
+    .farrow .pct { color: var(--success); font-size: 13px; font-weight: 700; margin-bottom: 5px; }
+    .farrow .line { height: 3px; background: linear-gradient(90deg, var(--primary), var(--success)); border-radius: 999px; min-width: 40px; }
+    .fnote { color: var(--muted); font-size: 12px; margin-top: 6px; text-align: center; }
+    .guard { color: var(--warning) !important; }
+
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
     .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
     .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
-    .card .value small { font-size: 14px; color: var(--muted); font-weight: 500; }
+    .card .value small { font-size: 13px; color: var(--muted); font-weight: 500; }
+    .card .value .est { color: var(--warning); font-weight: 500; font-size: 13px; }
     .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-    .panel h2 { font-size: 14px; font-weight: 600; padding: 14px 16px; border-bottom: 1px solid var(--border); color: var(--body); }
+    .panel h3 { font-size: 13px; font-weight: 700; padding: 13px 16px; border-bottom: 1px solid var(--border); color: var(--text); letter-spacing: .02em; }
+    .panel h3 .muted { font-weight: 400; color: var(--muted); text-transform: none; letter-spacing: 0; }
     .panel .scroll { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    thead th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
     td { padding: 10px 12px; border-bottom: 1px solid var(--border-weak, #20242F); color: var(--body); vertical-align: top; }
     tr:last-child td { border-bottom: none; }
     code { background: var(--card-2); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #C4B5FD; }
@@ -54,15 +76,36 @@
     .pill.dev { background: #3A2E0B; color: #FBBF24; }
     .pill.yes { background: #0B2E22; color: #34D399; }
     .pill.no { background: #23272F; color: #6B7280; }
+    .pill.conv { background: #273B2A; color: #86EFAC; }
     .error { background: #3A1D1D; color: #FCA5A5; border: 1px solid #7F1D1D; border-radius: var(--radius); padding: 20px; text-align: center; }
     .empty { color: var(--muted); padding: 18px; text-align: center; }
+    .one-liner { color: var(--body); font-size: 13px; line-height: 1.6; padding: 14px 16px; }
+    .one-liner .muted { color: var(--muted); }
     .muted { color: var(--muted); }
     a { color: #C4B5FD; }
     .barwrap { background: var(--card-2); border-radius: 999px; height: 8px; min-width: 60px; }
     .bar { display: block; height: 8px; border-radius: 999px; background: var(--primary); min-width: 2px; }
     td.bucket { color: var(--text); font-weight: 600; white-space: nowrap; }
     td .hosts { color: var(--muted); font-size: 11px; margin-top: 2px; white-space: normal; word-break: break-all; }
-    .srcnote { padding: 14px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); line-height: 1.5; }
+    .srcnote { padding: 12px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); line-height: 1.5; }
+
+    /* ── Mobile: stacked card layout below 640px (#10) ── */
+    @media (max-width: 640px) {
+      body { padding: 20px 14px 48px; }
+      .funnel { grid-template-columns: 1fr; gap: 8px; padding: 18px; }
+      .farrow { transform: rotate(90deg); margin: 6px auto; }
+      .farrow .line { min-width: 60px; }
+      .cards { grid-template-columns: 1fr 1fr; }
+      .panel .scroll { overflow-x: visible; }
+      table, tbody, tr, td { display: block; width: 100%; }
+      thead { display: none; }
+      .panel tr { background: var(--card-2); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; padding: 6px 4px; }
+      .panel td { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+      .panel td::before { content: attr(data-label); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; flex: 0 0 auto; }
+      .panel td:first-child { padding-top: 12px; }
+      .panel td:last-child { border-bottom: none; }
+      .panel td .hosts { text-align: right; }
+    }
   </style>
 </head>
 <body>
@@ -73,103 +116,92 @@
   </header>
   <main>
     <div id="error" class="error" style="display:none;"></div>
-    <div class="panel" style="padding:14px 16px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
-      <div style="flex:1; min-width:260px;">
-        <div style="font-size:13px; font-weight:600;">Tracking: <span id="trackState">counting your visits</span></div>
-        <div class="muted" style="font-size:12px; margin-top:4px; line-height:1.5;">
-          The landing-page snippet checks <code>cc_skip</code> in this browser's localStorage.
-          Your own visits won't be counted in the funnel while it is set — same origin,
-          so it applies to the live site too.
+
+    <!-- Top-of-page acquisition funnel (#5) -->
+    <div id="funnelWrap" style="display:none;">
+      <div class="funnel" id="funnel">
+        <div class="fstep"><div class="num" id="fVisits">—</div><div class="lbl">Visits</div><div class="pct" id="fVisitsPct"></div></div>
+        <div class="farrow"><div class="pct" id="fVD"></div><div class="line"></div></div>
+        <div class="fstep"><div class="num" id="fDrafts">—</div><div class="lbl">Drafts</div><div class="pct" id="fDraftsPct"></div></div>
+        <div class="farrow"><div class="pct" id="fDP"></div><div class="line"></div></div>
+        <div class="fstep"><div class="num" id="fPaid">—</div><div class="lbl">Paid</div><div class="pct" id="fPaidPct"></div></div>
+      </div>
+      <div class="fnote" id="funnelNote"></div>
+    </div>
+
+    <!-- GROWTH -->
+    <section class="section" id="growthSec" style="display:none;">
+      <div class="sec-head"><h2>Growth</h2><span class="sec-note">acquisition + how visitors become customers</span></div>
+      <div class="grid">
+        <div class="panel">
+          <h3>Visits by source</h3>
+          <div class="scroll"><table>
+            <thead><tr><th>Source</th><th>Where</th><th>Visits (all)</th><th>Visits (7d)</th><th>First-touch visitors</th><th>Share</th></tr></thead>
+            <tbody id="sourceBuckets"></tbody>
+          </table></div>
+          <div class="srcnote">
+            Bucketing: utm_source wins when present; otherwise the referrer host maps to a channel
+            (x, reddit, hackernews, indiehackers, google, bing, duckduckgo, linkedin, referral:&lt;host&gt;); no utm + no referrer = direct.
+            First-touch = each visitor is counted once, under the source of their very first visit.
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Recent visits (last 50) <span class="muted">— a <span class="pill conv">→ merchant</span> tag means that visitor later connected</span></h3>
+          <div class="scroll"><table>
+            <thead><tr><th>Time (local)</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM source</th></tr></thead>
+            <tbody id="visits"></tbody>
+          </table></div>
         </div>
       </div>
-      <button id="skipToggle" type="button" style="background:var(--card-2); border:1px solid var(--border); color:var(--text); padding:8px 14px; border-radius:8px; font-size:13px; cursor:pointer; font-weight:600;">Stop counting my visits</button>
-    </div>
-    <div class="cards" id="funnel"></div>
-    <div class="panel" id="outcomesPanel" style="display:none;">
-      <h2>Outcomes <span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0;">— recovery &amp; response rate (all-time)</span></h2>
-      <div class="cards" id="outcomeCards"></div>
-      <div class="muted" style="font-size:12px; line-height:1.6; padding:0 2px 10px;" id="outcomeNote"></div>
-      <div class="scroll"><table>
-        <thead><tr><th>Merchant</th><th>Email</th><th>Stripe acct</th><th>Recovered</th><th>Invoices</th><th>Avg days to payment</th></tr></thead>
-        <tbody id="outcomeMerchants"></tbody>
-      </table></div>
-    </div>
-    <div class="panel">
-      <h2>Visits by source</h2>
-      <div class="scroll"><table>
-        <thead><tr><th>Source</th><th>Referrer(s)</th><th>Visits (all-time)</th><th>Visits (7d)</th><th>First-touch visitors</th><th style="min-width:120px;">Share</th></tr></thead>
-        <tbody id="sourceBuckets"></tbody>
-      </table></div>
-      <div class="srcnote">
-        Bucketing: utm_source wins when present; otherwise the referrer host maps to a channel
-        (x, reddit, hackernews, indiehackers, google, bing, duckduckgo, linkedin, referral:&lt;host&gt;); no utm + no referrer = direct.
-        The Referrer(s) column shows the channel's friendly name with the raw referrer host(s) that landed there underneath
-        (muted, e.g. "t.co" for X / Twitter) — the Recent visits table below carries the full referrer URL and every UTM value
-        (source / medium / campaign / content) behind each visit, and the UTM campaigns table rolls visits up per utm_campaign.
-        First-touch = each visitor is counted once, under the source of their very first visit.
+    </section>
+
+    <!-- REVENUE -->
+    <section class="section" id="revenueSec" style="display:none;">
+      <div class="sec-head"><h2>Revenue</h2><span class="sec-note">what paying customers contribute</span></div>
+      <div class="grid">
+        <div class="cards" id="revCards"></div>
+        <div class="panel">
+          <h3>Merchants <span class="muted">— plan, when they joined, activity, estimated revenue</span></h3>
+          <div class="scroll"><table>
+            <thead><tr>
+              <th>Merchant</th><th>Plan</th><th>Status</th><th>Signup</th><th>Last activity</th><th>Revenue (est.)</th>
+            </tr></thead>
+            <tbody id="merchants"></tbody>
+          </table></div>
+        </div>
+        <div class="panel">
+          <h3>Subscription events (last 50)</h3>
+          <div class="scroll"><table>
+            <thead><tr><th>Time (UTC)</th><th>Merchant</th><th>Event</th><th>Tier</th><th>Status</th><th>Stripe sub id</th></tr></thead>
+            <tbody id="subEvents"></tbody>
+          </table></div>
+        </div>
       </div>
-    </div>
-    <div class="panel">
-      <h2>Recent visits (last 50)</h2>
-      <div class="scroll"><table>
-        <thead><tr><th>Time (local)</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM source</th><th>UTM medium</th><th>UTM campaign</th><th>UTM content</th></tr></thead>
-        <tbody id="visits"></tbody>
-      </table></div>
-    </div>
-    <div class="panel" id="utmCampaignsPanel" style="display:none;">
-      <h2>UTM campaigns</h2>
-      <div class="scroll"><table>
-        <thead><tr><th>Campaign</th><th>Medium</th><th>Visits</th><th>Visits (7d)</th><th>First-touch visitors</th></tr></thead>
-        <tbody id="utmCampaigns"></tbody>
-      </table></div>
-    </div>
-    <div class="panel">
-      <h2>Merchants</h2>
-      <div class="scroll"><table>
-        <thead><tr>
-          <th>ID</th><th>Email</th><th>Stripe acct</th><th>Plan</th><th>Sub status</th>
-          <th>Created</th><th>First draft</th><th>Drafts</th><th>Invoices</th><th>Last activity</th><th>Flags</th>
-        </tr></thead>
-        <tbody id="merchants"></tbody>
-      </table></div>
-    </div>
-    <div class="panel">
-      <h2>Subscription events (last 50)</h2>
-      <div class="scroll"><table>
-        <thead><tr><th>Time (UTC)</th><th>Merchant</th><th>Event</th><th>Tier</th><th>Status</th><th>Stripe sub id</th></tr></thead>
-        <tbody id="subEvents"></tbody>
-      </table></div>
-    </div>
-    <div class="panel">
-      <h2>Waitlist signups <span class="muted" style="font-weight:400; text-transform:none; letter-spacing:0;">(latest 500)</span></h2>
-      <div class="scroll"><table>
-        <thead><tr><th>ID</th><th>Email</th><th>Source</th><th>Joined (local)</th></tr></thead>
-        <tbody id="waitlist"></tbody>
-      </table></div>
-    </div>
+    </section>
+
+    <!-- PRODUCT HEALTH -->
+    <section class="section" id="healthSec" style="display:none;">
+      <div class="sec-head"><h2>Product Health</h2><span class="sec-note">recovery + response outcomes (all-time)</span></div>
+      <div class="grid">
+        <div class="cards" id="outcomeCards"></div>
+        <div class="panel">
+          <div class="one-liner" id="outcomeLine"><span class="muted">Loading…</span></div>
+        </div>
+      </div>
+    </section>
   </main>
   <script>
     // __CC_ADMIN_TOKEN__ is replaced at serve time (GET /admin) with the real
     // ADMIN_TOKEN — the page can then call /admin/data with it.
     var TOKEN = "__CC_ADMIN_TOKEN__";
-    // Own-visit skip toggle: writes/clears localStorage cc_skip on this origin
-    // (same origin as the landing-page tracking snippet, so it takes effect on
-    // the live site immediately). No page reload — state updates in place.
-    function refreshSkipUI() {
-      var skipped = localStorage.getItem("cc_skip") === "1";
-      document.getElementById("trackState").textContent = skipped
-        ? "skipped — your visits are NOT counted"
-        : "counting your visits";
-      document.getElementById("skipToggle").textContent = skipped
-        ? "Count my visits again"
-        : "Stop counting my visits";
-    }
-    document.getElementById("skipToggle").addEventListener("click", function () {
-      if (localStorage.getItem("cc_skip") === "1") localStorage.removeItem("cc_skip");
-      else localStorage.setItem("cc_skip", "1");
-      refreshSkipUI();
-    });
-    refreshSkipUI();
+    var PRICES = { standard: 15, pro: 29 }; // $/mo (billing.ts monthly prices)
+    // Minimum sample sizes before showing a rate/pct (#9): at least 5 reminder
+    // emails must have gone out to show a response %, and at least 1 recovered
+    // invoice before showing days-to-payment. Below that we show a guard message
+    // instead of a misleading 0%.
+    var MIN_REMINDERS_FOR_RATE = 5;
+    var MIN_RECOVERED_FOR_DAYS = 1;
+
     function esc(s) {
       if (s === null || s === undefined) return '<span class="muted">—</span>';
       return String(s).replace(/[&<>"']/g, function (c) {
@@ -186,8 +218,6 @@
       if (!iso) return '<span class="muted">—</span>';
       return esc(String(iso).replace("T", " ").replace(/\.\d{3}Z$/, "Z"));
     }
-    // Waitlist created_at is stored in SQLite format "YYYY-MM-DD HH:MM:SS" (UTC);
-    // render it as readable local browser time (ISO strings parse as-is).
     function localT(ts) {
       if (!ts) return '<span class="muted">—</span>';
       var s = String(ts);
@@ -196,10 +226,46 @@
       if (isNaN(d.getTime())) return esc(String(ts));
       return esc(d.toLocaleString());
     }
+    function card(label, value, hint) {
+      return '<div class="card"><div class="label">' + esc(label) + '</div><div class="value">' + value +
+        (hint ? " <small>" + hint + "</small>" : "") + "</div></div>";
+    }
+    function fmtMoney(cents, currency) {
+      try {
+        return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "usd" })
+          .format((cents || 0) / 100);
+      } catch (e) {
+        return ((cents || 0) / 100) + " " + (currency || "usd");
+      }
+    }
+    function fmtUsd(amount) {
+      return new Intl.NumberFormat(undefined, { style: "currency", currency: "usd" }).format(amount || 0);
+    }
+    function pct(n, d) {
+      if (!d) return null;
+      return Math.round((n / d) * 1000) / 10; // one decimal, % unit
+    }
+    function guardMsg() { return '<span class="guard">not enough data yet</span>'; }
     function onErr(msg) {
       document.getElementById("error").style.display = "block";
       document.getElementById("error").textContent = msg;
     }
+
+    // After every table is populated, stamp each <td> with its column label so
+    // the <640px stacked layout can render it (::before content attr(data-label)).
+    function labelAll(container) {
+      var panels = container.querySelectorAll("table");
+      panels.forEach(function (tbl) {
+        var heads = Array.prototype.slice.call(tbl.querySelectorAll("thead th"));
+        heads.forEach(function (th, i) {
+          tbl.querySelectorAll("tbody tr").forEach(function (tr) {
+            var td = tr.querySelectorAll("td")[i];
+            if (td) td.setAttribute("data-label", th.textContent.trim());
+          });
+        });
+      });
+    }
+
     fetch("/admin/data?token=" + encodeURIComponent(TOKEN))
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (res) {
@@ -207,138 +273,73 @@
         var d = res.d;
         document.getElementById("gen").textContent = "generated " + d.generated_at + " UTC";
         var f = d.funnel;
-        document.getElementById("funnel").innerHTML =
-          card("Visits 24h", f.visits_24h) + card("Visits 7d", f.visits_7d) + card("Visits total", f.visits_total) +
-          card("Connects 24h", f.connects_24h) + card("Connects 7d", f.connects_7d) + card("Connects total", f.connects_total) +
-          card("Merchants", f.merchants_total) +
-          card("Drafts 7d", f.drafts_created_7d) + card("Drafts total", f.drafts_created_total) +
-          card("Paid active", f.paid_active.standard + f.paid_active.pro + f.dev_pro,
-            "std " + f.paid_active.standard + " · pro " + f.paid_active.pro + " · devPro " + f.dev_pro) +
-          card("Subs cancelled", f.subs_cancelled) + card("Subs past due", f.subs_past_due) +
-          card("Waitlist signups", d.waitlist.total);
-        // ── Outcomes: recovery & response rate (migration 020) ──
-        var o = d.outcomes;
-        if (o) {
-          var recStr = o.recovery.by_currency.length
-            ? o.recovery.by_currency.map(function (b) { return fmtMoney(b.cents, b.currency); }).join(" + ")
-            : "$0";
-          var rateStr = o.response.response_rate_pct === null ? "—" : o.response.response_rate_pct + "%";
-          var reminderStr = o.recovery.reminder_sent_rate === null
-            ? "—"
-            : o.recovery.reminder_sent_count + " of " + o.recovery.invoices_recovered +
-              " (" + Math.round(o.recovery.reminder_sent_rate * 100) + "%)";
-          if (o.recovery.invoices_recovered > 0 || o.response.reminders_sent > 0) {
-            document.getElementById("outcomesPanel").style.display = "";
-          }
-          document.getElementById("outcomeCards").innerHTML =
-            card("Dollars recovered", recStr) +
-            card("Recovered invoices", o.recovery.invoices_recovered) +
-            card("Avg days to payment", o.recovery.avg_days_to_payment === null ? "—" : o.recovery.avg_days_to_payment) +
-            card("Median days to payment", o.recovery.median_days_to_payment === null ? "—" : o.recovery.median_days_to_payment) +
-            card("Response rate", rateStr, o.response.replies + " replies / " + o.response.reminders_sent + " reminders sent") +
-            card("Reminder sent before payment", reminderStr);
-          var stageNote = o.recovery.stage_reached
-            .map(function (s) { return "stage " + s.s + ": " + s.n; })
-            .join(" · ");
-          var srcNote = o.recovery.by_source
-            .map(function (s) { return s.source + ": " + s.n; })
-            .join(" · ");
-          document.getElementById("outcomeNote").textContent =
-            "Recovery events: recorded automatically when an invoice that was ever overdue becomes paid (source: " +
-            (srcNote || "none yet") + "). Stage reached: " + (stageNote || "—") + ". " +
-            "A merchant's recovered amount is summed in its own currency; no FX conversion is ever assumed.";
+
+        // ── Funnel (#5): Visits → Drafts → Paid with conversion % ──
+        var visits = f.visits_total;
+        var drafts = f.drafts_created_total;
+        var paid = f.paid_active.standard + f.paid_active.pro + f.dev_pro;
+        document.getElementById("fVisits").textContent = visits;
+        document.getElementById("fDrafts").textContent = drafts;
+        document.getElementById("fPaid").textContent = paid;
+        document.getElementById("fVisitsPct").textContent = "all-time";
+        var vd = pct(drafts, visits);
+        var dp = pct(paid, drafts);
+        var vp = pct(paid, visits);
+        document.getElementById("fVD").textContent = vd === null ? "—" : vd + "%";
+        document.getElementById("fDP").textContent = dp === null ? "—" : dp + "%";
+        document.getElementById("fPaidPct").textContent = vp === null ? "—" : vp + "% overall";
+        document.getElementById("funnelNote").textContent =
+          "All-time funnel: " + visits + " visits → " + drafts + " drafts → " + paid +
+          " paying merchant(s). Drafts = draft bodies ever created; Paid = active subs + devPro.";
+        document.getElementById("funnelWrap").style.display = "";
+
+        // ── Revenue: MRR (#6) + plan counts ──
+        var std = f.paid_active.standard, pro = f.paid_active.pro, dev = f.dev_pro;
+        var firm = std * PRICES.standard + pro * PRICES.pro;     // grounded ($15/$29 monthly)
+        var devEst = dev * PRICES.pro;                            // devPro @ pro price — estimate
+        var total = firm + devEst;
+        var estNote = "std " + std + "×$15 + pro " + pro + "×$29 /mo";
+        if (dev > 0) {
+          estNote += " + " + dev + " dev×$29 est";
         }
-        var oT = document.getElementById("outcomeMerchants");
-        if (o && !o.per_merchant.length) {
-          oT.innerHTML = '<tr><td colspan="6" class="empty">No recovery events yet — recorded automatically when an overdue invoice is paid</td></tr>';
-        } else if (o) {
-          o.per_merchant.forEach(function (m) {
-            var row = document.createElement("tr");
-            row.innerHTML =
-              "<td><code>" + esc(m.merchant_id) + "</code></td>" +
-              "<td>" + esc(m.email) + "</td>" +
-              "<td><code>" + esc(m.stripe_account_id) + "</code></td>" +
-              "<td>" + fmtMoney(m.recovered_cents, m.currency) + "</td>" +
-              "<td>" + esc(m.recovered_count) + "</td>" +
-              "<td>" + (m.avg_days === null ? '<span class="muted">—</span>' : esc(Math.round(m.avg_days * 10) / 10)) + "</td>";
-            oT.appendChild(row);
-          });
-        }
-        var sT = document.getElementById("sourceBuckets");
-        if (!d.visits_by_source || !d.visits_by_source.length) {
-          sT.innerHTML = '<tr><td colspan="6" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>';
-        } else {
-          var maxTotal = d.visits_by_source.reduce(function (m, b) { return Math.max(m, b.visits_total); }, 1);
-          d.visits_by_source.forEach(function (b) {
-            var pct = Math.max(2, Math.round(100 * b.visits_total / maxTotal));
-            // Referrer(s) cell: friendly display name on top (the bucket itself
-            // for unmapped referral:<host> buckets — it's already the host),
-            // raw referrer host(s) underneath in muted small text.
-            var srcName = b.bucket.indexOf("referral:") === 0 ? b.bucket : (b.display || b.bucket);
-            var hostsHtml = b.hosts && b.hosts.length
-              ? '<div class="hosts">' + esc(b.hosts.join(", ")) + "</div>"
-              : '<div class="hosts">—</div>';
-            var row = document.createElement("tr");
-            row.innerHTML =
-              "<td class=\"bucket\">" + esc(b.bucket) + "</td>" +
-              "<td>" + esc(srcName) + hostsHtml + "</td>" +
-              "<td>" + esc(b.visits_total) + "</td>" +
-              "<td>" + esc(b.visits_7d) + "</td>" +
-              "<td>" + esc(b.first_touch_visitors) + "</td>" +
-              "<td><div class=\"barwrap\" title=\"" + esc(b.visits_total) + " visits\"><span class=\"bar\" style=\"width:" + pct + "%\"></span></div></td>";
-            sT.appendChild(row);
-          });
-        }
+        document.getElementById("revCards").innerHTML =
+          card("MRR (monthly)", '<span class="est">~</span>' + fmtUsd(total), estNote) +
+          card("Paid subscriptions", std + pro, "std " + std + " · pro " + pro) +
+          card("Dev (non-paying)", dev, "included in MRR as ~$29 est each") +
+          card("Cancelled / past due", f.subs_cancelled + f.subs_past_due,
+            f.subs_cancelled + " cancelled · " + f.subs_past_due + " past due");
+        document.getElementById("revenueSec").style.display = "";
+
+        // ── Merchants (#7): plan / signup / last activity / revenue ──
         var mT = document.getElementById("merchants");
-        if (!d.merchants.length) mT.innerHTML = '<tr><td colspan="11" class="empty">No merchants</td></tr>';
+        var recoveredByMerchant = {};
+        var o = d.outcomes;
+        if (o && o.per_merchant) o.per_merchant.forEach(function (pm) { recoveredByMerchant[pm.merchant_id] = pm; });
+        if (!d.merchants.length) mT.innerHTML = '<tr><td colspan="6" class="empty">No merchants</td></tr>';
         d.merchants.forEach(function (m) {
-          var flags = [];
-          if (m.dev_pro) flags.push(pill("dev_pro", "dev"));
-          if (m.placeholder) flags.push(pill("placeholder", "no"));
+          var revPerMo = 0;
+          if (m.sub_status === "active") {
+            var price = m.dev_pro ? PRICES.pro : (PRICES[m.plan] || 0);
+            revPerMo = price || 0;
+          }
+          var rec = recoveredByMerchant[m.id];
+          var revHtml = fmtUsd(revPerMo) + "/mo <small>est.</small>";
+          if (rec && rec.recovered_cents > 0) {
+            revHtml += ' <small class="muted">+ ' + fmtMoney(rec.recovered_cents, rec.currency) +
+              " recovered (" + rec.recovered_count + ")</small>";
+          }
           var row = document.createElement("tr");
           row.innerHTML =
-            "<td>" + esc(m.id) + "</td>" +
-            "<td>" + esc(m.email) + "</td>" +
-            "<td><code>" + esc(m.stripe_account_id) + "</code></td>" +
+            "<td><code>" + esc(m.id) + "</code> " + esc(m.email) + "</td>" +
             "<td>" + pill(m.plan, m.plan) + "</td>" +
             "<td>" + pill(m.sub_status, m.sub_status) + "</td>" +
             "<td>" + t(m.created_at) + "</td>" +
-            "<td>" + t(m.first_draft_at) + "</td>" +
-            "<td>" + esc(m.draft_count) + "</td>" +
-            "<td>" + esc(m.invoice_count) + "</td>" +
             "<td>" + t(m.last_activity) + "</td>" +
-            "<td>" + (flags.length ? flags.join(" ") : pill("—", "no")) + "</td>";
+            "<td>" + revHtml + "</td>";
           mT.appendChild(row);
         });
-        var vT = document.getElementById("visits");
-        if (!d.visits.length) vT.innerHTML = '<tr><td colspan="8" class="empty">No page visits yet</td></tr>';
-        d.visits.forEach(function (v) {
-          var row = document.createElement("tr");
-          row.innerHTML =
-            "<td>" + localT(v.ts) + "</td>" +
-            "<td><code>" + esc(shortId(v.visitor_id)) + "</code></td>" +
-            "<td><code>" + esc(v.page) + "</code></td>" +
-            "<td>" + (v.referrer ? esc(trunc(v.referrer, 60)) : '<span class="muted">—</span>') + "</td>" +
-            "<td>" + (v.utm_source ? esc(v.utm_source) : '<span class="muted">—</span>') + "</td>" +
-            "<td>" + (v.utm_medium ? esc(v.utm_medium) : '<span class="muted">—</span>') + "</td>" +
-            "<td>" + (v.utm_campaign ? esc(v.utm_campaign) : '<span class="muted">—</span>') + "</td>" +
-            "<td>" + (v.utm_content ? esc(v.utm_content) : '<span class="muted">—</span>') + "</td>";
-          vT.appendChild(row);
-        });
-        var uT = document.getElementById("utmCampaigns");
-        if (d.utm_campaigns && d.utm_campaigns.length) {
-          document.getElementById("utmCampaignsPanel").style.display = "";
-          d.utm_campaigns.forEach(function (c) {
-            var row = document.createElement("tr");
-            row.innerHTML =
-              "<td class=\"bucket\">" + esc(c.campaign) + "</td>" +
-              "<td>" + (c.medium ? esc(c.medium) : '<span class="muted">—</span>') + "</td>" +
-              "<td>" + esc(c.visits_total) + "</td>" +
-              "<td>" + esc(c.visits_7d) + "</td>" +
-              "<td>" + esc(c.first_touch_visitors) + "</td>";
-            uT.appendChild(row);
-          });
-        }
+
+        // ── Subscription events ──
         var eT = document.getElementById("subEvents");
         if (!d.subscription_events.length) eT.innerHTML = '<tr><td colspan="6" class="empty">No subscription events yet</td></tr>';
         d.subscription_events.forEach(function (e) {
@@ -352,41 +353,116 @@
             "<td><code>" + esc(e.stripe_subscription_id) + "</code></td>";
           eT.appendChild(row);
         });
-        var wT = document.getElementById("waitlist");
-        if (!d.waitlist.entries.length) {
-          wT.innerHTML = '<tr><td colspan="4" class="empty">No waitlist signups yet</td></tr>';
+
+        // ── Visits by source ──
+        var sT = document.getElementById("sourceBuckets");
+        if (!d.visits_by_source || !d.visits_by_source.length) {
+          sT.innerHTML = '<tr><td colspan="6" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>';
+        } else {
+          var maxTotal = d.visits_by_source.reduce(function (m, b) { return Math.max(m, b.visits_total); }, 1);
+          d.visits_by_source.forEach(function (b) {
+            var pctWidth = Math.max(2, Math.round(100 * b.visits_total / maxTotal));
+            var srcName = b.bucket.indexOf("referral:") === 0 ? b.bucket : (b.display || b.bucket);
+            var hostsHtml = b.hosts && b.hosts.length
+              ? '<div class="hosts">' + esc(b.hosts.join(", ")) + "</div>"
+              : '<div class="hosts">—</div>';
+            var row = document.createElement("tr");
+            row.innerHTML =
+              "<td class=\"bucket\">" + esc(b.bucket) + "</td>" +
+              "<td>" + esc(srcName) + hostsHtml + "</td>" +
+              "<td>" + esc(b.visits_total) + "</td>" +
+              "<td>" + esc(b.visits_7d) + "</td>" +
+              "<td>" + esc(b.first_touch_visitors) + "</td>" +
+              "<td><div class=\"barwrap\" title=\"" + esc(b.visits_total) + " visits\"><span class=\"bar\" style=\"width:" + pctWidth + "%\"></span></div></td>";
+            sT.appendChild(row);
+          });
         }
-        d.waitlist.entries.forEach(function (e) {
-          // Source cell mirrors the visits-by-source Referrer(s) column: friendly
-          // display name on top (the bucket itself for unmapped referral:<host>
-          // buckets — it's already the host), raw referrer host(s) underneath in
-          // muted small text; direct entries show no host line.
-          var srcName = e.source_bucket.indexOf("referral:") === 0 ? e.source_bucket : (e.display || e.source_bucket);
-          var hostsHtml = e.hosts && e.hosts.length
-            ? '<div class="hosts">' + esc(e.hosts.join(", ")) + "</div>"
-            : "";
+
+        // ── Recent visits with conversion tag (#8) ──
+        var vT = document.getElementById("visits");
+        var conv = d.conversions || {};
+        if (!d.visits.length) vT.innerHTML = '<tr><td colspan="5" class="empty">No page visits yet</td></tr>';
+        d.visits.forEach(function (v) {
+          var matched = conv[v.visitor_id] || [];
+          var convHtml = "";
+          if (matched.length) {
+            var tags = matched.map(function (m) {
+              return '<span class="pill conv">→ merchant ' + esc(m.merchant_id) + " · " + esc(m.email) + "</span>";
+            }).join(" ");
+            convHtml = '<div style="margin-top:4px;">' + tags + "</div>";
+          }
           var row = document.createElement("tr");
           row.innerHTML =
-            "<td><code>" + esc(e.id) + "</code></td>" +
-            "<td>" + esc(e.email) + "</td>" +
-            "<td>" + esc(srcName) + hostsHtml + "</td>" +
-            "<td>" + localT(e.created_at) + "</td>";
-          wT.appendChild(row);
+            "<td>" + localT(v.ts) + "</td>" +
+            "<td><code>" + esc(shortId(v.visitor_id)) + "</code>" + convHtml + "</td>" +
+            "<td><code>" + esc(v.page) + "</code></td>" +
+            "<td>" + (v.referrer ? esc(trunc(v.referrer, 60)) : '<span class="muted">—</span>') + "</td>" +
+            "<td>" + (v.utm_source ? esc(v.utm_source) : '<span class="muted">—</span>') + "</td>";
+          vT.appendChild(row);
         });
+        var convCount = Object.keys(conv).length;
+        if (convCount === 0) {
+          document.getElementById("visits").parentElement.querySelector("h3").querySelector(".muted").innerHTML =
+            "— no visitor has been traced to a merchant yet (trace works once a visitor who signed the waitlist connects with the same email, or once connect-time capture is live)";
+        }
+
+        // ── Product health: recovery + response, with sample-size guards (#9) ──
+        if (o) {
+          var recStr = o.recovery.by_currency.length
+            ? o.recovery.by_currency.map(function (b) { return fmtMoney(b.cents, b.currency); }).join(" + ")
+            : "$0";
+          var rateHtml, rateHint;
+          if (o.response.reminders_sent >= MIN_REMINDERS_FOR_RATE) {
+            rateHtml = (o.response.response_rate_pct === null ? "—" : o.response.response_rate_pct + "%");
+            rateHint = o.response.replies + " replies / " + o.response.reminders_sent + " reminders sent";
+          } else {
+            rateHtml = guardMsg();
+            rateHint = "needs ≥" + MIN_REMINDERS_FOR_RATE + " reminders sent (currently " + o.response.reminders_sent + ")";
+          }
+          var daysHtml, daysHint;
+          if (o.recovery.invoices_recovered >= MIN_RECOVERED_FOR_DAYS && o.recovery.avg_days_to_payment !== null) {
+            daysHtml = esc(Math.round(o.recovery.avg_days_to_payment * 10) / 10);
+            daysHint = "median " + (o.recovery.median_days_to_payment == null ? "—" : o.recovery.median_days_to_payment) + " days";
+          } else {
+            daysHtml = guardMsg();
+            daysHint = "needs ≥" + MIN_RECOVERED_FOR_DAYS + " recovered invoice" + (MIN_RECOVERED_FOR_DAYS > 1 ? "s" : "");
+          }
+          var remHtml, remHint;
+          if (o.recovery.invoices_recovered >= MIN_RECOVERED_FOR_DAYS) {
+            remHtml = o.recovery.reminder_sent_rate === null
+              ? "—"
+              : o.recovery.reminder_sent_count + " of " + o.recovery.invoices_recovered +
+                " (" + Math.round(o.recovery.reminder_sent_rate * 100) + "%)";
+            remHint = "had a reminder before payment";
+          } else {
+            remHtml = guardMsg();
+            remHint = "needs ≥" + MIN_RECOVERED_FOR_DAYS + " recovered invoice";
+          }
+          document.getElementById("outcomeCards").innerHTML =
+            card("Dollars recovered", recStr) +
+            card("Recovered invoices", o.recovery.invoices_recovered) +
+            card("Avg days to payment", daysHtml, daysHint) +
+            card("Response rate", rateHtml, rateHint) +
+            card("Reminder before payment", remHtml, remHint);
+          // One short line (#4) — no empty-state table, no long narration.
+          if (o.recovery.invoices_recovered > 0) {
+            document.getElementById("outcomeLine").innerHTML =
+              "Recovered " + esc(o.recovery.invoices_recovered) + " invoice(s) totaling " + recStr +
+              " (avg " + (o.recovery.avg_days_to_payment === null ? "—" : Math.round(o.recovery.avg_days_to_payment * 10) / 10) +
+              " days to payment).";
+          } else {
+            document.getElementById("outcomeLine").innerHTML =
+              '<span class="muted">No recovery events yet — recorded automatically once an overdue invoice is paid.</span>';
+          }
+          document.getElementById("healthSec").style.display = "";
+        }
+
+        // ── Section visibility + mobile labels ──
+        document.getElementById("growthSec").style.display = "";
+        labelAll(document.getElementById("growthSec"));
+        labelAll(document.getElementById("revenueSec"));
       })
       .catch(function (err) { onErr("Failed to load admin data: " + err.message); });
-    function card(label, value, hint) {
-      return '<div class="card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(value) +
-        (hint ? " <small>" + esc(hint) + "</small>" : "") + "</div></div>";
-    }
-    function fmtMoney(cents, currency) {
-      try {
-        return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "usd" })
-          .format((cents || 0) / 100);
-      } catch (e) {
-        return ((cents || 0) / 100) + " " + (currency || "usd");
-      }
-    }
   </script>
 </body>
 </html>
