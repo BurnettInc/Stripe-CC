@@ -374,6 +374,43 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   check("(g) cancelled-latest sequence never resurrected", m11Latest.stage === 1 && m11Latest.status === "cancelled", `stage=${m11Latest.stage} status=${m11Latest.status}`);
   check("(g) advance pass reports the advances", rg.advanced === 3, `advanced=${rg.advanced}`);
 }
+// ════════════════════════════════════════════════════════════════════════
+// (g2) manual per-invoice stage override (migration 031) — layered on auto
+//      progression: the advance pass computes expected = stage_override ?? auto
+// ════════════════════════════════════════════════════════════════════════
+{
+  // s1: 40 days overdue (auto stage 3) with override pinned to 2 → the advance
+  // creates the next task AT stage 2 (createTaskForOverdueInvoice honors the
+  // same override), never at the auto stage 3 (hold-back use case).
+  const s1 = seedMerchant("acct_s1", { trustMode: "draft" });
+  seedStandardSub(s1, "standard");
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, stage_override) VALUES ('in_s1_pin', ?, 'S1', 's1@example.com', 21000, 'usd', ?, 'overdue', 2)", [s1, sqliteFromDate(new Date(FAKE_NOW.getTime() - 40 * DAY_MS)).slice(0, 10)]);
+  const s1Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_s1_pin'").get() as { id: number };
+  createReminderTask(db, s1Inv.id, 1);
+  // s2: 40 days overdue (auto stage 3) with override pinned to 1 → hold back:
+  // the pass must NOT advance the stage-2 task (expected 1 <= latest 2).
+  const s2 = seedMerchant("acct_s2", { trustMode: "draft" });
+  seedStandardSub(s2, "standard");
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, stage_override) VALUES ('in_s2_hold', ?, 'S2', 's2@example.com', 22000, 'usd', ?, 'overdue', 1)", [s2, sqliteFromDate(new Date(FAKE_NOW.getTime() - 40 * DAY_MS)).slice(0, 10)]);
+  const s2Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_s2_hold'").get() as { id: number };
+  createReminderTask(db, s2Inv.id, 2);
+  // s3: 25 days overdue (auto stage 2) with override pinned to 3 → escalate
+  // early: the pass jump-stages straight to stage 3.
+  const s3 = seedMerchant("acct_s3", { trustMode: "draft" });
+  seedStandardSub(s3, "standard");
+  db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, stage_override) VALUES ('in_s3_jmp', ?, 'S3', 's3@example.com', 23000, 'usd', ?, 'overdue', 3)", [s3, sqliteFromDate(new Date(FAKE_NOW.getTime() - 25 * DAY_MS)).slice(0, 10)]);
+  const s3Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_s3_jmp'").get() as { id: number };
+  createReminderTask(db, s3Inv.id, 1);
+
+  const rg2 = await sched.runEscalationAdvancePass(db, { now: fakeNow, log: () => {} });
+  const s1Latest = latestTaskForInvoice(s1Inv.id) as { stage: number; status: string };
+  check("(g2) override pins stage: 40d auto-3 invoice advanced to stage 2, not 3", s1Latest.stage === 2 && s1Latest.status === "reviewed", `stage=${s1Latest.stage} status=${s1Latest.status}`);
+  const s2Latest = latestTaskForInvoice(s2Inv.id) as { stage: number };
+  check("(g2) override holds back: 40d auto-3 invoice pinned to stage 1 never advanced", s2Latest.stage === 2 && taskCount(s2) === 1, `stage=${s2Latest.stage}`);
+  const s3Latest = latestTaskForInvoice(s3Inv.id) as { stage: number; status: string };
+  check("(g2) override escalate-early: 25d auto-2 invoice jump-staged to 3", s3Latest.stage === 3 && s3Latest.status === "reviewed", `stage=${s3Latest.stage} status=${s3Latest.status}`);
+  check("(g2) advance pass reports exactly the overridden advances", rg2.advanced === 2, `advanced=${rg2.advanced}`);
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // (h) weekly summary — paid gate + 7-day cadence + placeholder skip

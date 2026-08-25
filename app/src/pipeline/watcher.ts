@@ -167,7 +167,10 @@ export async function createTaskForOverdueInvoice(
   const timing = db
     .query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?")
     .get(merchantId) as { stage1_days: number; stage2_days: number } | null;
-  const stage = getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+  // Manual per-invoice stage override (migration 031) layers on top of auto
+  // progression: an override PINS the effective stage while set; NULL keeps
+  // the automatic days-overdue calculation.
+  const stage = invoice.stage_override ?? getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
 
   const limit = invoiceLimitFor(db, merchantId);
   let overdueBefore = opts.overdueBefore;

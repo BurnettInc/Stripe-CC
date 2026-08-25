@@ -137,6 +137,46 @@
       text-transform: uppercase; white-space: nowrap; vertical-align: middle;
     }
     .pill-muted { background: #F3F4F6; color: var(--muted); }
+    .pill-manual { background: var(--primary-light); color: var(--primary-hover); border-color: var(--primary-lighter); }
+
+    /* ── Email viewer on /reminders (expandable full sent content) ── */
+    .cell-toggle { width: 1%; white-space: nowrap; }
+    .email-toggle {
+      display: inline-block; padding: 5px 12px; border-radius: 9999px;
+      border: 1px solid var(--border-strong); background: #fff;
+      font-size: 0.72rem; font-weight: 700; color: var(--primary);
+      cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    .email-toggle:hover { background: var(--primary-light); border-color: var(--primary); }
+    .email-body {
+      margin-top: 10px; padding: 12px 14px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      min-width: 420px;
+    }
+    .email-meta { margin-bottom: 10px; }
+    .meta-row { display: flex; gap: 10px; font-size: 0.78rem; padding: 3px 0; }
+    .meta-row dt { color: var(--muted); font-weight: 700; min-width: 74px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.68rem; padding-top: 1px; }
+    .meta-row dd { color: var(--text); word-break: break-all; }
+    .email-pre {
+      margin: 0; padding: 12px 14px;
+      background: #fff; border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem; line-height: 1.55; color: var(--text);
+      white-space: pre-wrap; word-break: break-word;
+    }
+
+    /* ── Stage override control on /past-due ── */
+    .stage-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .stage-override {
+      padding: 5px 8px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong); background: #fff;
+      font-size: 0.75rem; font-weight: 600; color: var(--body);
+      cursor: pointer;
+    }
+    .stage-override:hover { border-color: var(--primary); }
+    .stage-override.is-overridden { border-color: var(--primary); color: var(--primary-hover); }
 
     /* ── Test-send (stub) rows on /reminders are always hidden — the team's
        internal test sends must never be visible to merchants. The row-test
@@ -257,6 +297,53 @@
       // CSS rule `tr.row-test { display: none; }` above — there is no toggle,
       // and the hidden state survives the client-side sort because the rule
       // re-applies to the re-ordered rows.
+    })();
+
+    // Email viewer on /reminders: clicking "View email" toggles the hidden
+    // detail panel (full subject / From / Reply-To / body with CAN-SPAM
+    // footer) inside the same row, so the detail travels with the row during
+    // client-side sorting.
+    (function () {
+      "use strict";
+      document.addEventListener("click", function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest(".email-toggle") : null;
+        if (!btn) return;
+        var id = btn.getAttribute("data-id");
+        if (!id) return;
+        var panel = document.getElementById("emailbody-" + id);
+        if (!panel) return;
+        var open = panel.hidden;
+        panel.hidden = !open;
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        btn.textContent = open ? "Hide email" : "View email";
+      });
+    })();
+
+    // Stage override control on /past-due: changing the per-row select saves
+    // the manual override (or clears it to Auto) via the auth'd endpoint, then
+    // reloads so the row reflects the new effective stage + manual indicator.
+    (function () {
+      "use strict";
+      document.addEventListener("change", function (e) {
+        var sel = e.target && e.target.closest ? e.target.closest(".stage-override") : null;
+        if (!sel) return;
+        var id = sel.getAttribute("data-invoice-id");
+        if (!id) return;
+        var stage = sel.value; // "" = Auto, "1"|"2"|"3" = manual override
+        var prev = sel.getAttribute("data-saved") || "";
+        if (stage === prev) return; // no-op re-select
+        fetch("/invoices/" + id + "/stage", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stage: stage === "" ? null : Number(stage) }),
+        }).then(function (res) {
+          if (res.ok) { window.location.reload(); }
+          else { sel.value = prev; alert("Could not update the escalation stage."); }
+        }).catch(function () {
+          sel.value = prev;
+          alert("Could not update the escalation stage.");
+        });
+      });
     })();
   </script>
 </body>

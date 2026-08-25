@@ -501,7 +501,14 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
         continue;
       }
       const daysOverdue = Math.floor((now.getTime() - new Date(invoice.due_date).getTime()) / DAY_MS);
-      const expected = getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+      const autoStage = getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+      // A manual per-invoice override (migration 031) layers on top of auto
+      // progression: the override pins the expected stage while set (escalate
+      // early or hold back), and clearing it restores pure days-overdue auto
+      // progression. Because createTaskForOverdueInvoice honors the same
+      // override in its own stage computation, the recreated task lands at
+      // exactly this expected stage.
+      const expected = invoice.stage_override ?? autoStage;
       if (expected <= latest.stage) {
         result.alreadyLatest++;
         continue;
