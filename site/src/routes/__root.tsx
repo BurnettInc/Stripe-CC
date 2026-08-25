@@ -70,6 +70,22 @@ function RootDocument({ children }: { children: ReactNode }) {
               "(function(){try{var p=location.pathname;if(localStorage.getItem('cc_skip')==='1')return;if(p==='/support'||p==='/privacy'||p==='/terms'||p==='/admin'||p.indexOf('/support/')===0||p.indexOf('/privacy/')===0||p.indexOf('/terms/')===0||p.indexOf('/admin/')===0)return;var k='cc_vid',v=localStorage.getItem(k);if(!v){v=(crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)}));localStorage.setItem(k,v)}var q=new URLSearchParams(location.search),p2={visitor_id:v,page:p,referrer:document.referrer.slice(0,500),utm_source:q.get('utm_source')||'',utm_medium:q.get('utm_medium')||'',utm_campaign:q.get('utm_campaign')||'',utm_content:q.get('utm_content')||'',ts:new Date().toISOString()},b=new Blob([JSON.stringify(p2)],{type:'application/json'});if(navigator.sendBeacon){navigator.sendBeacon('/api/track',b)}else{var x=new XMLHttpRequest();x.open('POST','/api/track',true);x.send(b)}}catch(e){}})();",
           }}
         />
+        {/* Install CTA visitor attribution (owner 8/25, follow-up to the
+            admin-dashboard visitor→merchant tracing): append the SAME per-browser
+            visitor_id from localStorage `cc_vid` (the tracking snippet above) as
+            ?cc_vid=<id> on every "Connect Stripe" / "Install from the marketplace"
+            CTA that points at the install endpoint, so the visitor is attributed
+            when they become a merchant. Rewrites ALL matching anchors (the
+            landing page has several CTAs wired to INSTALL_URL) — a no-op when no
+            visitor_id exists or no matching anchor is found. The install flow
+            carries the value through to the merchant row (referrer-based tracing —
+            no UTM link changes, per the owner decision). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var v=localStorage.getItem('cc_vid');if(!v)return;var base='https://stripe-cc-production.up.railway.app/oauth/install';function fix(){document.querySelectorAll('a[href]').forEach(function(a){var h=a.getAttribute('href')||'';if(h.indexOf(base)===0){var u=new URL(h);if(!u.searchParams.has('cc_vid')){u.searchParams.set('cc_vid',v);a.setAttribute('href',u.toString())}}})}if(document.readyState!=='loading'){fix()}else{document.addEventListener('DOMContentLoaded',fix)}}catch(e){}})();",
+          }}
+        />
       </head>
       <body>
         {children}

@@ -92,16 +92,32 @@ function normalizeEmail(raw: unknown): string {
   return typeof raw === "string" ? raw.trim().toLowerCase() : "";
 }
 
+// ── visitor_id through the install sign-in (visitor→merchant tracing) ──
+// Mirrors the sanitizer in routes/oauth-app-install.ts (trim; over 128 chars is
+// invalid — never break the flow): the landing page's ?cc_vid= is carried into
+// this endpoint by the install page's sign-in form (hidden field / JSON body),
+// and folded into the verify-link's ?next= so the visitor is still attributed
+// after signing in. A blank/overlong value is a no-op.
+const VISITOR_ID_MAX = 128;
+function sanitizeVisitorId(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const v = raw.trim();
+  return v.length > VISITOR_ID_MAX ? "" : v;
+}
+
 /**
  * Email a one-time sign-in link. Mirrors owner-notify.ts's send pattern: the
  * product sender with skipCanspam (transactional, user-initiated), plus a
  * send_logs row (type 'account_magic_link') so the send is traceable and the
  * test suite can assert it deterministically in log-only mode. Never throws —
  * the caller always returns 200 regardless.
+ * `next` is the safe destination the verify link returns the user to after
+ * sign-in (default /oauth/install); when the request carried a cc_vid it is
+ * "/oauth/install?cc_vid=…" so attribution survives the sign-in hop.
  */
-async function sendMagicLinkEmail(db: Database, toEmail: string, token: string): Promise<{ success: boolean; message: string }> {
+async function sendMagicLinkEmail(db: Database, toEmail: string, token: string, next = "/oauth/install"): Promise<{ success: boolean; message: string }> {
   const baseUrl = process.env.BASE_URL || "http://localhost:3002";
-  const verifyUrl = `${baseUrl}/api/account/verify?token=${encodeURIComponent(token)}&next=${encodeURIComponent("/oauth/install")}`;
+  const verifyUrl = `${baseUrl}/api/account/verify?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`;
   const draft: EmailDraft = {
     subject: "Your CollectionsCopilot sign-in link",
     body: [
@@ -201,13 +217,19 @@ export async function handleAccountRequestMagicLink(db: Database, req: Request):
   const formRedirect = (query: string): Response =>
     new Response(null, { status: 302, headers: { Location: `/oauth/install?${query}` } });
 
-  // Parse email from JSON or form-encoded (same tolerance as /waitlist).
+  // Parse email from JSON or form-encoded (same tolerance as /waitlist). The
+  // cc_vid (landing-page visitor_id) rides BOTH paths — the install page's
+  // native form carries it as a hidden field, the JS fetch as a JSON key — so
+  // sign-in never drops attribution; sanitizeVisitorId nulls out garbage.
   let emailRaw = "";
+  let visitorRaw: unknown = "";
   if (isForm) {
     try {
       const form = await req.formData();
       const v = form.get("email");
       if (typeof v === "string") emailRaw = v;
+      const vv = form.get("cc_vid");
+      if (typeof vv === "string" && vv) visitorRaw = vv;
     } catch {
       // Fall through to validation — missing email yields 400/302-error.
     }
@@ -215,6 +237,7 @@ export async function handleAccountRequestMagicLink(db: Database, req: Request):
     try {
       const body = (await req.json()) as Record<string, unknown>;
       if (typeof body.email === "string") emailRaw = body.email;
+      visitorRaw = body.cc_vid;
     } catch {
       return new Response(JSON.stringify({ error: "Invalid JSON body" }), { status: 400, headers });
     }
@@ -250,7 +273,13 @@ export async function handleAccountRequestMagicLink(db: Database, req: Request):
     "INSERT INTO account_magic_links (account_id, token, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))",
     [account.id, token],
   );
-  await sendMagicLinkEmail(db, email, token);
+  // Carry the landing-page visitor_id through sign-in: the verify link's ?next=
+  // echoes back to /oauth/install?cc_vid=… so the Connect button after sign-in
+  // still carries it into the install state (visitor→merchant tracing). No-op
+  // when absent.
+  const visitorId = sanitizeVisitorId(visitorRaw);
+  const next = visitorId ? `/oauth/install?cc_vid=${encodeURIComponent(visitorId)}` : "/oauth/install";
+  await sendMagicLinkEmail(db, email, token, next);
 
   // Never reveal whether the account existed: JSON 200 {ok:true} (JS path) /
   // 302 ?sent=1 (no-JS form path).

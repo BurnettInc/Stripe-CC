@@ -1,0 +1,17 @@
+-- Carry the landing-page visitor_id through the OAuth install flow so the
+-- merchant-creation callback can stamp merchants.visitor_id (migration 028).
+--
+-- How it travels (visitor→merchant tracing, owner 2026-08-25):
+--   * The site's tracking snippet keeps a per-browser UUID in localStorage
+--     `cc_vid`; it is appended to the landing page's install CTAs as
+--     ?cc_vid=<id> (see site/src/routes/__root.tsx).
+--   * /oauth/install reads cc_vid, /oauth/install/start stores it in THIS
+--     state row (exactly parallel to how account_id rides the state — see
+--     migration 017), and the /oauth/callback reads it back to stamp the
+--     merchant row. /admin/data then joins page_visits.visitor_id ->
+--     merchants.visitor_id directly.
+--
+-- Applied once via the schema_migrations tracker (same pattern as 016/017/028's
+-- ADD COLUMN: SQLite has no ADD COLUMN IF NOT EXISTS, so a re-run fails loudly
+-- with "duplicate column name" rather than silently corrupting anything).
+ALTER TABLE oauth_install_states ADD COLUMN visitor_id TEXT NOT NULL DEFAULT '';
