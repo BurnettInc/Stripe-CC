@@ -402,8 +402,15 @@
         });
         var convCount = Object.keys(conv).length;
         if (convCount === 0) {
-          document.getElementById("visits").parentElement.querySelector("h3").querySelector(".muted").innerHTML =
-            "— no visitor has been traced to a merchant yet (trace works once a visitor who signed the waitlist connects with the same email, or once connect-time capture is live)";
+          // Null-safe: the "no tracing yet" note only updates if the heading note
+          // element exists (it may not, e.g. before the visits panel renders) —
+          // otherwise skip rather than throw and blank the whole dashboard.
+          var visitsNote = document.getElementById("visits") && document.getElementById("visits").parentElement
+            && document.getElementById("visits").parentElement.querySelector("h3 .muted");
+          if (visitsNote) {
+            visitsNote.innerHTML =
+              "— no visitor has been traced to a merchant yet (trace works once a visitor who signed the waitlist connects with the same email, or once connect-time capture is live)";
+          }
         }
 
         // ── Product health: recovery + response, with sample-size guards (#9) ──
