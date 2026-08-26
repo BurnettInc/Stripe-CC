@@ -225,7 +225,7 @@ function Home() {
               Connect Stripe to see your numbers
             </a>
             <span className="text-xs text-gray-500">
-              Free forever in Draft Mode · no card required
+              First 30 days free — full access, no card required · then Draft Mode is free forever
             </span>
           </div>
         </div>
@@ -447,7 +447,7 @@ function Home() {
               name: "Free — Draft Mode",
               price: "Free forever, no card required",
               period: "",
-              body: "Connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
+              body: "First 30 days after you install are fully free — full access with no card required. After that, keep Draft Mode free forever: connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
               features: [],
               cta: "Try it free",
               highlight: true,
@@ -730,8 +730,9 @@ function Home() {
             finger.
           </p>
           <p className="text-indigo-300 max-w-lg mx-auto mb-8">
-            Start free — 5 drafts, no card required. Subscribe inside the app when
-            you're ready for sending.
+            Your first 30 days are free — full access, no card required. After that,
+            Draft Mode stays free forever with up to 5 drafts. Subscribe inside the app
+            when you're ready for sending.
           </p>
           <div className="flex flex-col items-center gap-4">
             <a
