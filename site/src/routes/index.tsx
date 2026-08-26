@@ -53,13 +53,18 @@ function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           {/* Left column */}
           <div className="text-left">
-            <div className="mb-6">
-              <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
-                Now live on the Stripe App Marketplace
+            <div className="mb-6 space-y-3">
+              <span className="inline-block rounded-full bg-green-600 px-5 py-2 text-sm font-bold text-white shadow-md">
+                Sign up today and receive a free month — no card required
               </span>
-              <span className="inline-block rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700 ml-2 mt-2 sm:mt-0">
-                We never sell your data
-              </span>
+              <div className="flex flex-wrap gap-x-3 gap-y-2">
+                <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
+                  Now live on the Stripe App Marketplace
+                </span>
+                <span className="inline-block rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700">
+                  We never sell your data
+                </span>
+              </div>
             </div>
             <h1 className="text-4xl font-bold tracking-tight sm:text-5xl text-gray-900">
               Built for solo Stripe sellers — no Xero, no QuickBooks, no AR team required
