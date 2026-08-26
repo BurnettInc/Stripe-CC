@@ -11,6 +11,10 @@ import {
   isDevPro,
   scheduleMerchantDeletion,
   clearMerchantDeletion,
+  isLifetimeMember,
+  countLifetimeMembers,
+  recordLifetimeMember,
+  LIFETIME_MEMBER_QUOTA,
 } from "../db";
 import { notifyOwnerPaidSubscription, notifyOwnerCancelledSubscription } from "../pipeline/owner-notify";
 
@@ -84,6 +88,17 @@ function intervalFromPriceId(priceId: string | undefined): string | undefined {
 // allow_promotion_codes=true and no pre-attached discount.
 const REVIEWER_PROMO_CODE = "REVIEWER100";
 const REVIEWER_PROMO_CODE_ID = "promo_1U5PYjAD4cJGS9Cro4A2TdbI";
+// ── Owner-controlled: 10 lifetime free Pro accounts giveaway ──
+// The owner hands out ONE special checkout link that carries promo=LIFETIME10
+// (/billing/checkout?tier=pro&interval=month&promo=LIFETIME10). Completing it
+// grants a REAL Pro subscription at $0 forever (100%-off, duration=forever
+// coupon, live id EiubBz3c, nickname "Lifetime 100% (10 giveaway)"). At most
+// 10 grants EVER — enforced atomically in DB by recordLifetimeMember.
+// LIFETIME_PROMO_CODE is owner-controlled: it is the exact private string on
+// the link the owner distributes, and is never shown anywhere in-app or on
+// the site. No other code path attaches this coupon.
+const LIFETIME_PROMO_CODE = "LIFETIME10";
+const LIFETIME_COUPON_ID = "EiubBz3c";
 
 /** True when the merchant installed the app through a TEST-mode marketplace
  * install link (oauth_tokens.livemode=0). Web-connect merchants and live
@@ -335,6 +350,27 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
   if (reviewerPromoAttach) {
     console.log(`[billing] Reviewer discount pre-attached for merchant ${merchantId} tier=${tier} (${explicitReviewerPromo ? "explicit promo param" : "test-mode install"})`);
   }
+  // Lifetime free-Pro giveaway: attach the 100%-forever coupon server-side ONLY
+  // when the checkout URL carries promo=LIFETIME10 AND the merchant is eligible
+  // (quota open OR already a lifetime member — mirrors the old founding
+  // isFoundingEligible). The promo param is owner-controlled and never shown
+  // in-app. If the param is present but the merchant is NOT eligible (all 10
+  // slots taken), treat it like the reviewer path: secure — do NOT attach, do
+  // NOT error the checkout for a real customer, just log a warning (the 11th
+  // merchant would pay normally). Eligibility is re-verified ATOMICALLY at
+  // completion (recordLifetimeMember) and the subscription discount is
+  // stripped if the quota filled up under a concurrent checkout, so a coupon
+  // is never left on an 11th subscription.
+  const explicitLifetimePromo = (promoOpt ?? "").trim().toUpperCase() === LIFETIME_PROMO_CODE;
+  let lifetimePromoAttach = false;
+  if (explicitLifetimePromo) {
+    if (isLifetimeMember(db, merchantId) || countLifetimeMembers(db) < LIFETIME_MEMBER_QUOTA) {
+      lifetimePromoAttach = true;
+      console.log(`[billing] Lifetime promo pre-attached for merchant ${merchantId} tier=${tier} interval=${billingInterval}`);
+    } else {
+      console.warn(`[billing] Lifetime promo requested but quota full / merchant ${merchantId} not eligible — no coupon attached (checkout proceeds normally)`);
+    }
+  }
 
   const params = new URLSearchParams({
     "line_items[0][price]": priceId,
@@ -367,6 +403,13 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     // the reviewer. Real customers (no attach) keep allow_promotion_codes=true.
     params.delete("allow_promotion_codes");
     params.set("discounts[0][promotion_code]", REVIEWER_PROMO_CODE_ID);
+  }
+  if (lifetimePromoAttach) {
+    // Same constraint as the reviewer/founding attaches: Stripe rejects a
+    // session with BOTH allow_promotion_codes and discounts, so drop the
+    // manual code field when the coupon is pre-attached.
+    params.delete("allow_promotion_codes");
+    params.set("discounts[0][coupon]", LIFETIME_COUPON_ID);
   }
 
   try {
@@ -650,6 +693,83 @@ async function handlePortal(db: Database, req: Request, merchantId?: number): Pr
   console.error(`[billing] No resolvable Stripe customer/subscription for merchant ${merchantId} — returning graceful no-subscription response`);
   return devPro ? devPreviewResponse(req) : noActiveSubscriptionResponse(req);
 }
+// ── Lifetime free Pro giveaway — webhook slot recording ──
+/**
+ * True when a completed checkout session / subscription carries the lifetime
+ * coupon in its `discounts`. The coupon is ONLY ever attached server-side by
+ * handleCheckout when promo=LIFETIME10 and the merchant is eligible — never
+ * via the manual code field (which is disabled for attached sessions anyway).
+ */
+function objectHasLifetimeCoupon(obj: Record<string, unknown>): boolean {
+  const discounts = obj.discounts;
+  if (!Array.isArray(discounts)) return false;
+  return discounts.some((d) => {
+    if (!d || typeof d !== "object") return false;
+    const coupon = (d as { coupon?: { id?: unknown } }).coupon;
+    return !!coupon && typeof coupon === "object" && (coupon as { id?: unknown }).id === LIFETIME_COUPON_ID;
+  });
+}
+/**
+ * Record a lifetime free-Pro slot from a completed checkout session / created
+ * subscription that carries the lifetime coupon. Handles the quota race: when
+ * recordLifetimeMember reports "full" (all 10 slots taken by the time this
+ * completion landed, and the merchant is not a lifetime member), the coupon
+ * must NOT stay on the subscription — best-effort DELETE the subscription's
+ * discount so no 11th subscription ever keeps the free-Pro discount. Never
+ * throws into the webhook; failures are logged and absorbed (a leftover coupon
+ * on a stray 11th subscription is a billing anomaly the owner-notification/ops
+ * can see, not a reason to fail the event).
+ */
+async function recordLifetimeFromObject(
+  db: Database,
+  obj: {
+    subscription?: string;
+    id?: string;
+    customer_details?: { email?: string | null };
+  },
+  kind: "checkout" | "subscription",
+): Promise<void> {
+  if (!objectHasLifetimeCoupon(obj as Record<string, unknown>)) return;
+  const merchantId = (obj as { metadata?: { merchant_id?: string } }).metadata?.merchant_id
+    ? parseInt((obj as { metadata?: { merchant_id?: string } }).metadata!.merchant_id!, 10)
+    : null;
+  if (!merchantId) {
+    console.warn(`[billing] ${kind} carries the lifetime coupon but no metadata.merchant_id — skipping slot recording`);
+    return;
+  }
+  const subscriptionId = obj.subscription ?? obj.id;
+  if (!subscriptionId) {
+    console.warn(`[billing] ${kind} carries the lifetime coupon but no subscription id — skipping slot recording`);
+    return;
+  }
+  // Account email comes from the completing party's checkout details (the
+  // person/merchant who checked out). Nullable — the coupon id is the source
+  // of truth for eligibility; the email is an audit convenience.
+  const accountEmail = obj.customer_details?.email ?? null;
+  const outcome = recordLifetimeMember(db, merchantId, subscriptionId, accountEmail);
+  if (outcome === "inserted") {
+    console.log(`[billing] Lifetime member slot earned: merchant=${merchantId} sub=${subscriptionId} (${kind})`);
+    return;
+  }
+  if (outcome === "already") {
+    console.log(`[billing] Merchant ${merchantId} is already a lifetime member — coupon on ${subscriptionId} is their benefit (${kind})`);
+    return;
+  }
+  // "full": quota exhausted and this merchant is not a lifetime member — the
+  // coupon must not survive. Strip the subscription's discount (idempotent: a
+  // replay or already-stripped subscription yields a 4xx we treat as done).
+  console.warn(`[billing] Lifetime quota exhausted — removing coupon from subscription ${subscriptionId} (merchant ${merchantId})`);
+  try {
+    const res = await stripeFetch(`/subscriptions/${encodeURIComponent(subscriptionId)}/discount`, process.env.STRIPE_SECRET_KEY!, { method: "DELETE" });
+    if (!res.ok) {
+      console.warn(`[billing] Discount removal for ${subscriptionId} returned ${res.status}: ${JSON.stringify(res.data).slice(0, 200)} (likely already removed)`);
+    } else {
+      console.log(`[billing] Lifetime coupon removed from subscription ${subscriptionId}`);
+    }
+  } catch (err) {
+    console.error(`[billing] Discount removal for ${subscriptionId} failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 // ── Webhook handler with signature verification ──
 
@@ -766,10 +886,34 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
         // scheduler). Runs for both new and replayed sessions (idempotent).
         clearMerchantDeletion(db, merchantId);
 
+        // Lifetime free-Pro giveaway: when this completed session carried the
+        // lifetime coupon, atomically record the slot (guarded INSERT — at
+        // most 10 ever). Runs for both new and replayed sessions; idempotent
+        // (merchant_id PK). See recordLifetimeFromObject for the quota-race
+        // strip.
+        await recordLifetimeFromObject(
+          db,
+          session as unknown as { subscription?: string; id?: string; customer_details?: { email?: string | null } },
+          "checkout",
+        );
+
         return new Response(JSON.stringify({ received: true, action: "subscription_created" }), { status: 200, headers });
       }
 
       case "customer.subscription.created": {
+        const sub = obj as { id?: string };
+        // Lifetime free-Pro giveaway fallback path: if the
+        // checkout.session.completed event was ever missed, the created
+        // subscription itself carries the coupon in `discounts` — record the
+        // slot here instead. Idempotent with the checkout path (merchant_id PK
+        // + subscription_id UNIQUE).
+        if (sub.id) {
+          await recordLifetimeFromObject(
+            db,
+            { id: sub.id, metadata: (obj as { metadata?: { merchant_id?: string } }).metadata } as unknown as { subscription?: string; id?: string; customer_details?: { email?: string | null } },
+            "subscription",
+          );
+        }
         return new Response(JSON.stringify({ received: true, event_type: eventType }), { status: 200, headers });
       }
 
