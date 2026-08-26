@@ -491,6 +491,67 @@ export function countFoundingMembers(db: Database): number {
 export function isFoundingMember(db: Database, merchantId: number): boolean {
   return !!getFoundingMember(db, merchantId);
 }
+// ── Lifetime free Pro giveaway (owner direction 2026-08) ──
+// The owner can grant exactly 10 lifetime free Pro accounts by handing out ONE
+// special checkout link (promo=LIFETIME10 — a real Pro subscription at $0
+// forever via live coupon EiubBz3c, percent_off=100, duration=forever). This
+// mirrors the founding-quota pattern: eligibility is by subscription creation
+// order, earned atomically so concurrent progressions can never exceed 10.
+// See migrations/032_add_lifetime_members.sql for the table.
+export const LIFETIME_MEMBER_QUOTA = 10;
+export interface LifetimeMemberRow {
+  merchant_id: number;
+  subscription_id: string;
+  account_email: string | null;
+  created_at: string;
+}
+export function getLifetimeMember(db: Database, merchantId: number): LifetimeMemberRow | null {
+  return db
+    .query("SELECT * FROM lifetime_members WHERE merchant_id=?")
+    .get(merchantId) as LifetimeMemberRow | null;
+}
+export function countLifetimeMembers(db: Database): number {
+  const row = db.query("SELECT COUNT(*) AS n FROM lifetime_members").get() as { n: number };
+  return row.n;
+}
+/** True when the merchant already holds a lifetime free-Pro slot. */
+export function isLifetimeMember(db: Database, merchantId: number): boolean {
+  return !!getLifetimeMember(db, merchantId);
+}
+/**
+ * Atomically record a lifetime free-Pro slot for a completed subscription.
+ *
+ * The guard lives INSIDE the INSERT (single SQLite statement → serialized with
+ * every other writer), so concurrent checkout completions can never overshoot
+ * the quota: whoever's INSERT commits first among the open slots wins, in
+ * subscription-creation (webhook delivery) order.
+ *
+ * Returns:
+ *   "inserted" — the merchant just earned one of the 10 slots (count was < 10
+ *                and the merchant had no row yet).
+ *   "already"  — the merchant already holds a lifetime slot; the coupon on the
+ *                new subscription is their right, nothing to do.
+ *   "full"     — all 10 slots are taken AND this merchant is not a lifetime
+ *                member: the coupon must NOT stay on the subscription — the
+ *                caller strips the subscription's discount so no 11th
+ *                discount exists.
+ */
+export function recordLifetimeMember(
+  db: Database,
+  merchantId: number,
+  subscriptionId: string,
+  accountEmail: string | null,
+): "inserted" | "already" | "full" {
+  const result = db.run(
+    `INSERT INTO lifetime_members (merchant_id, subscription_id, account_email)
+     SELECT ?, ?, ?
+     WHERE (SELECT COUNT(*) FROM lifetime_members) < ?
+       AND NOT EXISTS (SELECT 1 FROM lifetime_members WHERE merchant_id = ?)`,
+    [merchantId, subscriptionId, accountEmail, LIFETIME_MEMBER_QUOTA, merchantId],
+  );
+  if (Number(result.changes) === 1) return "inserted";
+  return isLifetimeMember(db, merchantId) ? "already" : "full";
+}
 // ── Data rights (PROMISES_AUDIT #42) ──
 // The privacy page promises: "If you cancel your subscription, your data is
 // deleted within 30 days", "You can request immediate deletion", and "Request
