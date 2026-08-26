@@ -329,7 +329,7 @@ export function createSubscription(
 ) {
   // Billing interval (Phase B): 'month' (default, unchanged) or 'year'. Stored
   // so the dashboard can show an honest plan card for yearly subscribers
-  // ("Pro plan — $250/yr") instead of the misleading monthly price.
+  // ("Pro plan — $100/yr") instead of the misleading monthly price.
   const interval = params.interval === "year" ? "year" : "month";
   const result = db.run(
     "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, stripe_customer_id, tier, status, interval) VALUES (?, ?, ?, ?, 'active', ?)",
@@ -465,6 +465,12 @@ export function enforceTierTrustMode(db: Database, merchantId: number): void {
 // plans) get lifetime 50% off both plans ($7.50/$14.50 forever) + 90 days of
 // priority support. Eligibility is by subscription creation order — no claim
 // race. See migrations/023_add_founding_members.sql for the table.
+//
+// NOTE 2026-08-26 (reprice): the offer is CLOSED — no new founding coupons
+// are attached at checkout and isFoundingEligible/recordFoundingMember were
+// removed with the offer. The table + read helpers below are KEPT: existing
+// founder rows (their discount lives on Stripe, not here) remain queryable,
+// and stale rows are harmless. Do not delete founding_members data.
 export const FOUNDING_MEMBER_QUOTA = 50;
 export interface FoundingMemberRow {
   merchant_id: number;
@@ -484,48 +490,6 @@ export function countFoundingMembers(db: Database): number {
 /** True when the merchant already holds a founding slot (lifetime benefit). */
 export function isFoundingMember(db: Database, merchantId: number): boolean {
   return !!getFoundingMember(db, merchantId);
-}
-/**
- * Whether a NEW checkout for this merchant may carry the founding coupon:
- * the quota is still open (fewer than 50 founders recorded) OR the merchant
- * is already a founder (their lifetime benefit follows them across plan
- * changes / re-subscriptions). A merchant who is neither gets no coupon.
- */
-export function isFoundingEligible(db: Database, merchantId: number): boolean {
-  return isFoundingMember(db, merchantId) || countFoundingMembers(db) < FOUNDING_MEMBER_QUOTA;
-}
-/**
- * Atomically record a founding member slot for a completed subscription.
- *
- * The guard lives INSIDE the INSERT (single SQLite statement → serialized with
- * every other writer), so concurrent checkout completions can never overshoot
- * the quota: whoever's INSERT commits first among the open slots wins, in
- * subscription-creation (webhook delivery) order.
- *
- * Returns:
- *   "inserted" — the merchant just earned one of the 50 slots (count was < 50
- *                and the merchant had no row yet); priority_support_until is
- *                set to created_at + 90 days.
- *   "already"  — the merchant already holds a founding slot; the coupon on the
- *                new subscription is their right, nothing to do.
- *   "full"     — all 50 slots are taken AND this merchant is not a founder:
- *                the coupon must NOT stay on the subscription — the caller
- *                strips the subscription's discount so no 51st discount exists.
- */
-export function recordFoundingMember(
-  db: Database,
-  merchantId: number,
-  subscriptionId: string,
-): "inserted" | "already" | "full" {
-  const result = db.run(
-    `INSERT INTO founding_members (merchant_id, subscription_id, priority_support_until)
-     SELECT ?, ?, datetime('now', '+90 days')
-     WHERE (SELECT COUNT(*) FROM founding_members) < ?
-       AND NOT EXISTS (SELECT 1 FROM founding_members WHERE merchant_id = ?)`,
-    [merchantId, subscriptionId, FOUNDING_MEMBER_QUOTA, merchantId],
-  );
-  if (Number(result.changes) === 1) return "inserted";
-  return isFoundingMember(db, merchantId) ? "already" : "full";
 }
 // ── Data rights (PROMISES_AUDIT #42) ──
 // The privacy page promises: "If you cancel your subscription, your data is

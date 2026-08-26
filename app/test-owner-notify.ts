@@ -176,7 +176,7 @@ process.env.OWNER_NOTIFY_EMAIL = OWNER;
   check(
     "a8: paid sub → 💳 subject with plan + price",
     res.success === true && after === before + 1 &&
-      String(last.provider_message).includes("💳 Paid subscription — realowner@example.com subscribed to Pro ($29/mo)"),
+      String(last.provider_message).includes("💳 Paid subscription — realowner@example.com subscribed to Pro ($15/mo)"),
     JSON.stringify({ res, last })
   );
 }
@@ -184,8 +184,8 @@ process.env.OWNER_NOTIFY_EMAIL = OWNER;
 // ── a9: paid subscription — Standard label ──
 {
   await notifyOwnerPaidSubscription(db, 2, "standard", null);
-  const rows = ownerLogs("Paid subscription — realowner@example.com subscribed to Standard ($15/mo)");
-  check("a9: Standard ($15/mo) label", rows.length === 1, JSON.stringify(rows));
+  const rows = ownerLogs("Paid subscription — realowner@example.com subscribed to Standard ($7/mo)");
+  check("a9: Standard ($7/mo) label", rows.length === 1, JSON.stringify(rows));
 }
 
 // ── a10: paid subscription — dev merchant skipped ──
@@ -269,7 +269,7 @@ function cancelEvent(subId: string) {
   const res = await postBilling(checkoutEvent("sub_owner_http", 2, "pro"));
   const body = (await res.json()) as { received?: boolean; action?: string };
   const after = countOwnerLogs("Paid subscription");
-  const rows = ownerLogs("Paid subscription — realowner@example.com subscribed to Pro ($29/mo)");
+  const rows = ownerLogs("Paid subscription — realowner@example.com subscribed to Pro ($15/mo)");
   check(
     "b1: billing webhook → 200 + 💳 owner email",
     res.status === 200 && body.received === true && after === before + 1 && rows.length === 1,
@@ -296,9 +296,9 @@ function cancelEvent(subId: string) {
 
 // ── b4: idempotent replay of the same checkout → no duplicate email ──
 {
-  const before = countOwnerLogs("Paid subscription — realowner@example.com subscribed to Pro ($29/mo)");
+  const before = countOwnerLogs("Paid subscription — realowner@example.com subscribed to Pro ($15/mo)");
   const res = await postBilling(checkoutEvent("sub_owner_http", 2, "pro"));
-  const after = countOwnerLogs("Paid subscription — realowner@example.com subscribed to Pro ($29/mo)");
+  const after = countOwnerLogs("Paid subscription — realowner@example.com subscribed to Pro ($15/mo)");
   check("b4: replay → no second owner email", res.status === 200 && after === before, JSON.stringify({ status: res.status, after, before }));
 }
 

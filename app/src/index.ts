@@ -479,21 +479,10 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/subscription" && req.method === "GET") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
-        const { getSubscriptionByMerchantId, isDevPro, isFoundingMember, countFoundingMembers, FOUNDING_MEMBER_QUOTA } = await import("./db");
-        // Founding Member Offer state for the dashboard billing UI (Phase B):
-        // the pricing block shows founding prices when the window is open
-        // (fewer than 50 founders recorded) OR this merchant already earned a
-        // slot (lifetime benefit). foundingRemaining is the honest spots-left
-        // count for display — the UI never attaches the coupon itself.
-        const foundingCount = countFoundingMembers(db);
-        const founding = {
-          foundingOpen: foundingCount < FOUNDING_MEMBER_QUOTA,
-          isFounder: isFoundingMember(db, auth.merchant_id),
-          foundingRemaining: Math.max(0, FOUNDING_MEMBER_QUOTA - foundingCount),
-        };
+        const { getSubscriptionByMerchantId, isDevPro } = await import("./db");
         const sub = getSubscriptionByMerchantId(db, auth.merchant_id);
         if (sub) {
-          return new Response(JSON.stringify({ ...sub, ...founding }), {
+          return new Response(JSON.stringify(sub), {
             headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
           });
         }
@@ -512,12 +501,11 @@ async function handleRequest(req: Request): Promise<Response> {
             stripe_subscription_id: null,
             stripe_customer_id: null,
             created_at: null,
-            ...founding,
           }), {
             headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
           });
         }
-        return new Response(JSON.stringify({ tier: null, status: "none", ...founding }), {
+        return new Response(JSON.stringify({ tier: null, status: "none" }), {
           headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
         });
       }

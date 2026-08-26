@@ -11,8 +11,6 @@ import {
   isDevPro,
   scheduleMerchantDeletion,
   clearMerchantDeletion,
-  isFoundingEligible,
-  recordFoundingMember,
 } from "../db";
 import { notifyOwnerPaidSubscription, notifyOwnerCancelledSubscription } from "../pipeline/owner-notify";
 
@@ -28,17 +26,17 @@ const STRIPE_API = (process.env.STRIPE_API_BASE || "https://api.stripe.com/v1").
 // every live Checkout Session fail. The webhook handler below also maps
 // subscription items back to tiers by comparing against these ids.
 //
-// Yearly prices added 2026-08-18 (Phase A): $135/yr Standard and $250/yr Pro,
-// created LIVE on the same products and verified live-only (test key → 404,
-// live key → 200). Monthly prices are untouched.
+// Four new prices created LIVE 2026-08-26 (reprice: $7/$15 monthly,
+// $50/$100 yearly — replaces $15/$29 monthly and $135/$250 yearly; founding
+// offer removed). Verified live-only via API (test key → 404, live key → 200).
 const PRICE_IDS: Record<string, Record<string, string>> = {
   standard: {
-    month: "price_1U4LUtAD4cJGS9CrkqXP6IxH", // $15/mo (existing, unchanged)
-    year: "price_1U5ow5AD4cJGS9CrpQGTAUY8", // $135/yr (new 2026-08-18)
+    month: "price_1U8VZyAD4cJGS9CrReqgDCtd", // $7/mo (new 2026-08-26)
+    year: "price_1U8VZyAD4cJGS9Cru85iFOEh", // $50/yr (new 2026-08-26)
   },
   pro: {
-    month: "price_1U4LUtAD4cJGS9Cr6Gd2824F", // $29/mo (existing, unchanged)
-    year: "price_1U5ow5AD4cJGS9CrHFfscE7K", // $250/yr (new 2026-08-18)
+    month: "price_1U8VZyAD4cJGS9CroFf7Znpm", // $15/mo (new 2026-08-26)
+    year: "price_1U8VZyAD4cJGS9CrcW0OHVVB", // $100/yr (new 2026-08-26)
   },
 };
 const BILLING_INTERVALS = ["month", "year"] as const;
@@ -59,18 +57,6 @@ function intervalFromPriceId(priceId: string | undefined): string | undefined {
   }
   return undefined;
 }
-
-// ── Founding Member Offer (Phase A, 2026-08-18) ──
-// LIVE coupon on the app's platform Stripe account: percent_off=50,
-// duration=forever (50% of whatever the current price is each cycle, so the
-// benefit survives future price rises by construction). Attached SERVER-SIDE
-// via discounts[0][coupon] — the same mechanism the reviewer discount proved
-// works in live Checkout on this account (manual code entry is rejected for
-// every code in live mode). A merchant gets it only when isFoundingEligible
-// (quota open OR already a founder); the webhook re-verifies eligibility
-// atomically when recording the slot and strips the subscription discount if
-// the quota filled up under a concurrent checkout.
-const FOUNDING_COUPON_ID = "BIywdq7e";
 
 // ── Stripe App review access discount ──
 // The Stripe reviewer must be able to subscribe without paying. Manual coupon
@@ -363,7 +349,7 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     "metadata[tier]": tier,
     // Billing interval on the session (Phase B) so the completion webhook can
     // record it on the subscription row (the dashboard's plan card then shows
-    // the honest "$250/yr" for yearly subscribers). Default month, unchanged.
+    // the honest "$100/yr" for yearly subscribers). Default month, unchanged.
     "metadata[interval]": billingInterval,
     success_url: successUrl,
     cancel_url: cancelUrl,
@@ -381,19 +367,6 @@ async function handleCheckout(db: Database, req: Request, sessionMerchantId?: nu
     // the reviewer. Real customers (no attach) keep allow_promotion_codes=true.
     params.delete("allow_promotion_codes");
     params.set("discounts[0][promotion_code]", REVIEWER_PROMO_CODE_ID);
-  } else if (isFoundingEligible(db, merchantId)) {
-    // Founding Member Offer: attach the 50%-forever coupon server-side when
-    // the merchant is eligible (quota open OR already a founder — see
-    // isFoundingEligible). Same constraints as the reviewer attach: Stripe
-    // rejects a session with BOTH allow_promotion_codes and discounts, and
-    // live Checkout ignores manually-entered codes on this account anyway —
-    // so drop the code field and apply the coupon directly. Eligibility is
-    // re-verified ATOMICALLY at completion (recordFoundingMember) and the
-    // subscription discount is stripped if the quota filled up under a
-    // concurrent checkout, so a coupon is never left on a 51st subscription.
-    params.delete("allow_promotion_codes");
-    params.set("discounts[0][coupon]", FOUNDING_COUPON_ID);
-    console.log(`[billing] Founding coupon pre-attached for merchant ${merchantId} tier=${tier} interval=${billingInterval}`);
   }
 
   try {
@@ -680,77 +653,6 @@ async function handlePortal(db: Database, req: Request, merchantId?: number): Pr
 
 // ── Webhook handler with signature verification ──
 
-/**
- * True when a Stripe object (checkout session or subscription) carries the
- * Founding Member coupon in its `discounts` array. This is the authoritative
- * signal that the merchant completed a founding-eligible checkout — the
- * coupon is only ever attached server-side by handleCheckout, never via the
- * manual code field (which is disabled for founding sessions anyway).
- */
-function objectHasFoundingCoupon(obj: Record<string, unknown>): boolean {
-  const discounts = obj.discounts;
-  if (!Array.isArray(discounts)) return false;
-  return discounts.some((d) => {
-    if (!d || typeof d !== "object") return false;
-    const coupon = (d as { coupon?: { id?: unknown } }).coupon;
-    return !!coupon && typeof coupon === "object" && (coupon as { id?: unknown }).id === FOUNDING_COUPON_ID;
-  });
-}
-
-/**
- * Record a founding slot from a completed checkout session / created
- * subscription that carries the founding coupon. Handles the quota race: when
- * recordFoundingMember reports "full" (all 50 slots taken by the time this
- * completion landed, and the merchant is not a founder), the coupon must NOT
- * stay on the subscription — best-effort DELETE the subscription's discount so
- * no 51st subscription ever keeps the founding discount. Never throws into the
- * webhook; failures are logged and absorbed (a leftover coupon on a stray 51st
- * subscription is a billing anomaly the owner-notification/ops can see, not a
- * reason to fail the event).
- */
-async function recordFoundingFromObject(
-  db: Database,
-  obj: { subscription?: string; id?: string },
-  kind: "checkout" | "subscription",
-): Promise<void> {
-  if (!objectHasFoundingCoupon(obj as Record<string, unknown>)) return;
-  const merchantId = (obj as { metadata?: { merchant_id?: string } }).metadata?.merchant_id
-    ? parseInt((obj as { metadata?: { merchant_id?: string } }).metadata!.merchant_id!, 10)
-    : null;
-  if (!merchantId) {
-    console.warn(`[billing] ${kind} carries the founding coupon but no metadata.merchant_id — skipping slot recording`);
-    return;
-  }
-  const subscriptionId = obj.subscription ?? obj.id;
-  if (!subscriptionId) {
-    console.warn(`[billing] ${kind} carries the founding coupon but no subscription id — skipping slot recording`);
-    return;
-  }
-  const outcome = recordFoundingMember(db, merchantId, subscriptionId);
-  if (outcome === "inserted") {
-    console.log(`[billing] Founding member slot earned: merchant=${merchantId} sub=${subscriptionId} (${kind})`);
-    return;
-  }
-  if (outcome === "already") {
-    console.log(`[billing] Merchant ${merchantId} is already a founding member — coupon on ${subscriptionId} is their lifetime benefit (${kind})`);
-    return;
-  }
-  // "full": quota exhausted and this merchant is not a founder — the coupon
-  // must not survive. Strip the subscription's discount (idempotent: a replay
-  // or already-stripped subscription yields a 4xx we treat as done).
-  console.warn(`[billing] Founding quota exhausted — removing coupon from subscription ${subscriptionId} (merchant ${merchantId})`);
-  try {
-    const res = await stripeFetch(`/subscriptions/${encodeURIComponent(subscriptionId)}/discount`, process.env.STRIPE_SECRET_KEY!, { method: "DELETE" });
-    if (!res.ok) {
-      console.warn(`[billing] Discount removal for ${subscriptionId} returned ${res.status}: ${JSON.stringify(res.data).slice(0, 200)} (likely already removed)`);
-    } else {
-      console.log(`[billing] Founding coupon removed from subscription ${subscriptionId}`);
-    }
-  } catch (err) {
-    console.error(`[billing] Discount removal for ${subscriptionId} failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
 async function handleBillingWebhook(db: Database, req: Request): Promise<Response> {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -864,26 +766,11 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
         // scheduler). Runs for both new and replayed sessions (idempotent).
         clearMerchantDeletion(db, merchantId);
 
-        // Founding Member Offer: when this session carried the founding
-        // coupon, atomically record the slot (guarded INSERT — at most 50
-        // ever). Runs for both new and replayed sessions; idempotent
-        // (merchant_id PK). See recordFoundingFromObject for the quota-race
-        // strip.
-        await recordFoundingFromObject(db, session, "checkout");
-
         return new Response(JSON.stringify({ received: true, action: "subscription_created" }), { status: 200, headers });
       }
 
       case "customer.subscription.created": {
-        // Founding Member Offer fallback path: if the checkout.session.completed
-        // event was ever missed, the created subscription itself carries the
-        // coupon in `discounts` — record the slot here instead. Idempotent
-        // with the checkout path (merchant_id PK + subscription_id UNIQUE).
-        const sub = obj as { id?: string };
-        if (sub.id) {
-          await recordFoundingFromObject(db, sub, "subscription");
-        }
-        return new Response(JSON.stringify({ received: true, event_type: eventType, action: "subscription_created" }), { status: 200, headers });
+        return new Response(JSON.stringify({ received: true, event_type: eventType }), { status: 200, headers });
       }
 
       case "customer.subscription.deleted": {

@@ -52,7 +52,7 @@ function Terms() {
           to five real overdue invoices. On the free tier, emails are sent only when
           you approve them, or automatically for Stage-1 reminders if you select
           Semi-Auto (Full Auto is a Pro feature). To unlock more sending, you must
-          subscribe to a paid plan (Standard at $15/month or Pro at $29/month).
+          subscribe to a paid plan (Standard at $7/month or Pro at $15/month).
           Subscriptions are billed monthly in advance via Stripe and renew
           automatically until cancelled. You can cancel at any time — cancellation
           takes effect at the end of the current billing period and you retain access

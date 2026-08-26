@@ -441,7 +441,7 @@
       box-shadow: 0 4px 14px rgba(79, 70, 229, 0.12);
     }
     .tier-card.featured .price { color: var(--primary-hover); }
-    /* ── Billing period toggle + founding pricing (Phase B) ── */
+    /* ── Billing period toggle (Phase B) ── */
     .billing-toggle {
       display: inline-flex;
       align-items: center;
@@ -470,27 +470,7 @@
       box-shadow: var(--shadow);
     }
     .billing-toggle-save { font-size: 0.7rem; font-weight: 700; color: var(--success); }
-    .tier-card .price .price-struck {
-      font-size: 1rem;
-      font-weight: 500;
-      color: var(--muted);
-      text-decoration: line-through;
-      margin-left: 8px;
-      letter-spacing: 0;
-    }
     .price-sub { font-size: 0.8rem; color: var(--muted); margin: 0 0 14px; }
-    .founding-badge {
-      display: inline-block;
-      background: var(--warning-light);
-      border: 1px solid #FCD34D;
-      color: var(--warning);
-      font-size: 0.75rem;
-      font-weight: 700;
-      padding: 4px 10px;
-      border-radius: 999px;
-      margin: 0 0 6px;
-    }
-    .founding-note { font-size: 0.75rem; color: var(--muted); margin: 0 0 10px; }
 
     /* ── Paused banner ── */
     .paused-banner {
@@ -1155,21 +1135,20 @@
       <!-- Pricing block — hidden while an active subscription exists -->
       <div id="pricing">
         <!-- Billing period selector (Phase B): monthly (default, unchanged) or
-             yearly ($135/$250 — honest savings: Standard $45/yr = 25% off,
-             Pro $98/yr ≈ 28% off). The interval is UI state subscribe() sends
-             to /billing/checkout; the founding coupon is attached SERVER-SIDE
-             only — this page only displays what checkout will charge. -->
+             yearly ($50/$100 — honest savings: Standard $7×12=$84 vs $50/yr =
+             $34 saved ≈ 40% off, Pro $15×12=$180 vs $100/yr = $80 saved ≈ 44%
+             off). The interval is UI state subscribe() sends to
+             /billing/checkout; checkout charges the current price with no
+             coupon — this page only displays what checkout will charge. -->
         <div class="billing-toggle" role="tablist" aria-label="Billing period">
           <button type="button" class="billing-toggle-btn active" id="toggle-month" data-interval="month" role="tab" aria-selected="true" onclick="setBillingInterval('month')">Monthly</button>
-          <button type="button" class="billing-toggle-btn" id="toggle-year" data-interval="year" role="tab" aria-selected="false" onclick="setBillingInterval('year')">Yearly <span class="billing-toggle-save">save up to 28%</span></button>
+          <button type="button" class="billing-toggle-btn" id="toggle-year" data-interval="year" role="tab" aria-selected="false" onclick="setBillingInterval('year')">Yearly <span class="billing-toggle-save">save up to ~44%</span></button>
         </div>
         <div class="tier-cards">
           <!-- Standard Tier -->
           <div class="tier-card">
             <h3>Standard</h3>
             <div class="price" id="price-standard"></div>
-            <div class="founding-badge" id="founding-badge-standard" style="display:none;"></div>
-            <div class="founding-note" id="founding-note-standard" style="display:none;"></div>
             <div class="price-sub" id="price-sub-standard"></div>
             <ul>
               <li>✓ Up to 50 overdue invoices tracked</li>
@@ -1186,8 +1165,6 @@
           <div class="tier-card featured">
             <h3>Pro <span style="font-size:0.7rem;background:var(--primary);color:white;padding:2px 10px;border-radius:10px;">Popular</span></h3>
             <div class="price" id="price-pro"></div>
-            <div class="founding-badge" id="founding-badge-pro" style="display:none;"></div>
-            <div class="founding-note" id="founding-note-pro" style="display:none;"></div>
             <div class="price-sub" id="price-sub-pro"></div>
             <ul>
               <li>✓ Unlimited overdue invoices</li>
@@ -1678,12 +1655,6 @@
         if (handoffIf401(res)) return;
         if (res.ok) {
           var sub = await res.json();
-          // Founding Member Offer state (Phase B) — drives the pricing block
-          // and the status-banner CTAs. Display only: checkout attaches the
-          // founding coupon server-side (routes/billing.ts).
-          FOUNDING_OPEN = !!sub.foundingOpen;
-          IS_FOUNDER = !!sub.isFounder;
-          FOUNDING_REMAINING = typeof sub.foundingRemaining === 'number' ? sub.foundingRemaining : (FOUNDING_OPEN ? 50 : 0);
           renderPricing();
           if (LAST_STATS) renderStatusBanner(LAST_STATS);
           var isPro = sub.tier === 'pro' && sub.status === 'active';
@@ -1701,12 +1672,12 @@
             // yearly price; founders see their locked-in 50% price (they are
             // genuinely paying it — the coupon is on their subscription).
             var planIv = sub.interval === 'year' ? 'year' : 'month';
-            var planList = PLAN_PRICES[sub.tier] ? PLAN_PRICES[sub.tier][planIv] : (sub.tier === 'pro' ? 29 : 15);
-            var planShown = IS_FOUNDER ? planList / 2 : planList;
+            var planList = PLAN_PRICES[sub.tier] ? PLAN_PRICES[sub.tier][planIv] : (sub.tier === 'pro' ? 15 : 7);
+            var planShown = planList;
             document.getElementById('plan-name').textContent = tierName + ' plan — $' + fmtPrice(planShown) + (planIv === 'year' ? '/yr' : '/mo');
             document.getElementById('plan-since').textContent = isDevPro
               ? 'Developer preview — subscribe to manage billing'
-              : 'Since ' + dateStr + (IS_FOUNDER ? ' · Founding Member — lifetime 50% off' : '');
+              : 'Since ' + dateStr;
             if (planCard) planCard.style.display = 'block';
             if (pricing) pricing.style.display = 'none';
             if (betaCard) betaCard.style.display = 'none';
@@ -1816,25 +1787,18 @@
     // Track connection state so subscribe() can pre-check before hitting checkout
     var STIPE_CONNECTED = false;
 
-    // ── Billing period + founding pricing (Phase B) ──
+    // ── Billing period pricing (Phase B) ──
     // Display constants mirror the LIVE Stripe catalog (routes/billing.ts
-    // PRICE_IDS): $15/$29 monthly, $135/$250 yearly. Founding pricing is 50%
-    // of the current price — the server attaches the founding coupon at
-    // checkout (never this page); these helpers only display what checkout
-    // will charge. Savings are the honest dollar amounts vs 12 × monthly:
-    // Standard 180−135 = $45/yr (25%), Pro 348−250 = $98/yr (~28%).
+    // PRICE_IDS): $7/$15 monthly, $50/$100 yearly (reprice 2026-08-26; the
+    // founding offer was removed). These helpers only display what checkout
+    // will charge (no coupon). Savings are the honest dollar amounts vs
+    // 12 × monthly: Standard 84−50 = $34/yr (≈40%), Pro 180−100 = $80/yr (≈44%).
     var BILLING_INTERVAL = 'month';      // UI state, sent to /billing/checkout
-    var FOUNDING_OPEN = false;           // founding window open (fewer than 50)
-    var IS_FOUNDER = false;              // this merchant already earned a slot
-    var FOUNDING_REMAINING = 50;         // honest spots-left count for display
     var LAST_STATS = null;               // last /stats payload (banner re-render)
     var PLAN_PRICES = {
-      standard: { month: 15, year: 135 },
-      pro:      { month: 29, year: 250 },
+      standard: { month: 7, year: 50 },
+      pro:      { month: 15, year: 100 },
     };
-    // Eligible = window still open OR already a founder (lifetime benefit) —
-    // matches isFoundingEligible() in db.ts, the exact check checkout uses.
-    function foundingEligible() { return FOUNDING_OPEN || IS_FOUNDER; }
     function fmtPrice(n) {
       var v = Math.round(Number(n) * 100) / 100;
       return String(v % 1 === 0 ? v : v.toFixed(2));
@@ -1843,8 +1807,7 @@
     function yearlySave(tier) { return (PLAN_PRICES[tier].month * 12) - PLAN_PRICES[tier].year; }
     function priceFor(tier, iv) {
       var period = iv || BILLING_INTERVAL;
-      var p = PLAN_PRICES[tier][period];
-      return foundingEligible() ? p / 2 : p;
+      return PLAN_PRICES[tier][period];
     }
     function planPriceLabel(tier) {
       return '$' + fmtPrice(priceFor(tier)) + periodLabel();
@@ -1852,35 +1815,10 @@
     function renderPricing() {
       ['standard', 'pro'].forEach(function(tier) {
         var priceEl = document.getElementById('price-' + tier);
-        var badgeEl = document.getElementById('founding-badge-' + tier);
-        var noteEl = document.getElementById('founding-note-' + tier);
         var subEl = document.getElementById('price-sub-' + tier);
         if (!priceEl) return;
-        var list = PLAN_PRICES[tier][BILLING_INTERVAL];
         var price = priceFor(tier);
-        var founding = foundingEligible();
-        priceEl.innerHTML = '$' + fmtPrice(price) + '<span>' + periodLabel() + '</span>' +
-          (founding ? '<span class="price-struck">$' + list + periodLabel() + '</span>' : '');
-        if (badgeEl) {
-          if (founding) {
-            badgeEl.style.display = '';
-            badgeEl.textContent = 'Founding Member — lifetime 50% off';
-          } else {
-            badgeEl.style.display = 'none';
-            badgeEl.textContent = '';
-          }
-        }
-        if (noteEl) {
-          if (founding) {
-            noteEl.style.display = '';
-            noteEl.textContent = IS_FOUNDER
-              ? 'Priority support for 90 days — your 50% is locked in for life.'
-              : 'Priority support for 90 days \u00b7 ' + FOUNDING_REMAINING + ' of 50 spots left';
-          } else {
-            noteEl.style.display = 'none';
-            noteEl.textContent = '';
-          }
-        }
+        priceEl.innerHTML = '$' + fmtPrice(price) + '<span>' + periodLabel() + '</span>';
         if (subEl) {
           subEl.textContent = BILLING_INTERVAL === 'year'
             ? 'Billed yearly — save $' + yearlySave(tier) + ' vs monthly'
