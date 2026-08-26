@@ -573,6 +573,30 @@
     .status-banner-btn:hover { border-color: var(--primary); color: var(--primary); }
     .status-banner-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff !important; }
     .status-banner-btn-primary:hover { background: var(--primary-hover); }
+
+    /* -- Free-trial banner (home screen only) --
+       Small, non-intrusive strip shown ONLY while the merchant is inside its
+       automatic 30-day full-access free trial. Driven by /subscription ->
+       free_trial (renderTrialBanner in loadSubscription): hidden by default
+       in the markup so it never flashes for subscribers, trial-expired
+       merchants, dev-preview merchants, or logged-out visitors. */
+    .trial-banner {
+      display: none; /* shown by renderTrialBanner() once /subscription loads */
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+      padding: 12px 18px;
+      border-radius: var(--radius);
+      border: 1px solid #86EFAC;
+      background: #F0FDF4;
+      line-height: 1.5;
+    }
+    .trial-banner strong { font-size: 0.95rem; color: var(--text); }
+    .trial-banner p { margin: 3px 0 0; color: var(--body); font-size: 0.85rem; }
+    .trial-banner-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
     .badge-live { background: #DCFCE7; color: #15803D; }
     .badge-test { background: #E0E7FF; color: #4338CA; }
 
@@ -862,6 +886,21 @@
         </div>
       </div>
       <div class="status-banner-actions" id="status-banner-actions"></div>
+    </div>
+
+    <!-- Free-trial banner (home screen only). Hidden by default; shown ONLY
+         while the merchant is inside its 30-day full-access free trial.
+         renderTrialBanner() in loadSubscription() flips display based on
+         /subscription -> free_trial, which is false once the trial expires,
+         once the merchant subscribes, and for dev-preview merchants. -->
+    <div class="trial-banner" id="trial-banner" style="display:none;">
+      <div>
+        <strong>Free 30-day trial &mdash; full access, no card needed.</strong>
+        <p>Every feature is unlocked for your first 30 days. Pick a plan after the trial ends, or let it end automatically.</p>
+      </div>
+      <div class="trial-banner-actions">
+        <button class="status-banner-btn" onclick="scrollToPricing()">Pick a plan &rarr;</button>
+      </div>
     </div>
 
     <!-- Stats Cards -->
@@ -1655,6 +1694,7 @@
         if (handoffIf401(res)) return;
         if (res.ok) {
           var sub = await res.json();
+          renderTrialBanner(sub);
           renderPricing();
           if (LAST_STATS) renderStatusBanner(LAST_STATS);
           var isPro = sub.tier === 'pro' && sub.status === 'active';
@@ -1668,9 +1708,11 @@
             var dateStr = sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '—';
             // The plan card is the single source of truth for plan details
             // (name + price, since date, Manage Billing) — no duplicate pill.
-            // Price is interval-aware (Phase B): yearly subscribers see the
-            // yearly price; founders see their locked-in 50% price (they are
-            // genuinely paying it — the coupon is on their subscription).
+            // Price is interval-aware (Phase B): yearly subscribers see their
+            // yearly price. The founding 50% offer was removed (reprice
+            // 2026-08-26) — the plan card always shows the current listed
+            // price for the merchant's tier/interval; there is no founder
+            // pricing to special-case.
             var planIv = sub.interval === 'year' ? 'year' : 'month';
             var planList = PLAN_PRICES[sub.tier] ? PLAN_PRICES[sub.tier][planIv] : (sub.tier === 'pro' ? 15 : 7);
             var planShown = planList;
@@ -1745,7 +1787,25 @@
       }
     }
 
-    // ── Beta-code redemption ──
+    // -- Free-trial banner (home screen only) --
+    // Shows the trial banner ONLY while the merchant is inside its 30-day
+    // full-access free trial. /subscription -> free_trial (same
+    // isWithinFreeTrial source as /stats) is false for active subscribers,
+    // trial-expired merchants, and dev-preview merchants, so the banner just
+    // toggles off on exactly that flag. The markup hides it by default so it
+    // never flashes on first paint for non-trial or logged-out visitors.
+    function renderTrialBanner(sub) {
+      var el = document.getElementById('trial-banner');
+      if (!el) return;
+      el.style.display = sub.free_trial ? 'flex' : 'none';
+    }
+    // "Pick a plan" scrolls the merchant down to the subscription/pricing card.
+    function scrollToPricing() {
+      var target = document.getElementById('subscription-card') || document.getElementById('pricing');
+      if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // -- Beta-code redemption --
     // POSTs the entered code to /api/beta/redeem. On success the merchant is
     // flipped to dev_pro=1 (active Pro preview) server-side; we prompt a
     // refresh so /subscription re-derives and renders the Pro billing state.

@@ -479,10 +479,16 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/subscription" && req.method === "GET") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
-        const { getSubscriptionByMerchantId, isDevPro } = await import("./db");
+        const { getSubscriptionByMerchantId, isDevPro, isWithinFreeTrial } = await import("./db");
+        // Whether the merchant is currently inside its automatic 30-day
+        // full-access free trial (same isWithinFreeTrial source as /stats →
+        // free_trial). Always false for active subscribers and dev-preview
+        // merchants, and false once the window has elapsed — the dashboard's
+        // home-screen trial banner toggles off exactly on that flag.
+        const freeTrial = isWithinFreeTrial(db, auth.merchant_id);
         const sub = getSubscriptionByMerchantId(db, auth.merchant_id);
         if (sub) {
-          return new Response(JSON.stringify(sub), {
+          return new Response(JSON.stringify({ ...sub, free_trial: freeTrial }), {
             headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
           });
         }
@@ -491,12 +497,13 @@ async function handleRequest(req: Request): Promise<Response> {
         // Pro merchant's /subscription returns (tier 'pro' + status 'active')
         // so the Stripe App drawer shows the paid OverviewView and the
         // dashboard renders the Pro plan state. `dev_pro: true` lets any UI
-        // distinguish the preview from a real subscription.
+        // distinguish the preview from a real subscription. Not in trial.
         if (isDevPro(db, auth.merchant_id)) {
           return new Response(JSON.stringify({
             tier: "pro",
             status: "active",
             dev_pro: true,
+            free_trial: false,
             merchant_id: auth.merchant_id,
             stripe_subscription_id: null,
             stripe_customer_id: null,
@@ -505,7 +512,7 @@ async function handleRequest(req: Request): Promise<Response> {
             headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
           });
         }
-        return new Response(JSON.stringify({ tier: null, status: "none" }), {
+        return new Response(JSON.stringify({ tier: null, status: "none", free_trial: freeTrial }), {
           headers: { ...corsHeadersFor(req), "Content-Type": "application/json" },
         });
       }
