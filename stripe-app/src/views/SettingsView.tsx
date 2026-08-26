@@ -23,7 +23,7 @@ const modes: Array<{ value: TrustMode; label: string; description: string }> = [
 ];
 
 const planNames: Record<Tier, string> = { standard: 'Standard', pro: 'Pro' };
-const planPrices: Record<Tier, string> = { standard: '$15/month', pro: '$29/month' };
+const planPrices: Record<Tier, string> = { standard: '$7/month', pro: '$15/month' };
 
 /**
  * App-level settings view (viewport "settings") — the home for account-level
@@ -150,8 +150,8 @@ export default function SettingsView(props?: { oauthContext?: ExtensionContextVa
               ) : (
                 <>
                   <Box css={{ stack: 'x', gap: 'small', wrap: 'wrap' }}>
-                    <Button type="primary" href={`${BASE_URL}/billing/checkout?tier=standard`} target="_blank">Subscribe to Standard — $15/mo</Button>
-                    <Button type="primary" href={`${BASE_URL}/billing/checkout?tier=pro`} target="_blank">Subscribe to Pro — $29/mo</Button>
+                    <Button type="primary" href={`${BASE_URL}/billing/checkout?tier=standard`} target="_blank">Subscribe to Standard — $7/mo</Button>
+                    <Button type="primary" href={`${BASE_URL}/billing/checkout?tier=pro`} target="_blank">Subscribe to Pro — $15/mo</Button>
                   </Box>
                   <Box css={{ color: 'secondary', font: 'caption' }}>
                     Checkout opens in a new tab. Have a coupon? Apply it at checkout.

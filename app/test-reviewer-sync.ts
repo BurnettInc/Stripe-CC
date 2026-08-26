@@ -14,11 +14,9 @@
  *          review harness installs in test mode, so their Settings → Subscribe
  *          (POST /billing/checkout, JSON) must produce a $0 session with zero
  *          extra steps. Real customers (live installs / web connect) never
- *          match. Since Phase A (founding offer), a default checkout during
- *          the founding window carries the FOUNDING coupon server-side
- *          (discounts[0][coupon]) instead of the code field — see the A2
- *          assertions; the founding coupon is never applied alongside the
- *          reviewer promo (the reviewer path wins).
+ *          match. A default checkout (non-reviewer) attaches no discount at
+ *          all — the founding offer was removed 2026-08-26 — so a plain
+ *          checkout keeps allow_promotion_codes (see the A2 assertions).
  *
  * (B) Invoice sync — invoices created in Stripe AFTER the marketplace install
  *     never reached the pipeline (install backfill is a one-shot snapshot, no
@@ -185,17 +183,15 @@ async function run(): Promise<void> {
   }
 
   // 2. GET without promo (no test-mode install) → real-customer path: NO
-  //    reviewer discount. (Since Phase A, a plain checkout during the founding
-  //    window carries the FOUNDING coupon server-side instead — first 50
-  //    signups — which also drops allow_promotion_codes because Stripe rejects
-  //    sessions with both `discounts` and `allow_promotion_codes`.)
+  //    discount of any kind (the founding offer was removed 2026-08-26, so a
+  //    plain checkout attaches no coupon and keeps allow_promotion_codes).
   {
     const before = stub.checkoutCalls.length;
     const res = await get("/billing/checkout?tier=standard", authHeaders);
     const p = lastCheckoutParams();
     check("A2 GET plain → 302 to Stripe Checkout", res.status === 302, `status=${res.status}`);
     check("A2 GET plain → NO reviewer discount attached", p.get("discounts[0][promotion_code]") === null, String(p.get("discounts[0][promotion_code]")));
-    check("A2 GET plain → founding coupon attached (first-50 window), allow_promotion_codes dropped", p.get("discounts[0][coupon]") === "BIywdq7e" && !p.has("allow_promotion_codes"), `coupon=${String(p.get("discounts[0][coupon]"))} allow=${String(p.get("allow_promotion_codes"))}`);
+    check("A2 GET plain → founding coupon NOT attached (offer removed), allow_promotion_codes present", p.get("discounts[0][coupon]") === null && p.get("allow_promotion_codes") === "true", `coupon=${String(p.get("discounts[0][coupon]"))} allow=${String(p.get("allow_promotion_codes"))}`);
     check("A2 GET plain → a checkout was created", stub.checkoutCalls.length === before + 1, `calls=${stub.checkoutCalls.length}`);
   }
 

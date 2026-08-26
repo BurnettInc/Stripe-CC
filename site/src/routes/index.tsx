@@ -123,18 +123,6 @@ function Home() {
           </div>
         </div>
 
-        {/* Founding Member Offer — full width below the grid */}
-        <div className="mt-10 mx-auto max-w-3xl rounded-2xl border border-indigo-200 bg-indigo-50 p-6 text-left">
-          <p className="text-sm font-bold uppercase tracking-wide text-indigo-700 mb-2">
-            Founding Member Offer — first 50 to sign up
-          </p>
-          <ul className="space-y-1.5 text-sm text-gray-700">
-            <li>✓ <span className="font-semibold text-indigo-900">Lifetime 50% off</span> both plans — Standard <span className="font-semibold">$7.50/mo</span>, Pro <span className="font-semibold">$14.50/mo</span>, forever.</li>
-            <li>✓ Priority support for your first 90 days.</li>
-            <li>✓ Your discount stays even if we raise prices later.</li>
-            <li>✓ Guaranteed to the first 50 people who sign up.</li>
-          </ul>
-        </div>
       </section>
 
       {/* Sample — see it before you connect anything (honest, illustrative example) */}
@@ -467,11 +455,9 @@ function Home() {
             },
             {
               name: "Standard",
-              was: "$15",
-              price: "$7.50",
+              price: "$7",
               period: "/month",
-              priceSub: "$135/year (save $45)",
-              foundingLabel: "Founding member price — first 50 to sign up",
+              priceSub: "$50/year (save $34)",
               tier: "standard",
               body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
               features: [
@@ -486,11 +472,9 @@ function Home() {
             },
             {
               name: "Pro",
-              was: "$29",
-              price: "$14.50",
+              price: "$15",
               period: "/month",
-              priceSub: "$250/year (save $98)",
-              foundingLabel: "Founding member price — first 50 to sign up",
+              priceSub: "$100/year (save $80)",
               tier: "pro",
               body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
               features: [
@@ -514,11 +498,6 @@ function Home() {
             >
               <h3 className="text-xl font-bold text-gray-900">{plan.name}</h3>
               <p className={`mt-4 ${plan.free ? "text-lg font-semibold" : ""}`}>
-                {plan.was && (
-                  <span className="text-2xl font-bold text-gray-400 line-through mr-2">
-                    {plan.was}
-                  </span>
-                )}
                 <span className={plan.free ? "text-xl font-bold text-gray-900" : "text-4xl font-bold text-gray-900"}>
                   {plan.price}
                 </span>
@@ -526,9 +505,6 @@ function Home() {
               </p>
               {plan.priceSub && (
                 <p className="mt-1 text-sm text-gray-500">{plan.priceSub}</p>
-              )}
-              {plan.foundingLabel && (
-                <p className="mt-1 text-xs font-medium text-indigo-600">{plan.foundingLabel}</p>
               )}
               <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
               <ul className="mt-6 space-y-3">
@@ -568,7 +544,7 @@ function Home() {
         </div>
         <p className="mt-8 text-sm text-gray-500 text-center">
           Install from the Stripe App Marketplace — subscribe inside the app after
-          connecting. $15/mo or $135/yr Standard · $29/mo or $250/yr Pro.
+          connecting. $7/mo or $50/yr Standard · $15/mo or $100/yr Pro.
         </p>
       </section>
 
@@ -754,8 +730,8 @@ function Home() {
             finger.
           </p>
           <p className="text-indigo-300 max-w-lg mx-auto mb-8">
-            Founding members (first 50 to sign up) get lifetime 50% off both plans plus 90
-            days of priority support — guaranteed, even if we raise prices later.
+            Start free — 5 drafts, no card required. Subscribe inside the app when
+            you're ready for sending.
           </p>
           <div className="flex flex-col items-center gap-4">
             <a

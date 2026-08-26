@@ -213,7 +213,7 @@ async function main(): Promise<void> {
     check("3f. second cancel sets clock again", deletionScheduledAt() !== null);
     const r3 = await post("/billing", {
       type: "customer.subscription.updated",
-      data: { object: { id: "sub_reactive", status: "active", items: { data: [{ price: { id: "price_1U4LUtAD4cJGS9CrkqXP6IxH" } }] } } },
+      data: { object: { id: "sub_reactive", status: "active", items: { data: [{ price: { id: "price_1U8VZyAD4cJGS9CrReqgDCtd" } }] } } },
     });
     check("3g. updated→active accepted", r3.status === 200, `status=${r3.status}`);
     check("3h. updated→active clears the clock", deletionScheduledAt() === null);

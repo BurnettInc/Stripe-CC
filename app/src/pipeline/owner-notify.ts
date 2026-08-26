@@ -55,8 +55,8 @@ export function isDevOrTestMerchant(merchant: Merchant | null): boolean {
 /** Human plan label with monthly price, matching the landing-page pricing. */
 export function planLabel(tier: string): string {
   const t = (tier || "").toLowerCase();
-  if (t === "standard") return "Standard ($15/mo)";
-  if (t === "pro") return "Pro ($29/mo)";
+  if (t === "standard") return "Standard ($7/mo)";
+  if (t === "pro") return "Pro ($15/mo)";
   return tier;
 }
 
@@ -173,7 +173,7 @@ export async function notifyOwnerStripeConnect(
 }
 
 /**
- * "💳 Paid subscription — <email> subscribed to <Plan> ($15/mo or $29/mo)" —
+ * "💳 Paid subscription — <email> subscribed to <Plan> ($7/mo or $15/mo)" —
  * fired from the billing webhook's checkout.session.completed path when a
  * Standard/Pro subscription is actually created (not on idempotent replays).
  * Excludes dev/test merchants.

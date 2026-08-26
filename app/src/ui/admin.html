@@ -237,7 +237,7 @@
     // __CC_ADMIN_TOKEN__ is replaced at serve time (GET /admin) with the real
     // ADMIN_TOKEN — the page can then call /admin/data with it.
     var TOKEN = "__CC_ADMIN_TOKEN__";
-    var PRICES = { standard: 15, pro: 29 }; // $/mo (billing.ts monthly prices)
+    var PRICES = { standard: 7, pro: 15 }; // $/mo (billing.ts monthly prices)
     // Minimum sample sizes before showing a rate/pct (#9): at least 5 reminder
     // emails must have gone out to show a response %, and at least 1 recovered
     // invoice before showing days-to-payment. Below that we show a guard message
@@ -400,17 +400,17 @@
 
         // ── Revenue: MRR (#6) + plan counts ──
         var std = f.paid_active.standard, pro = f.paid_active.pro, dev = f.dev_pro;
-        var firm = std * PRICES.standard + pro * PRICES.pro;     // grounded ($15/$29 monthly)
+        var firm = std * PRICES.standard + pro * PRICES.pro;     // grounded ($7/$15 monthly)
         var devEst = dev * PRICES.pro;                            // devPro @ pro price — estimate
         var total = firm + devEst;
-        var estNote = "std " + std + "×$15 + pro " + pro + "×$29 /mo";
+        var estNote = "std " + std + "×$7 + pro " + pro + "×$15 /mo";
         if (dev > 0) {
-          estNote += " + " + dev + " dev×$29 est";
+          estNote += " + " + dev + " dev×$15 est";
         }
         document.getElementById("revCards").innerHTML =
           card("MRR (monthly)", '<span class="est">~</span>' + fmtUsd(total), estNote) +
           card("Paid subscriptions", std + pro, "std " + std + " · pro " + pro) +
-          card("Dev (non-paying)", dev, "included in MRR as ~$29 est each") +
+          card("Dev (non-paying)", dev, "included in MRR as ~$15 est each") +
           card("Cancelled / past due", f.subs_cancelled + f.subs_past_due,
             f.subs_cancelled + " cancelled · " + f.subs_past_due + " past due");
         document.getElementById("revenueSec").style.display = "";
