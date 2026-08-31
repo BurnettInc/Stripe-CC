@@ -26,9 +26,9 @@ export function SiteNav({ businessName = "" }: { businessName?: string }) {
     <nav className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-6 py-4 max-w-6xl mx-auto">
       <a href="/" className="flex items-center gap-3">
         <span className="inline-flex items-center justify-center rounded-lg bg-indigo-50 p-1.5 ring-1 ring-indigo-100">
-          <img src="/icon.svg" alt="CollectionsCopilot" className="h-9 w-auto" />
+          <img src="/icon.svg" alt="CollectionsCopilot" className="h-10 w-auto" />
         </span>
-        <span className="text-lg sm:text-xl tracking-tight text-gray-900">
+        <span className="text-xl font-semibold tracking-tight text-gray-900 sm:text-2xl">
           {renderName(businessName || "CollectionsCopilot")}
         </span>
       </a>
