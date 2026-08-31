@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { recordPageVisit } from "../db";
+import { recordPageVisit, markPageVisitVerified } from "../db";
 import { maskIp } from "../visitor-signals";
 /**
  * POST /api/track (also /track — the dev site proxy strips the /api prefix
@@ -80,6 +80,40 @@ export async function handleTrack(db: Database, req: Request): Promise<Response>
   const uaHeader = (req.headers.get("user-agent") || "").trim().slice(0, 512);
   const ua = uaHeader || str(body.ua, 512); // beacon fallback when header stripped
   const country = (req.headers.get("cf-ipcountry") || "").trim().toUpperCase().slice(0, 8);
+  // Request headers captured for the absent-header bot heuristic (see
+  // visitor-signals.ts botStatusForFull). Always written EXPLICITLY — the empty
+  // string means "present on the request but absent" vs NULL (historical).
+  const acceptLanguage = (req.headers.get("accept-language") || "").trim().slice(0, 512);
+  const acceptEncoding = (req.headers.get("accept-encoding") || "").trim().slice(0, 512);
+
+  // VERIFIED beacon (Part 2b): the post-render <head> beacon fires a second
+  // request with verified:true after the page actually executes JS. Bots that
+  // only fetched the HTML never round-trip it. Here we mark the matching visit
+  // row as verified instead of inserting a duplicate touch.
+  if (body.verified === true) {
+    const didMark = markPageVisitVerified(db, visitorId, page.slice(0, 512));
+    if (!didMark) {
+      // No matching visit row (rare — e.g. the head beacon was suppressed) —
+      // still record a standalone verified touch so the signal isn't lost.
+      recordPageVisit(db, {
+        visitor_id: visitorId,
+        page: page.slice(0, 512),
+        referrer: str(body.referrer, 500),
+        utm_source: str(body.utm_source, 200),
+        utm_medium: str(body.utm_medium, 200),
+        utm_campaign: str(body.utm_campaign, 200),
+        utm_content: str(body.utm_content, 200),
+        ts,
+        ip,
+        user_agent: ua,
+        country,
+        accept_language: acceptLanguage,
+        accept_encoding: acceptEncoding,
+        verified: true,
+      });
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+  }
 
   recordPageVisit(db, {
     visitor_id: visitorId,
@@ -93,6 +127,8 @@ export async function handleTrack(db: Database, req: Request): Promise<Response>
     ip,
     user_agent: ua,
     country,
+    accept_language: acceptLanguage,
+    accept_encoding: acceptEncoding,
   });
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }

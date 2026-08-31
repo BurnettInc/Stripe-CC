@@ -813,18 +813,56 @@ export function recordPageVisit(
     ip?: string;
     user_agent?: string;
     country?: string;
+    accept_language?: string;
+    accept_encoding?: string;
+    verified?: boolean;
   }
 ): boolean {
+  // accept_language / accept_encoding are written EXPLICITLY on every capture
+  // (migration 033 made them nullable with no default, so the empty string ''
+  // means "server saw the request and the header was absent" while NULL means
+  // "pre-capture / historical" — the absent-both bot heuristic only applies to
+  // rows that carry '' (or a real value), never to NULL).
   const result = db.run(
-    `INSERT OR IGNORE INTO page_visits (visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts, ip, user_agent, country)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO page_visits (visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts, ip, user_agent, country, accept_language, accept_encoding, verified)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       params.visitor_id, params.page, params.referrer, params.utm_source, params.utm_medium,
       params.utm_campaign, params.utm_content, params.ts,
       params.ip ?? "", params.user_agent ?? "", params.country ?? "",
+      params.accept_language ?? "", params.accept_encoding ?? "",
+      params.verified ? 1 : 0,
     ]
   );
   return result.changes > 0;
+}
+
+/**
+ * Mark the most recent page_visits row for (visitor_id, page) as a VERIFIED,
+ * JS-executing visit — fired by the post-render beacon (see site
+ * __root.tsx). Distinguishes a real browser (which executes the page's JS) from
+ * a bot that only fetched the HTML (which won't round-trip the second beacon).
+ * Returns whether a row was updated.
+ */
+export function markPageVisitVerified(db: Database, visitorId: string, page: string): boolean {
+  if (!visitorId || !page) return false;
+  try {
+    // Mark the most recent row for this (visitor, page) — the same page load
+    // whose head beacon just created it. Bounded to one row so a page
+    // revisited later keeps its own verified state.
+    const result = db.run(
+      `UPDATE page_visits SET verified = 1
+       WHERE id = (
+         SELECT id FROM page_visits
+         WHERE visitor_id = ? AND page = ?
+         ORDER BY ts DESC, id DESC LIMIT 1
+       )`,
+      [visitorId, page],
+    );
+    return result.changes > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**

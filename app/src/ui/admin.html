@@ -7,55 +7,29 @@
   <title>CollectionsCopilot — Admin</title>
   <style>
     :root {
-      --bg: #0F1117;
-      --card: #171A23;
-      --card-2: #1D2130;
-      --text: #E6E9F0;
-      --body: #9AA3B5;
-      --muted: #6B7280;
-      --border: #262B3A;
-      --primary: #635BFF;
-      --primary-light: #EEF2FF;
-      --success: #34D399;
-      --danger: #F87171;
-      --warning: #FBBF24;
-      --radius: 12px;
+      --bg: #0F1117; --card: #171A23; --card-2: #1D2130; --text: #E6E9F0; --body: #9AA3B5;
+      --muted: #6B7280; --border: #262B3A; --primary: #635BFF; --primary-light: #EEF2FF;
+      --success: #34D399; --danger: #F87171; --warning: #FBBF24; --radius: 12px;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg); color: var(--text); padding: 32px 24px 64px;
-    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 32px 24px 64px; }
     header { max-width: 1100px; margin: 0 auto 24px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
     h1 { font-size: 22px; font-weight: 700; }
     .sub { color: var(--muted); font-size: 13px; }
     .gen { color: var(--muted); font-size: 12px; margin-left: auto; }
-    main { max-width: 1100px; margin: 0 auto; display: grid; gap: 28px; }
+    main { max-width: 1100px; margin: 0 auto; display: grid; gap: 26px; }
 
-    /* ── Section grouping (#11): Growth / Revenue / Product Health ── */
-    .section > .sec-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 14px; }
+    .section > .sec-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
     .section > .sec-head h2 { font-size: 15px; font-weight: 700; letter-spacing: .02em; }
     .section > .sec-head .sec-note { color: var(--muted); font-size: 12px; }
     .section > .grid { display: grid; gap: 16px; }
 
-    /* ── Funnel (#5) ── */
-    .funnel { display: grid; grid-template-columns: auto 1fr auto 1fr auto; align-items: center; gap: 18px;
-      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; }
-    .fstep { text-align: center; }
-    .fstep .num { font-size: 34px; font-weight: 800; line-height: 1; }
-    .fstep .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .07em; margin-top: 8px; }
-    .fstep .pct { color: var(--primary); font-size: 13px; font-weight: 700; margin-top: 6px; }
-    .farrow { position: relative; text-align: center; }
-    .farrow .pct { color: var(--success); font-size: 13px; font-weight: 700; margin-bottom: 5px; }
-    .farrow .line { height: 3px; background: linear-gradient(90deg, var(--primary), var(--success)); border-radius: 999px; min-width: 40px; }
-    .fnote { color: var(--muted); font-size: 12px; margin-top: 6px; text-align: center; }
-    .guard { color: var(--warning) !important; }
-
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    /* outcomes row */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
     .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-    .card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
-    .card .value small { font-size: 13px; color: var(--muted); font-weight: 500; }
+    .card .value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+    .card .value small { font-size: 12px; color: var(--muted); font-weight: 500; }
     .card .value .est { color: var(--warning); font-weight: 500; font-size: 13px; }
     .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
     .panel h3 { font-size: 13px; font-weight: 700; padding: 13px 16px; border-bottom: 1px solid var(--border); color: var(--text); letter-spacing: .02em; }
@@ -80,21 +54,30 @@
     .error { background: #3A1D1D; color: #FCA5A5; border: 1px solid #7F1D1D; border-radius: var(--radius); padding: 20px; text-align: center; }
     .empty { color: var(--muted); padding: 18px; text-align: center; }
     .one-liner { color: var(--body); font-size: 13px; line-height: 1.6; padding: 14px 16px; }
-    .one-liner .muted { color: var(--muted); }
     .muted { color: var(--muted); }
     a { color: #C4B5FD; }
+    .guard { color: var(--warning) !important; }
     .barwrap { background: var(--card-2); border-radius: 999px; height: 8px; min-width: 60px; }
     .bar { display: block; height: 8px; border-radius: 999px; background: var(--primary); min-width: 2px; }
     td.bucket { color: var(--text); font-weight: 600; white-space: nowrap; }
     td .hosts { color: var(--muted); font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     .srcnote { padding: 12px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); line-height: 1.5; }
-    /* ── Daily-visits bar chart (vanilla, no library) ── */
+
+    /* compact funnel strip */
+    .strip { display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; flex-wrap: wrap; }
+    .step { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
+    .step .n { font-size: 20px; font-weight: 800; }
+    .step .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+    .arrow { color: var(--primary); font-weight: 700; font-size: 16px; }
+    .pct { color: var(--success); font-size: 12px; font-weight: 700; }
+
+    /* daily-visits bar chart (vanilla) */
     .dv-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
     .dv-head h3 { border-bottom: none; padding: 0; }
     .dv-toggle { display: flex; gap: 6px; margin-left: auto; }
     .dv-t { cursor: pointer; padding: 3px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--muted); background: var(--card-2); }
     .dv-t.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-    .dv-chart { display: flex; align-items: stretch; gap: 4px; height: 160px; padding: 14px 16px 10px; overflow-x: auto; }
+    .dv-chart { display: flex; align-items: stretch; gap: 4px; height: 150px; padding: 14px 16px 10px; overflow-x: auto; }
     .dv-col { flex: 1 1 0; min-width: 18px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
     .dv-fill { position: relative; flex: 1 1 0; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
     .dv-rect { width: 62%; min-width: 4px; background: var(--primary); border-radius: 3px 3px 0 0; }
@@ -102,12 +85,15 @@
     .dv-date { text-align: center; font-size: 9px; color: var(--muted); padding-top: 4px; white-space: nowrap; }
     .dv-note { padding: 8px 16px 12px; color: var(--muted); font-size: 11px; }
 
-    /* ── Mobile: stacked card layout below 640px (#10) ── */
+    /* collapsible debug panel */
+    .collapsible .col-head { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; }
+    .collapsible .col-head .caret { transition: transform .15s; font-size: 12px; color: var(--muted); }
+    .collapsible.open .col-head .caret { transform: rotate(90deg); }
+    .col-body { display: none; }
+    .collapsible.open .col-body { display: block; }
+
     @media (max-width: 640px) {
       body { padding: 20px 14px 48px; }
-      .funnel { grid-template-columns: 1fr; gap: 8px; padding: 18px; }
-      .farrow { transform: rotate(90deg); margin: 6px auto; }
-      .farrow .line { min-width: 60px; }
       .cards { grid-template-columns: 1fr 1fr; }
       .panel .scroll { overflow-x: visible; }
       table, tbody, tr, td { display: block; width: 100%; }
@@ -117,7 +103,6 @@
       .panel td::before { content: attr(data-label); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; flex: 0 0 auto; }
       .panel td:first-child { padding-top: 12px; }
       .panel td:last-child { border-bottom: none; }
-      .panel td .hosts { text-align: right; }
     }
   </style>
 </head>
@@ -126,29 +111,32 @@
     <h1>CollectionsCopilot — Admin</h1>
     <span class="sub">internal only · not linked anywhere public</span>
     <span class="gen" id="gen"></span>
+    <button id="skipToggle" title="Stop counting my own visits in the funnel — clears cc_vid tracking until toggled back"></button>
   </header>
   <main>
     <div id="error" class="error" style="display:none;"></div>
 
-    <!-- Top-of-page acquisition funnel (#5) -->
-    <div id="funnelWrap" style="display:none;">
-      <div class="funnel" id="funnel">
-        <div class="fstep"><div class="num" id="fVisits">—</div><div class="lbl">Visits</div><div class="pct" id="fVisitsPct"></div></div>
-        <div class="farrow"><div class="pct" id="fVD"></div><div class="line"></div></div>
-        <div class="fstep"><div class="num" id="fDrafts">—</div><div class="lbl">Drafts</div><div class="pct" id="fDraftsPct"></div></div>
-        <div class="farrow"><div class="pct" id="fDP"></div><div class="line"></div></div>
-        <div class="fstep"><div class="num" id="fPaid">—</div><div class="lbl">Paid</div><div class="pct" id="fPaidPct"></div></div>
-      </div>
-      <div class="fnote" id="funnelNote"></div>
-    </div>
+    <!-- (a) MERGED Revenue + Product Health — outcomes first -->
+    <section class="section" id="outcomesSec" style="display:none;">
+      <div class="sec-head"><h2>Revenue + Product Health</h2><span class="sec-note">outcomes — what the business is actually doing</span></div>
+      <div class="cards" id="outcomeCards"></div>
+      <div class="one-liner" id="outcomeLine"></div>
+    </section>
 
-    <!-- GROWTH -->
+    <!-- (b) COMPACT funnel strip -->
+    <section class="section" id="funnelSec" style="display:none;">
+      <div class="sec-head"><h2>Funnel</h2><span class="sec-note">visit → payroll-ready milestones</span></div>
+      <div class="strip" id="funnelStrip"></div>
+      <div class="one-liner" id="funnelNote" style="padding-top:0;"></div>
+    </section>
+
+    <!-- (c) GROWTH -->
     <section class="section" id="growthSec" style="display:none;">
       <div class="sec-head"><h2>Growth</h2><span class="sec-note">acquisition + how visitors become customers</span></div>
       <div class="grid">
         <div class="panel">
           <div class="dv-head">
-            <h3>Daily visits <span class="muted" id="dailyVisitsHint">— last 14 days (UTC, human visits)</span></h3>
+            <h3>Daily visits <span class="muted" id="dailyVisitsHint">— last 14 days (UTC, verified human visits)</span></h3>
             <div class="dv-toggle">
               <span class="dv-t" id="dvToggle14">14d</span>
               <span class="dv-t" id="dvToggle30">30d</span>
@@ -165,452 +153,246 @@
             <tbody id="sourceBuckets"></tbody>
           </table></div>
           <div class="srcnote">
-            Bucketing: utm_source wins when present; otherwise the referrer host maps to a channel
-            (x, reddit, hackernews, indiehackers, google, bing, duckduckgo, linkedin, referral:&lt;host&gt;).
-            A search engine's bare homepage (root path, no query — e.g. a bare
-            https://www.google.com/) lands in its own <b>search_homepage_no_query</b> bucket
-            ("Search homepage (no query) — likely bot"), NOT "direct"; <b>direct</b> is reserved for
-            true no-referrer visits. First-touch = each visitor is counted once, under the source of
-            their very first visit.
+            Sources with &lt;3 visits are collapsed into one <b>Other</b> row so a
+            dozen one-hit buckets don't drown the signal. utm_source wins when
+            present; otherwise the referrer host maps to a channel. A search
+            engine's bare homepage (no query) lands in
+            <b>search_homepage_no_query</b> (likely bot). First-touch = each
+            visitor counted once, under the source of their very first visit.
           </div>
         </div>
         <div class="panel">
-          <h3>Visitor signals <span class="muted">— device / OS / bot vs human / country, from UA + masked IP (captured going forward)</span></h3>
+          <h3>Visitor signals <span class="muted">— raw vs verified; device/OS/bot/country</span></h3>
           <div class="scroll"><table>
             <thead><tr><th>Signal</th><th>Breakdown</th></tr></thead>
             <tbody id="visitorSignals"></tbody>
           </table></div>
           <div class="srcnote">
-            Classified from the request User-Agent + masked IP (IPv4 /24, IPv6 /64 — raw IP never
-            stored; see visitor-signals.ts). "bot" = UA matches a crawler/automation substring (an
-            empty UA is NOT treated as a bot — it's "unknown" unless a real referrer leans human);
-            "likely bot" = bare search-homepage referrer (no query). Country comes from a proxy
-            country header when forwarded — not an external geo service.
+            <b>Raw requests</b> = every /api/track hit. <b>Verified human visits</b>
+            = visits where JS executed after render (a real browser). Both are
+            shown because they answer different questions. Device/OS "unknown"
+            share should drop meaningfully on verified visits (Part 2b). Bot
+            classification now also weighs an absent
+            Accept-Language + Accept-Encoding pair and sequential path
+            enumeration / same-path hammering from one masked IP (Parts 2a/2c).
           </div>
         </div>
-        <div class="panel">
-          <h3>Recent visits (last 50) <span class="muted">— a <span class="pill conv">→ merchant</span> tag means that visitor later connected</span></h3>
-          <div class="scroll"><table>
-            <thead><tr><th>Time (local)</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM source</th><th>Device</th><th>Bot</th><th>Country</th></tr></thead>
-            <tbody id="visits"></tbody>
-          </table></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- REVENUE -->
-    <section class="section" id="revenueSec" style="display:none;">
-      <div class="sec-head"><h2>Revenue</h2><span class="sec-note">what paying customers contribute</span></div>
-      <div class="grid">
-        <div class="cards" id="revCards"></div>
-        <div class="panel">
-          <h3>Merchants <span class="muted">— plan, when they joined, activity, estimated revenue</span></h3>
-          <div class="scroll"><table>
-            <thead><tr>
-              <th>Merchant</th><th>Plan</th><th>Status</th><th>Signup</th><th>Last activity</th><th>Revenue (est.)</th>
-            </tr></thead>
-            <tbody id="merchants"></tbody>
-          </table></div>
-        </div>
-        <div class="panel">
-          <h3>Subscription events (last 50)</h3>
-          <div class="scroll"><table>
-            <thead><tr><th>Time (UTC)</th><th>Merchant</th><th>Event</th><th>Tier</th><th>Status</th><th>Stripe sub id</th></tr></thead>
-            <tbody id="subEvents"></tbody>
-          </table></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- PRODUCT HEALTH -->
-    <section class="section" id="healthSec" style="display:none;">
-      <div class="sec-head"><h2>Product Health</h2><span class="sec-note">recovery + response outcomes (all-time)</span></div>
-      <div class="grid">
-        <div class="cards" id="outcomeCards"></div>
-        <div class="panel">
-          <div class="one-liner" id="outcomeLine"><span class="muted">Loading…</span></div>
+        <!-- (d) raw Recent visits — collapsed debug view at the bottom -->
+        <div class="panel collapsible" id="recentVisits">
+          <div class="col-head" onclick="toggleRecent()">
+            <span class="caret">▶</span><h3>Recent visits (last 50) <span class="muted">— debug view · <span class="pill conv">→ merchant</span> = visitor later connected</span></h3>
+          </div>
+          <div class="col-body">
+            <div class="scroll"><table>
+              <thead><tr><th>Time</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM</th><th>Device</th><th>Bot</th><th>Country</th><th>Verified</th></tr></thead>
+              <tbody id="visits"></tbody>
+            </table></div>
+          </div>
         </div>
       </div>
     </section>
   </main>
   <script>
-    // __CC_ADMIN_TOKEN__ is replaced at serve time (GET /admin) with the real
-    // ADMIN_TOKEN — the page can then call /admin/data with it.
     var TOKEN = "__CC_ADMIN_TOKEN__";
-    var PRICES = { standard: 7, pro: 15 }; // $/mo (billing.ts monthly prices)
-    // Minimum sample sizes before showing a rate/pct (#9): at least 5 reminder
-    // emails must have gone out to show a response %, and at least 1 recovered
-    // invoice before showing days-to-payment. Below that we show a guard message
-    // instead of a misleading 0%.
+    var PRICES = { standard: 7, pro: 15 };
     var MIN_REMINDERS_FOR_RATE = 5;
     var MIN_RECOVERED_FOR_DAYS = 1;
-
-    function esc(s) {
-      if (s === null || s === undefined) return '<span class="muted">—</span>';
-      return String(s).replace(/[&<>"']/g, function (c) {
-        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-      });
-    }
-    function pill(text, cls) { return '<span class="pill ' + (cls || "none") + '">' + esc(text) + "</span>"; }
-    function botStatusPill(s) {
-      if (s === "bot") return pill("bot", "no");
-      if (s === "likely_bot") return pill("likely bot", "dev");
-      if (s === "human") return pill("human", "active");
-      return '<span class="muted">—</span>';
-    }
-    function shortId(v) { return v ? String(v).slice(0, 14) + "…" : "—"; }
-    function trunc(s, n) {
-      s = String(s == null ? "" : s);
-      return s.length > n ? s.slice(0, n) + "…" : s;
-    }
-    function t(iso) {
-      if (!iso) return '<span class="muted">—</span>';
-      return esc(String(iso).replace("T", " ").replace(/\.\d{3}Z$/, "Z"));
-    }
-    function localT(ts) {
-      if (!ts) return '<span class="muted">—</span>';
-      var s = String(ts);
-      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) s = s.replace(" ", "T") + "Z";
-      var d = new Date(s);
-      if (isNaN(d.getTime())) return esc(String(ts));
-      return esc(d.toLocaleString());
-    }
-    function card(label, value, hint) {
-      return '<div class="card"><div class="label">' + esc(label) + '</div><div class="value">' + value +
-        (hint ? " <small>" + hint + "</small>" : "") + "</div></div>";
-    }
-    function fmtMoney(cents, currency) {
-      try {
-        return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "usd" })
-          .format((cents || 0) / 100);
-      } catch (e) {
-        return ((cents || 0) / 100) + " " + (currency || "usd");
+    // Owner's own-visit skip toggle: this admin page is reached by the owner's
+    // own browser, whose visits must not pollute the funnel. Toggles cc_skip in
+    // localStorage (the site beacon honors it) and restyles the button. The
+    // owner's own browsing won't be counted in the funnel while off; the toggle
+    // is a plain button so nothing reloads the page.
+    (function initSkip(){
+      var b=document.getElementById("skipToggle");
+      function paint(){
+        var off=localStorage.getItem("cc_skip")==="1";
+        b.textContent=off?"Count my visits again":"Stop counting my visits";
+        b.style.background=off?"var(--success)":"var(--card-2)";
+        b.style.color=off?"#0B2E22":"var(--body)";
+        b.style.border="1px solid var(--border)";
+        b.style.borderRadius="6px"; b.style.padding="4px 12px"; b.style.cursor="pointer"; b.style.fontSize="12px";
       }
-    }
-    function fmtUsd(amount) {
-      return new Intl.NumberFormat(undefined, { style: "currency", currency: "usd" }).format(amount || 0);
-    }
-    function pct(n, d) {
-      if (!d) return null;
-      return Math.round((n / d) * 1000) / 10; // one decimal, % unit
-    }
-    function guardMsg() { return '<span class="guard">not enough data yet</span>'; }
-    // ── Daily-visits bar chart (vanilla JS, 14/30 toggle, no library) ──
-    var dvAll = [];      // full 30-day zero-filled series (src/routes/admin.ts visits_by_day)
-    var dvDays = 14;     // 14 or 30
-    function fmtDvDate(iso) {
-      var p = iso.split("-");
-      return Number(p[1]) + "/" + Number(p[2]);
-    }
-    function renderDailyVisits() {
-      var wrap = document.getElementById("dailyVisits");
-      var box = document.getElementById("dailyVisitsEmpty");
-      var note = document.getElementById("dailyVisitsNote");
-      var hint = document.getElementById("dailyVisitsHint");
-      document.getElementById("dvToggle14").classList.toggle("active", dvDays === 14);
-      document.getElementById("dvToggle30").classList.toggle("active", dvDays === 30);
-      hint.innerHTML = "— last " + dvDays + " days (UTC, human visits)";
-      var seriesTotal = (dvAll || []).reduce(function (a, b) { return a + (b && b.count || 0); }, 0);
-      if (!dvAll || !dvAll.length || seriesTotal === 0) {
-        box.style.display = "";
-        wrap.style.display = "none";
-        note.textContent = "";
-        return;
+      b.addEventListener("click",function(){
+        if(localStorage.getItem("cc_skip")==="1"){ localStorage.removeItem("cc_skip"); }
+        else { localStorage.setItem("cc_skip", "1"); }
+        paint();
+      });
+      paint();
+    })();
+    function esc(s){ if(s===null||s===undefined)return '<span class="muted">—</span>'; return String(s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+    function pill(t,c){ return '<span class="pill '+(c||"none")+'">'+esc(t)+"</span>"; }
+    function botStatusPill(s){ if(s==="bot")return pill("bot","no"); if(s==="likely_bot")return pill("likely bot","dev"); if(s==="human")return pill("human","active"); return '<span class="muted">—</span>'; }
+    function shortId(v){ return v?String(v).slice(0,14)+"…":"—"; }
+    function trunc(s,n){ s=String(s==null?"":s); return s.length>n?s.slice(0,n)+"…":s; }
+    function t(iso){ if(!iso)return '<span class="muted">—</span>'; return esc(String(iso).replace("T"," ").replace(/\.\d{3}Z$/,"Z")); }
+    function localT(ts){ if(!ts)return '<span class="muted">—</span>'; var s=String(ts); if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s))s=s.replace(" ","T")+"Z"; var d=new Date(s); if(isNaN(d.getTime()))return esc(String(ts)); return esc(d.toLocaleString()); }
+    function card(label,value,hint){ return '<div class="card"><div class="label">'+esc(label)+'</div><div class="value">'+value+(hint?" <small>"+hint+"</small>":"")+"</div></div>"; }
+    function fmtMoney(cents,currency){ try{ return new Intl.NumberFormat(undefined,{style:"currency",currency:currency||"usd"}).format((cents||0)/100);}catch(e){ return ((cents||0)/100)+" "+(currency||"usd"); } }
+    function fmtUsd(amount){ return new Intl.NumberFormat(undefined,{style:"currency",currency:"usd"}).format(amount||0); }
+    function pct(n,d){ if(!d)return null; return Math.round((n/d)*1000)/10; }
+    function guardMsg(){ return '<span class="guard">not enough data yet</span>'; }
+    function loadout(d){
+      // Check whether there is ANY real outcome/revenue data yet.
+      var o=d.outcomes||{}, rec=o.recovery||{}, resp=o.response||{};
+      var hasRealData = (rec.invoices_recovered||0)>0 || (resp.reminders_sent||0)>0 ||
+        (d.funnel && ((d.funnel.paid_active&&(d.funnel.paid_active.standard||d.funnel.paid_active.pro))||0)>0);
+      if(!hasRealData){
+        document.getElementById("outcomeCards").innerHTML =
+          '<div class="card" style="grid-column:1/-1;"><div class="label">Revenue + Product Health</div>'+
+          '<div class="value" style="font-size:14px;font-weight:500;color:var(--body);">Not enough data yet — this fills in as real merchants connect and pay.</div></div>';
+        document.getElementById("outcomeLine").innerHTML = '<span class="muted">(No recovery events yet — recorded automatically once an overdue invoice is paid.)</span>';
+      } else {
+        var f=d.funnel; var paid=(f&&((f.paid_active&&f.paid_active.standard)||0)+((f.paid_active&&f.paid_active.pro)||0))||0;
+        var std=f&&f.paid_active&&f.paid_active.standard||0, pro=f&&f.paid_active&&f.paid_active.pro||0, dev=f&&f.dev_pro||0;
+        var mrr=std*PRICES.standard+pro*PRICES.pro+dev*PRICES.pro;
+        var recStr=rec.by_currency&&rec.by_currency.length?rec.by_currency.map(function(b){return fmtMoney(b.cents,b.currency);}).join(" + "):"$0";
+        var rateHtml,rateHint;
+        if(resp.reminders_sent>=MIN_REMINDERS_FOR_RATE){ rateHtml=(resp.response_rate_pct===null?"—":resp.response_rate_pct+"%"); rateHint=resp.replies+" replies / "+resp.reminders_sent+" sent"; }
+        else { rateHtml=guardMsg(); rateHint="needs ≥"+MIN_REMINDERS_FOR_RATE+" reminders sent (currently "+(resp.reminders_sent||0)+")"; }
+        document.getElementById("outcomeCards").innerHTML =
+          card("MRR (monthly)","<span class=\"est\">~</span>"+fmtUsd(mrr),"std "+std+"·$7 + pro "+pro+"·$15"+(dev?" + "+dev+" dev·$15 est":"")+"/mo")+
+          card("Paid subscriptions",paid,"std "+std+" · pro "+pro)+
+          card("Dollars recovered",recStr,rec.invoices_recovered+" invoice(s)")+
+          card("Response rate",rateHtml,rateHint);
+        var avg=rec.avg_days_to_payment;
+        document.getElementById("outcomeLine").innerHTML =
+          (rec.invoices_recovered>0?"Recovered "+esc(rec.invoices_recovered)+" invoice(s) totaling "+recStr+(avg===null?"":" (avg "+avg+" days to payment)")+".":"")
+          +' <span class="muted">'+esc(rec.by_source?("") : "")+'</span>';
       }
-      box.style.display = "none";
-      wrap.style.display = "";
-      var slice = dvAll.slice(-dvDays);
-      var max = 1;
-      slice.forEach(function (d) { if (d.count > max) max = d.count; });
-      wrap.innerHTML = "";
-      slice.forEach(function (d) {
-        var pct = Math.max(2, Math.round(100 * d.count / max));
-        var col = document.createElement("div");
-        col.className = "dv-col";
-        col.title = d.date + " — " + d.count + " visit" + (d.count === 1 ? "" : "s");
-        var count = document.createElement("div");
-        count.className = "dv-count";
-        count.textContent = d.count;
-        var fill = document.createElement("div");
-        fill.className = "dv-fill";
-        var rect = document.createElement("div");
-        rect.className = "dv-rect";
-        rect.style.height = pct + "%";
-        fill.appendChild(rect);
-        var date = document.createElement("div");
-        date.className = "dv-date";
-        date.textContent = fmtDvDate(d.date);
-        col.appendChild(count);
-        col.appendChild(fill);
-        col.appendChild(date);
-        wrap.appendChild(col);
-      });
-      var total = slice.reduce(function (a, b) { return a + b.count; }, 0);
-      var peak = slice.reduce(function (a, b) { return Math.max(a, b.count); }, 0);
-      note.textContent = total + " human visits · peak " + peak + " in one day";
+      document.getElementById("outcomesSec").style.display="";
     }
-    document.getElementById("dvToggle14").addEventListener("click", function () { dvDays = 14; renderDailyVisits(); });
-    document.getElementById("dvToggle30").addEventListener("click", function () { dvDays = 30; renderDailyVisits(); });
-    function onErr(msg) {
-      document.getElementById("error").style.display = "block";
-      document.getElementById("error").textContent = msg;
+    function renderFunnel(d){
+      var f=d.funnel||{}; var visits=f.visits_human!=null?f.visits_human:(f.visits_total||0);
+      var drafts=f.drafts_created_total||0; var paid=((f.paid_active&&f.paid_active.standard)||0)+((f.paid_active&&f.paid_active.pro)||0);
+      var vd=pct(drafts,visits), dp=pct(paid,drafts);
+      document.getElementById("funnelStrip").innerHTML =
+        '<div class="step"><span class="n">'+esc(visits)+'</span><span class="l">visits</span></div>'+
+        '<span class="arrow">→</span><div class="step"><span class="n">'+esc(drafts)+'</span><span class="l">drafts</span></div>'+
+        '<span class="arrow">→</span><div class="step"><span class="n">'+esc(paid)+'</span><span class="l">paid</span></div>'+
+        '<span class="pct">'+(vd==null?"—":vd+"%")+"</span>"+
+        '<span class="pct">'+(dp==null?"—":dp+"%")+"</span>"+
+        '<span class="muted" style="font-size:11px;">'+esc(f.visits_total!=null?("("+f.visits_total+" raw requests)"):"")+'</span>';
+      // Lifecycle funnel: visits → oauth started → completed → synced → draft → sent → reply → paid
+      var body=document.getElementById("funnelNote");
+      var lc=d.funnel_lifecycle||[];
+      if(lc && lc.length){
+        var labels={oauth_started:"OAuth started",oauth_completed:"OAuth completed",invoices_synced:"Invoices synced",first_draft:"First draft",first_sent:"First reminder sent",first_reply:"First reply",paid:"Paid"};
+        var html="<b>Lifecycle funnel (per merchant):</b> "+esc(visits)+" visits → ";
+        html+=lc.map(function(s){ return '<span class="step"><span class="n">'+esc(s.merchants)+'</span><span class="l">'+esc(labels[s.event]||s.event)+'</span></span>'; }).join('<span class="arrow"> → </span>');
+        html+=' <span class="muted">(attributed visits ×'+ (function(){try{return esc((d.funnel&&d.funnel.visits_verified)||0);}catch(e){return 0;}}()) +')</span>';
+        body.innerHTML=html;
+      }
+      document.getElementById("funnelSec").style.display="";
     }
-
-    // After every table is populated, stamp each <td> with its column label so
-    // the <640px stacked layout can render it (::before content attr(data-label)).
-    function labelAll(container) {
-      var panels = container.querySelectorAll("table");
-      panels.forEach(function (tbl) {
-        var heads = Array.prototype.slice.call(tbl.querySelectorAll("thead th"));
-        heads.forEach(function (th, i) {
-          tbl.querySelectorAll("tbody tr").forEach(function (tr) {
-            var td = tr.querySelectorAll("td")[i];
-            if (td) td.setAttribute("data-label", th.textContent.trim());
-          });
-        });
+    // sources, collapsed to Other (<3 visits)
+    function renderSources(d){
+      var sT=document.getElementById("sourceBuckets");
+      var src=d.visits_by_source||[];
+      if(!src.length){ sT.innerHTML='<tr><td colspan="6" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>'; return; }
+      var big=src.filter(function(b){return b.visits_total>=3;});
+      var small=src.filter(function(b){return b.visits_total<3;});
+      var smallTotal=small.reduce(function(a,b){return a+b.visits_total;},0);
+      var smallFT=small.reduce(function(a,b){return a+b.first_touch_visitors;},0);
+      var rows=big.concat(smallTotal?[{bucket:"Other",display:"Other",hosts:[],visits_total:smallTotal,visits_7d:small.reduce(function(a,b){return a+b.visits_7d;},0),first_touch_visitors:smallFT}]:[]);
+      if(!rows.length){ sT.innerHTML='<tr><td colspan="6" class="empty">No source data</td></tr>'; return; }
+      var maxTotal=rows.reduce(function(m,b){return Math.max(m,b.visits_total);},1);
+      rows.forEach(function(b){
+        var srcName=b.bucket.indexOf("referral:")===0?b.bucket:(b.display||b.bucket);
+        var hostsHtml=(b.hosts&&b.hosts.length)?'<div class="hosts">'+esc(b.hosts.join(", "))+"</div>":'<div class="hosts">—</div>';
+        var row=document.createElement("tr");
+        row.innerHTML="<td class=\"bucket\">"+esc(b.bucket)+"</td><td>"+esc(srcName)+hostsHtml+"</td>"+
+          "<td>"+esc(b.visits_total)+"</td><td>"+esc(b.visits_7d)+"</td><td>"+esc(b.first_touch_visitors)+"</td>"+
+          "<td><div class=\"barwrap\" title=\""+esc(b.visits_total)+" visits\"><span class=\"bar\" style=\"width:"+Math.max(2,Math.round(100*b.visits_total/maxTotal))+"%\"></span></div></td>";
+        sT.appendChild(row);
       });
     }
+    function renderSignals(d){
+      var sigT=document.getElementById("visitorSignals");
+      var sig=d.visitor_signals;
+      if(!sig||!sig.total){ sigT.innerHTML='<tr><td colspan="2" class="empty">No data yet</td></tr>'; return; }
+      function brk(arr){ if(!arr||!arr.length)return '<span class="muted">—</span>'; return arr.map(function(x){return esc(x.key)+" <span class=\"muted\">× "+esc(x.count)+"</span>";}).join(" · "); }
+      function rowsFor(label,prefix){
+        var t=sig[prefix];
+        var botArr=[]; var b=t.bot||{};
+        Object.keys(b).forEach(function(k){ if(b[k]>0)botArr.push(esc(k)+" <span class=\"muted\">× "+b[k]+"</span>"); });
+        return [
+          [label+" device",brk(t.device)],
+          [label+" OS",brk(t.os)],
+          [label+" browser",brk(t.browser)],
+          [label+" bot-vs-human",botArr.length?botArr.join(" · "):'<span class="muted">—</span>'],
+        ];
+      }
+      var out=rowsFor("Raw","raw").concat(rowsFor("Verified","verified"));
+      out.push(["Verified human visits",esc(sig.verified_human_visits)+" of "+esc(sig.raw_requests)+" raw requests"]);
+      var us=sig.unknown_share||{};
+      out.push(["Device/OS unknown (raw)", (us.raw&&us.raw.device!=null?esc(us.raw.device)+"% / "+esc(us.raw.os)+"%":"—")]);
+      out.push(["Device/OS unknown (verified)", (us.verified&&us.verified.device!=null?esc(us.verified.device)+"% / "+esc(us.verified.os)+"%":"n/a")]);
+      out.forEach(function(r){ var row=document.createElement("tr"); row.innerHTML="<td class=\"bucket\">"+esc(r[0])+"</td><td>"+r[1]+"</td>"; sigT.appendChild(row); });
+    }
+    function renderRecent(d){
+      var vT=document.getElementById("visits");
+      var conv=d.conversions||{};
+      if(!d.visits.length)vT.innerHTML='<tr><td colspan="9" class="empty">No page visits yet</td></tr>';
+      d.visits.forEach(function(v){
+        var convHtml="";
+        if(conv[v.visitor_id]&&conv[v.visitor_id].length){ convHtml=conv[v.visitor_id].map(function(m){return '<div style="margin-top:4px;"><span class="pill conv">→ '+esc(m.merchant_id)+" · "+esc(m.email)+"</span></div>";}).join(""); }
+        var row=document.createElement("tr");
+        row.innerHTML="<td>"+localT(v.ts)+"</td><td><code>"+esc(shortId(v.visitor_id))+"</code>"+convHtml+"</td>"+
+          "<td><code>"+esc(v.page)+"</code></td><td>"+(v.referrer?esc(trunc(v.referrer,60)):'<span class="muted">—</span>')+"</td>"+
+          "<td>"+(v.utm_source?esc(v.utm_source):'<span class="muted">—</span>')+"</td>"+
+          "<td>"+(v.device?esc(v.device):'<span class="muted">—</span>')+"</td>"+
+          "<td>"+botStatusPill(v.bot_status)+"</td><td>"+(v.country?esc(v.country):'<span class="muted">—</span>')+"</td>"+
+          "<td>"+(v.verified?pill("yes","yes"):pill("no","no"))+"</td>";
+        vT.appendChild(row);
+      });
+    }
+    function labelAll(container){ var panels=container.querySelectorAll("table"); panels.forEach(function(tbl){ var heads=Array.prototype.slice.call(tbl.querySelectorAll("thead th")); heads.forEach(function(th,i){ tbl.querySelectorAll("tbody tr").forEach(function(tr){ var td=tr.querySelectorAll("td")[i]; if(td)td.setAttribute("data-label",th.textContent.trim()); }); }); }); }
+    function toggleRecent(){ var p=document.getElementById("recentVisits"); p.classList.toggle("open"); }
+    function onErr(msg){ document.getElementById("error").style.display="block"; document.getElementById("error").textContent=msg; }
 
-    fetch("/admin/data?token=" + encodeURIComponent(TOKEN))
-      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-      .then(function (res) {
-        if (!res.ok) throw new Error(res.d && res.d.error ? res.d.error : "HTTP " + res.status);
-        var d = res.d;
-        document.getElementById("gen").textContent = "generated " + d.generated_at + " UTC";
-        var f = d.funnel;
+    var dvAll=[]; var dvDays=14;
+    function fmtDvDate(iso){ var p=iso.split("-"); return Number(p[1])+"/"+Number(p[2]); }
+    function renderDailyVisits(){
+      var wrap=document.getElementById("dailyVisits"),box=document.getElementById("dailyVisitsEmpty"),note=document.getElementById("dailyVisitsNote"),hint=document.getElementById("dailyVisitsHint");
+      document.getElementById("dvToggle14").classList.toggle("active",dvDays===14);
+      document.getElementById("dvToggle30").classList.toggle("active",dvDays===30);
+      hint.innerHTML="— last "+dvDays+" days (UTC, verified human visits)";
+      var seriesTotal=(dvAll||[]).reduce(function(a,b){return a+(b&&b.count||0);},0);
+      if(!dvAll||!dvAll.length||seriesTotal===0){ box.style.display=""; wrap.style.display="none"; note.textContent=""; return; }
+      box.style.display="none"; wrap.style.display="";
+      var slice=dvAll.slice(-dvDays); var max=1;
+      slice.forEach(function(d){ if(d.count>max)max=d.count; });
+      wrap.innerHTML="";
+      slice.forEach(function(d){
+        var col=document.createElement("div"); col.className="dv-col"; col.title=d.date+" — "+d.count+" visit"+(d.count===1?"":"s");
+        var c=document.createElement("div"); c.className="dv-count"; c.textContent=d.count;
+        var f=document.createElement("div"); f.className="dv-fill"; var rect=document.createElement("div"); rect.className="dv-rect"; rect.style.height=Math.max(2,Math.round(100*d.count/max))+"%"; f.appendChild(rect);
+        var date=document.createElement("div"); date.className="dv-date"; date.textContent=fmtDvDate(d.date);
+        col.appendChild(c); col.appendChild(f); col.appendChild(date); wrap.appendChild(col);
+      });
+      var total=slice.reduce(function(a,b){return a+b.count;},0); var peak=slice.reduce(function(a,b){return Math.max(a,b.count);},0);
+      note.textContent=total+" verified human visits · peak "+peak+" in one day";
+    }
+    document.getElementById("dvToggle14").addEventListener("click",function(){dvDays=14;renderDailyVisits();});
+    document.getElementById("dvToggle30").addEventListener("click",function(){dvDays=30;renderDailyVisits();});
 
-        // ── Funnel (#5): Visits → Drafts → Paid with conversion % ──
-        var visits = f.visits_total;
-        var drafts = f.drafts_created_total;
-        var paid = f.paid_active.standard + f.paid_active.pro + f.dev_pro;
-        document.getElementById("fVisits").textContent = visits;
-        document.getElementById("fDrafts").textContent = drafts;
-        document.getElementById("fPaid").textContent = paid;
-        document.getElementById("fVisitsPct").textContent = "all-time";
-        var vd = pct(drafts, visits);
-        var dp = pct(paid, drafts);
-        var vp = pct(paid, visits);
-        document.getElementById("fVD").textContent = vd === null ? "—" : vd + "%";
-        document.getElementById("fDP").textContent = dp === null ? "—" : dp + "%";
-        document.getElementById("fPaidPct").textContent = vp === null ? "—" : vp + "% overall";
-        document.getElementById("funnelNote").textContent =
-          "All-time funnel: " + visits + " visits → " + drafts + " drafts → " + paid +
-          " paying merchant(s). Drafts = draft bodies ever created; Paid = active subs + devPro.";
-        document.getElementById("funnelWrap").style.display = "";
-
-        // ── Revenue: MRR (#6) + plan counts ──
-        var std = f.paid_active.standard, pro = f.paid_active.pro, dev = f.dev_pro;
-        var firm = std * PRICES.standard + pro * PRICES.pro;     // grounded ($7/$15 monthly)
-        var devEst = dev * PRICES.pro;                            // devPro @ pro price — estimate
-        var total = firm + devEst;
-        var estNote = "std " + std + "×$7 + pro " + pro + "×$15 /mo";
-        if (dev > 0) {
-          estNote += " + " + dev + " dev×$15 est";
-        }
-        document.getElementById("revCards").innerHTML =
-          card("MRR (monthly)", '<span class="est">~</span>' + fmtUsd(total), estNote) +
-          card("Paid subscriptions", std + pro, "std " + std + " · pro " + pro) +
-          card("Dev (non-paying)", dev, "included in MRR as ~$15 est each") +
-          card("Cancelled / past due", f.subs_cancelled + f.subs_past_due,
-            f.subs_cancelled + " cancelled · " + f.subs_past_due + " past due");
-        document.getElementById("revenueSec").style.display = "";
-
-        // ── Merchants (#7): plan / signup / last activity / revenue ──
-        var mT = document.getElementById("merchants");
-        var recoveredByMerchant = {};
-        var o = d.outcomes;
-        if (o && o.per_merchant) o.per_merchant.forEach(function (pm) { recoveredByMerchant[pm.merchant_id] = pm; });
-        if (!d.merchants.length) mT.innerHTML = '<tr><td colspan="6" class="empty">No merchants</td></tr>';
-        d.merchants.forEach(function (m) {
-          var revPerMo = 0;
-          if (m.sub_status === "active") {
-            var price = m.dev_pro ? PRICES.pro : (PRICES[m.plan] || 0);
-            revPerMo = price || 0;
-          }
-          var rec = recoveredByMerchant[m.id];
-          var revHtml = fmtUsd(revPerMo) + "/mo <small>est.</small>";
-          if (rec && rec.recovered_cents > 0) {
-            revHtml += ' <small class="muted">+ ' + fmtMoney(rec.recovered_cents, rec.currency) +
-              " recovered (" + rec.recovered_count + ")</small>";
-          }
-          var row = document.createElement("tr");
-          row.innerHTML =
-            "<td><code>" + esc(m.id) + "</code> " + esc(m.email) + "</td>" +
-            "<td>" + pill(m.plan, m.plan) + "</td>" +
-            "<td>" + pill(m.sub_status, m.sub_status) + "</td>" +
-            "<td>" + t(m.created_at) + "</td>" +
-            "<td>" + t(m.last_activity) + "</td>" +
-            "<td>" + revHtml + "</td>";
-          mT.appendChild(row);
-        });
-
-        // ── Subscription events ──
-        var eT = document.getElementById("subEvents");
-        if (!d.subscription_events.length) eT.innerHTML = '<tr><td colspan="6" class="empty">No subscription events yet</td></tr>';
-        d.subscription_events.forEach(function (e) {
-          var row = document.createElement("tr");
-          row.innerHTML =
-            "<td>" + t(e.created_at) + "</td>" +
-            "<td>" + esc(e.merchant_id) + "</td>" +
-            "<td>" + pill(e.event, e.event === "cancelled" ? "cancelled" : e.event === "created" ? "active" : "standard") + "</td>" +
-            "<td>" + esc(e.tier || "") + "</td>" +
-            "<td>" + esc(e.status || "") + "</td>" +
-            "<td><code>" + esc(e.stripe_subscription_id) + "</code></td>";
-          eT.appendChild(row);
-        });
-
-        // ── Visits by source ──
-        var sT = document.getElementById("sourceBuckets");
-        if (!d.visits_by_source || !d.visits_by_source.length) {
-          sT.innerHTML = '<tr><td colspan="6" class="empty">No tracked visits yet — visit the landing page to see sources here</td></tr>';
-        } else {
-          var maxTotal = d.visits_by_source.reduce(function (m, b) { return Math.max(m, b.visits_total); }, 1);
-          d.visits_by_source.forEach(function (b) {
-            var pctWidth = Math.max(2, Math.round(100 * b.visits_total / maxTotal));
-            var srcName = b.bucket.indexOf("referral:") === 0 ? b.bucket : (b.display || b.bucket);
-            var hostsHtml = b.hosts && b.hosts.length
-              ? '<div class="hosts">' + esc(b.hosts.join(", ")) + "</div>"
-              : '<div class="hosts">—</div>';
-            var row = document.createElement("tr");
-            row.innerHTML =
-              "<td class=\"bucket\">" + esc(b.bucket) + "</td>" +
-              "<td>" + esc(srcName) + hostsHtml + "</td>" +
-              "<td>" + esc(b.visits_total) + "</td>" +
-              "<td>" + esc(b.visits_7d) + "</td>" +
-              "<td>" + esc(b.first_touch_visitors) + "</td>" +
-              "<td><div class=\"barwrap\" title=\"" + esc(b.visits_total) + " visits\"><span class=\"bar\" style=\"width:" + pctWidth + "%\"></span></div></td>";
-            sT.appendChild(row);
-          });
-        }
-
-        // ── Visitor signals (device / OS / bot vs human / country) ──
-        var sigT = document.getElementById("visitorSignals");
-        if (sigT) {
-          var sig = d.visitor_signals;
-          if (!sig || !sig.total) {
-            sigT.innerHTML = '<tr><td colspan="2" class="empty">No data yet — appears once visits are captured with IP/User-Agent</td></tr>';
-          } else {
-            function brk(arr) {
-              if (!arr || !arr.length) return '<span class="muted">—</span>';
-              return arr.map(function (x) { return esc(x.key) + " <span class=\"muted\">× " + esc(x.count) + "</span>"; }).join(" · ");
-            }
-            var botArr = [];
-            Object.keys(sig.bot || {}).forEach(function (k) {
-              if (sig.bot[k] > 0) botArr.push(esc(k) + " <span class=\"muted\">× " + sig.bot[k] + "</span>");
-            });
-            var sigRows = [
-              ["Device", brk(sig.device)],
-              ["OS", brk(sig.os)],
-              ["Browser", brk(sig.browser)],
-              ["Bot vs human", botArr.length ? botArr.join(" · ") : '<span class="muted">—</span>'],
-              ["Country", brk(sig.country)],
-              ["With IP captured", sig.with_ip + " of " + sig.total],
-            ];
-            sigRows.forEach(function (r) {
-              var row = document.createElement("tr");
-              row.innerHTML = "<td class=\"bucket\">" + esc(r[0]) + "</td><td>" + r[1] + "</td>";
-              sigT.appendChild(row);
-            });
-          }
-        }
-
-        // ── Recent visits with conversion tag (#8) ──
-        var vT = document.getElementById("visits");
-        var conv = d.conversions || {};
-        if (!d.visits.length) vT.innerHTML = '<tr><td colspan="8" class="empty">No page visits yet</td></tr>';
-        d.visits.forEach(function (v) {
-          var matched = conv[v.visitor_id] || [];
-          var convHtml = "";
-          if (matched.length) {
-            var tags = matched.map(function (m) {
-              return '<span class="pill conv">→ merchant ' + esc(m.merchant_id) + " · " + esc(m.email) + "</span>";
-            }).join(" ");
-            convHtml = '<div style="margin-top:4px;">' + tags + "</div>";
-          }
-          var row = document.createElement("tr");
-          row.innerHTML =
-            "<td>" + localT(v.ts) + "</td>" +
-            "<td><code>" + esc(shortId(v.visitor_id)) + "</code>" + convHtml + "</td>" +
-            "<td><code>" + esc(v.page) + "</code></td>" +
-            "<td>" + (v.referrer ? esc(trunc(v.referrer, 60)) : '<span class="muted">—</span>') + "</td>" +
-            "<td>" + (v.utm_source ? esc(v.utm_source) : '<span class="muted">—</span>') + "</td>" +
-            "<td>" + (v.device ? esc(v.device) : '<span class="muted">—</span>') + "</td>" +
-            "<td>" + botStatusPill(v.bot_status) + "</td>" +
-            "<td>" + (v.country ? esc(v.country) : '<span class="muted">—</span>') + "</td>";
-          vT.appendChild(row);
-        });
-        var convCount = Object.keys(conv).length;
-        if (convCount === 0) {
-          // Null-safe: the "no tracing yet" note only updates if the heading note
-          // element exists (it may not, e.g. before the visits panel renders) —
-          // otherwise skip rather than throw and blank the whole dashboard.
-          var visitsNote = document.getElementById("visits") && document.getElementById("visits").parentElement
-            && document.getElementById("visits").parentElement.querySelector("h3 .muted");
-          if (visitsNote) {
-            visitsNote.innerHTML =
-              "— no visitor has been traced to a merchant yet (trace works once a visitor who signed the waitlist connects with the same email, or once connect-time capture is live)";
-          }
-        }
-
-        // ── Product health: recovery + response, with sample-size guards (#9) ──
-        if (o) {
-          var recStr = o.recovery.by_currency.length
-            ? o.recovery.by_currency.map(function (b) { return fmtMoney(b.cents, b.currency); }).join(" + ")
-            : "$0";
-          var rateHtml, rateHint;
-          if (o.response.reminders_sent >= MIN_REMINDERS_FOR_RATE) {
-            rateHtml = (o.response.response_rate_pct === null ? "—" : o.response.response_rate_pct + "%");
-            rateHint = o.response.replies + " replies / " + o.response.reminders_sent + " reminders sent";
-          } else {
-            rateHtml = guardMsg();
-            rateHint = "needs ≥" + MIN_REMINDERS_FOR_RATE + " reminders sent (currently " + o.response.reminders_sent + ")";
-          }
-          var daysHtml, daysHint;
-          if (o.recovery.invoices_recovered >= MIN_RECOVERED_FOR_DAYS && o.recovery.avg_days_to_payment !== null) {
-            daysHtml = esc(Math.round(o.recovery.avg_days_to_payment * 10) / 10);
-            daysHint = "median " + (o.recovery.median_days_to_payment == null ? "—" : o.recovery.median_days_to_payment) + " days";
-          } else {
-            daysHtml = guardMsg();
-            daysHint = "needs ≥" + MIN_RECOVERED_FOR_DAYS + " recovered invoice" + (MIN_RECOVERED_FOR_DAYS > 1 ? "s" : "");
-          }
-          var remHtml, remHint;
-          if (o.recovery.invoices_recovered >= MIN_RECOVERED_FOR_DAYS) {
-            remHtml = o.recovery.reminder_sent_rate === null
-              ? "—"
-              : o.recovery.reminder_sent_count + " of " + o.recovery.invoices_recovered +
-                " (" + Math.round(o.recovery.reminder_sent_rate * 100) + "%)";
-            remHint = "had a reminder before payment";
-          } else {
-            remHtml = guardMsg();
-            remHint = "needs ≥" + MIN_RECOVERED_FOR_DAYS + " recovered invoice";
-          }
-          document.getElementById("outcomeCards").innerHTML =
-            card("Dollars recovered", recStr) +
-            card("Recovered invoices", o.recovery.invoices_recovered) +
-            card("Avg days to payment", daysHtml, daysHint) +
-            card("Response rate", rateHtml, rateHint) +
-            card("Reminder before payment", remHtml, remHint);
-          // One short line (#4) — no empty-state table, no long narration.
-          if (o.recovery.invoices_recovered > 0) {
-            document.getElementById("outcomeLine").innerHTML =
-              "Recovered " + esc(o.recovery.invoices_recovered) + " invoice(s) totaling " + recStr +
-              " (avg " + (o.recovery.avg_days_to_payment === null ? "—" : Math.round(o.recovery.avg_days_to_payment * 10) / 10) +
-              " days to payment).";
-          } else {
-            document.getElementById("outcomeLine").innerHTML =
-              '<span class="muted">No recovery events yet — recorded automatically once an overdue invoice is paid.</span>';
-          }
-          document.getElementById("healthSec").style.display = "";
-        }
-
-        // ── Section visibility + mobile labels ──
-        dvAll = (d.visits_by_day && d.visits_by_day.data) || [];
+    fetch("/admin/data?token="+encodeURIComponent(TOKEN))
+      .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
+      .then(function(res){
+        if(!res.ok)throw new Error(res.d&&res.d.error?res.d.error:"HTTP "+res.status);
+        var d=res.d;
+        document.getElementById("gen").textContent="generated "+d.generated_at+" UTC";
+        loadout(d);
+        renderFunnel(d);
+        renderSources(d);
+        renderSignals(d);
+        renderRecent(d);
+        dvAll=(d.visits_by_day&&d.visits_by_day.data)||[];
         renderDailyVisits();
-        document.getElementById("growthSec").style.display = "";
+        document.getElementById("growthSec").style.display="";
         labelAll(document.getElementById("growthSec"));
-        labelAll(document.getElementById("revenueSec"));
       })
-      .catch(function (err) { onErr("Failed to load admin data: " + err.message); });
+      .catch(function(err){ onErr("Failed to load admin data: "+err.message); });
   </script>
 </body>
 </html>

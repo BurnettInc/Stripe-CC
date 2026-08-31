@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Invoice, ReminderTask } from "../db";
 import { logSend, isUnsubscribed, resolveMerchant } from "../db";
+import { recordFunnelEventForTask } from "../funnel";
 import type { EmailDraft } from "./drafter";
 import { appendCanspamFooter } from "./canspam";
 import { notifyMerchant } from "./notify";
@@ -211,6 +212,7 @@ export async function sendEmailForReal(
           logSend(db, task.id, "success", msg);
           const now = new Date().toISOString();
           db.run("UPDATE reminder_tasks SET status='sent', sent_at=? WHERE id=?", [now, task.id]);
+          recordFunnelEventForTask(db, task.id, "first_sent");
         }
         await notifyOnEscalatedSend(db, task);
         return { success: true, message: msg, logId: 0, provider: "sendgrid" };
@@ -252,6 +254,7 @@ export async function sendEmailForReal(
           logSend(db, task.id, "success", msg);
           const now = new Date().toISOString();
           db.run("UPDATE reminder_tasks SET status='sent', sent_at=? WHERE id=?", [now, task.id]);
+          recordFunnelEventForTask(db, task.id, "first_sent");
         }
         await notifyOnEscalatedSend(db, task);
         return { success: true, message: msg, logId: 0, provider: "resend" };
@@ -321,6 +324,7 @@ export function sendEmail(
 
     const now = new Date().toISOString();
     db.run("UPDATE reminder_tasks SET status='sent', sent_at=? WHERE id=?", [now, task.id]);
+    recordFunnelEventForTask(db, task.id, "first_sent");
   }
 
   return {

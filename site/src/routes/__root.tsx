@@ -89,6 +89,20 @@ function RootDocument({ children }: { children: ReactNode }) {
               "(function(){try{var v=localStorage.getItem('cc_vid');if(!v)return;var base='https://stripe-cc-production.up.railway.app/oauth/install';function fix(){document.querySelectorAll('a[href]').forEach(function(a){var h=a.getAttribute('href')||'';if(h.indexOf(base)===0){var u=new URL(h);if(!u.searchParams.has('cc_vid')){u.searchParams.set('cc_vid',v);a.setAttribute('href',u.toString())}}})}if(document.readyState!=='loading'){fix()}else{document.addEventListener('DOMContentLoaded',fix)}}catch(e){}})();",
           }}
         />
+        {/* Verified-visit beacon (admin rework 2b): the head beacon above fires
+            BEFORE the page's JS runs, so it can't distinguish a real browser
+            from a bot that merely fetched the HTML. This one only fires AFTER
+            the page actually renders client-side (load → rAF → a tick) — a bot
+            that doesn't execute JS never round-trips it. It POSTs
+            {visitor_id, page, verified:true} to /api/track, which marks the
+            matching page_visits row verified=1. Same skip guards as the head
+            beacon (cc_skip + utility pages). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var p=location.pathname;if(localStorage.getItem('cc_skip')==='1')return;if(p==='/support'||p==='/privacy'||p==='/terms'||p==='/admin'||p.indexOf('/support/')===0||p.indexOf('/privacy/')===0||p.indexOf('/terms/')===0||p.indexOf('/admin/')===0)return;var v=localStorage.getItem('cc_vid');if(!v)return;function fire(){try{var b=new Blob([JSON.stringify({visitor_id:v,page:p,verified:true})],{type:'application/json'});if(navigator.sendBeacon){navigator.sendBeacon('/api/track',b)}else{var x=new XMLHttpRequest();x.open('POST','/api/track',true);x.send(b)}}catch(e){}}var done=false;function go(){if(done)return;done=true;if(typeof requestAnimationFrame==='function'){requestAnimationFrame(function(){setTimeout(fire,50)})}else{setTimeout(fire,100)}}if(document.readyState==='complete'){setTimeout(go,0)}else{window.addEventListener('load',function(){setTimeout(go,0)})}}catch(e){}})();",
+          }}
+        />
       </head>
       <body>
         {children}
