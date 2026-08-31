@@ -158,9 +158,6 @@ function Home() {
                 12 days overdue · last contacted 4 days ago
               </p>
             </div>
-            <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-              Recommended: Stage 2
-            </span>
           </div>
           <div className="px-5 py-4">
             <p className="text-2xl font-bold text-gray-900">$450</p>
@@ -171,48 +168,88 @@ function Home() {
         <h3 className="mt-10 text-lg font-semibold text-gray-900">
           What CollectionsCopilot would draft for this invoice
         </h3>
+        <p className="mt-2 max-w-3xl text-sm text-gray-600 leading-relaxed">
+          Two or three gentle, personalized emails — drafted and sent automatically on a
+          schedule you control. They read like you, because they're from you.
+        </p>
         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Stage 1 — calm teal */}
-          <div className="rounded-xl border border-teal-200 bg-teal-50 p-5">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-teal-700">
-                Stage 1 · Friendly
+          {/* Stage 1 — sent automatically */}
+          <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+                Y
               </span>
-              <span className="text-right text-xs font-medium text-gray-500">
-                Day 1–6
-              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-gray-900">
+                  You &lt;you@yourbusiness.com&gt;
+                </p>
+                <p className="text-xs text-gray-500">Sent automatically · Day 1–6</p>
+              </div>
             </div>
-            <p className="text-sm text-gray-700 italic leading-relaxed">
-              \u201cHey Sarah, just a heads-up that invoice #1042 passed its due date — no rush if it slipped your mind.\u201d
-            </p>
+            <div className="px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
+                Subject
+              </p>
+              <p className="text-sm font-semibold text-gray-900">
+                Quick nudge — invoice #1042
+              </p>
+              <p className="mt-2 text-sm text-gray-700 leading-relaxed">
+                “Hey Sarah, just a heads-up that invoice #1042 passed its due date — no
+                rush if it slipped your mind.”
+              </p>
+            </div>
           </div>
-          {/* Stage 2 — amber */}
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-amber-700">
-                Stage 2 · Firmer
+          {/* Stage 2 — waits for approval */}
+          <div className="overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm">
+            <div className="flex items-center gap-3 border-b border-indigo-100 px-4 py-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+                Y
               </span>
-              <span className="text-right text-xs font-medium text-gray-500">
-                Day 7–20
-              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-gray-900">
+                  You &lt;you@yourbusiness.com&gt;
+                </p>
+                <p className="text-xs text-indigo-600">Waits for your approval · Day 7–20</p>
+              </div>
             </div>
-            <p className="text-sm text-gray-700 italic leading-relaxed">
-              \u201cFollowing up on invoice #1042 ($450, due last month). It's now 12 days past due — is anything blocking payment on your end?\u201d
-            </p>
+            <div className="px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
+                Subject
+              </p>
+              <p className="text-sm font-semibold text-gray-900">
+                Following up — invoice #1042
+              </p>
+              <p className="mt-2 text-sm text-gray-700 leading-relaxed">
+                “Following up on invoice #1042 ($450, due last month). It's now 12 days
+                past due — is anything blocking payment on your end?”
+              </p>
+            </div>
           </div>
-          {/* Stage 3 — muted red */}
-          <div className="rounded-xl border border-red-200 bg-red-50 p-5">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="shrink-0 text-xs font-bold uppercase tracking-wide text-red-700">
-                Stage 3 · Final
+          {/* Stage 3 — waits for approval */}
+          <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+                Y
               </span>
-              <span className="text-right text-xs font-medium text-gray-500">
-                Day 21+
-              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-gray-900">
+                  You &lt;you@yourbusiness.com&gt;
+                </p>
+                <p className="text-xs text-gray-500">Waits for your approval · Day 21+</p>
+              </div>
             </div>
-            <p className="text-sm text-gray-700 italic leading-relaxed">
-              \u201cFinal notice before further follow-up. Please settle invoice #1042 at your earliest convenience.\u201d
-            </p>
+            <div className="px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
+                Subject
+              </p>
+              <p className="text-sm font-semibold text-gray-900">
+                Final notice — invoice #1042
+              </p>
+              <p className="mt-2 text-sm text-gray-700 leading-relaxed">
+                “Final notice before further follow-up. Please settle invoice #1042 at your
+                earliest convenience.”
+              </p>
+            </div>
           </div>
         </div>
 
