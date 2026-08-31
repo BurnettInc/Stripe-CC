@@ -16,7 +16,7 @@ function Trust() {
       <section className="bg-gray-50 py-16">
         <div className="max-w-4xl mx-auto px-6">
           <h1 className="text-3xl font-bold text-center text-gray-900 mb-4">
-            Trust &amp; Transparency
+            Trust &amp; Security
           </h1>
           <p className="text-center text-gray-600 max-w-xl mx-auto mb-8">
             You're trusting us with your customers and your cash flow. Here's exactly
@@ -108,6 +108,24 @@ function Trust() {
                     at any time from the Stripe Dashboard — sequences stop immediately.
                   </span>
                 </li>
+                <li className="flex items-start gap-3">
+                  <span className="text-indigo-600 mt-0.5">✓</span>
+                  <span>
+                    <span className="font-semibold text-gray-900">
+                      Paused stays paused.
+                    </span>{" "}
+                    Nothing auto-resumes. A paused sequence stays off until you switch
+                    back or resume it yourself.
+                  </span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <span className="text-indigo-600 mt-0.5">✓</span>
+                  <span>
+                    <span className="font-semibold text-gray-900">Your data is yours.</span>{" "}
+                    Request a full copy of your data or a permanent deletion from inside
+                    the app — nothing is held hostage after you leave.
+                  </span>
+                </li>
               </ul>
             </div>
           </div>
@@ -136,38 +154,6 @@ function Trust() {
               it. Their message is also forwarded straight to your inbox, so you never
               miss it.
             </p>
-          </div>
-
-          {/* Your trust, in one summary strip */}
-          <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4">
-              <span className="text-indigo-600 mt-0.5 shrink-0">✓</span>
-              <p className="text-sm text-gray-700">
-                <span className="font-semibold text-gray-900">Read-only access</span>
-                {" "}— we never modify your Stripe data.
-              </p>
-            </div>
-            <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4">
-              <span className="text-indigo-600 mt-0.5 shrink-0">✓</span>
-              <p className="text-sm text-gray-700">
-                <span className="font-semibold text-gray-900">No write access</span>
-                {" "}— your customers' accounts stay untouched.
-              </p>
-            </div>
-            <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4">
-              <span className="text-indigo-600 mt-0.5 shrink-0">✓</span>
-              <p className="text-sm text-gray-700">
-                <span className="font-semibold text-gray-900">Pause or stop anytime</span>
-                {" "}— the sequence halts the instant a payment is detected.
-              </p>
-            </div>
-            <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-4">
-              <span className="text-indigo-600 mt-0.5 shrink-0">✓</span>
-              <p className="text-sm text-gray-700">
-                <span className="font-semibold text-gray-900">You approve every send in Draft mode</span>
-                {" "}— trust grows from there.
-              </p>
-            </div>
           </div>
         </div>
       </section>
