@@ -129,57 +129,64 @@ function Home() {
           CollectionsCopilot would draft for a single invoice from that account.
         </p>
 
-        {/* Sample invoice card */}
-        <div className="mt-8 max-w-xl rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-gray-900">
-                Acme LLC — Invoice #1042
-              </p>
-              <p className="mt-0.5 text-xs text-gray-500">
-                12 days overdue · last contacted 4 days ago
-              </p>
-            </div>
-          </div>
-          <div className="px-5 py-4">
-            <p className="text-2xl font-bold text-gray-900">$450</p>
-          </div>
-        </div>
-
-        {/* Single representative drafted email — Stage 1 */}
-        <h3 className="mt-10 text-lg font-semibold text-gray-900">
-          What CollectionsCopilot would draft for this invoice
-        </h3>
-        <p className="mt-2 max-w-3xl text-sm text-gray-600 leading-relaxed">
-          Gentle, personalized emails — drafted and sent automatically on a schedule you
-          control. This is the first of a three-stage sequence; see{" "}
-          <a href="/how-it-works" className="text-indigo-600 underline">How it works</a>{" "}
-          for the full escalation.
-        </p>
-        <div className="mt-4 max-w-md">
-          <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-            <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
-                Y
-              </span>
+        {/* Sample — invoice card (left) + drafted email (right), matched pair */}
+        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+          {/* Invoice card */}
+          <div className="flex flex-col rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-gray-900">
-                  You &lt;you@yourbusiness.com&gt;
+                  Acme LLC — Invoice #1042
                 </p>
-                <p className="text-xs text-gray-500">Sent automatically · Day 1–6</p>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  12 days overdue · last contacted 4 days ago
+                </p>
               </div>
             </div>
-            <div className="px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
-                Subject
+            <div className="flex flex-1 flex-col justify-center px-5 py-6">
+              <p className="text-3xl font-bold text-gray-900">$450</p>
+              <p className="mt-1 text-xs text-gray-500">Open invoice on the account above</p>
+            </div>
+          </div>
+
+          {/* Drafted email card */}
+          <div className="flex flex-col rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-sm font-semibold text-gray-900">
+                What CollectionsCopilot would draft for this invoice
+              </h3>
+              <p className="mt-1 text-xs text-gray-500 leading-relaxed">
+                The first of a three-stage sequence — see{" "}
+                <a href="/how-it-works" className="text-indigo-600 underline">How it works</a>{" "}
+                for the full escalation.
               </p>
-              <p className="text-sm font-semibold text-gray-900">
-                Quick nudge — invoice #1042
-              </p>
-              <p className="mt-2 text-sm text-gray-700 leading-relaxed">
-                “Hey Sarah, just a heads-up that invoice #1042 passed its due date — no
-                rush if it slipped your mind.”
-              </p>
+            </div>
+            <div className="flex-1 p-5">
+              <div className="overflow-hidden rounded-xl border border-gray-200">
+                <div className="flex items-center gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
+                    Y
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-gray-900">
+                      You &lt;you@yourbusiness.com&gt;
+                    </p>
+                    <p className="text-xs text-gray-500">Sent automatically · Day 1–6</p>
+                  </div>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
+                    Subject
+                  </p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    Quick nudge — invoice #1042
+                  </p>
+                  <p className="mt-2 text-sm text-gray-700 leading-relaxed">
+                    “Hey Sarah, just a heads-up that invoice #1042 passed its due date — no
+                    rush if it slipped your mind.”
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
