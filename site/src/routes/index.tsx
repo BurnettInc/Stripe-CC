@@ -67,12 +67,12 @@ function Home() {
               </div>
             </div>
             <h1 className="text-4xl font-bold tracking-tight sm:text-5xl text-gray-900">
-              Built for solo Stripe sellers — no Xero, no QuickBooks, no AR team required
+              You didn't forget to follow up. You've just been avoiding it.
             </h1>
             <p className="mt-6 max-w-xl text-lg text-gray-600 leading-relaxed">
-              Not another form-letter reminder. CollectionsCopilot writes polite,
-              personalized follow-ups that escalate naturally — so you get paid without
-              damaging the relationship.
+              CollectionsCopilot lives inside your Stripe account — no new tool, no new
+              login, no data to export. Start read-only. Decide how much you want to hand
+              off, whenever you're ready.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-4">
               <a
@@ -139,7 +139,7 @@ function Home() {
         </div>
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
           Here's a sample account with{" "}
-          <span className="text-amber-500">$18,420</span> in overdue invoices.
+          <span className="text-amber-500">$2,150</span> in overdue invoices.
         </h2>
         <p className="mt-4 max-w-3xl text-lg text-gray-600 leading-relaxed">
           No Stripe connection needed to see this — this is an illustrative
@@ -155,7 +155,7 @@ function Home() {
                 Acme LLC — Invoice #1042
               </p>
               <p className="mt-0.5 text-xs text-gray-500">
-                23 days overdue · last contacted 9 days ago
+                12 days overdue · last contacted 4 days ago
               </p>
             </div>
             <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
@@ -163,7 +163,7 @@ function Home() {
             </span>
           </div>
           <div className="px-5 py-4">
-            <p className="text-2xl font-bold text-gray-900">$7,500</p>
+            <p className="text-2xl font-bold text-gray-900">$450</p>
           </div>
         </div>
 
@@ -197,7 +197,7 @@ function Home() {
               </span>
             </div>
             <p className="text-sm text-gray-700 italic leading-relaxed">
-              \u201cFollowing up on invoice #1042 ($7,500, due last month). It's now 23 days past due — is anything blocking payment on your end?\u201d
+              \u201cFollowing up on invoice #1042 ($450, due last month). It's now 12 days past due — is anything blocking payment on your end?\u201d
             </p>
           </div>
           {/* Stage 3 — muted red */}
@@ -437,6 +437,40 @@ function Home() {
                 {" "}— trust grows from there.
               </p>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Not another tool to manage */}
+      <section className="max-w-4xl mx-auto px-6 py-16">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
+          Not another tool to manage
+        </h2>
+        <p className="text-center text-gray-600 max-w-3xl mx-auto mb-8 leading-relaxed">
+          Most collections apps ask you to sign up somewhere new, connect your invoices
+          to their system, and hope they treat your client data carefully. CollectionsCopilot
+          is a Stripe App — it runs on the invoices already in your Stripe account. Nothing
+          to export, nothing to sync, one dashboard.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <p className="text-sm text-gray-700 leading-relaxed">
+              <span className="font-semibold text-gray-900">Read-only by default.</span>{" "}
+              We can't touch your invoices, customers, or payment methods — ever.
+            </p>
+          </div>
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <p className="text-sm text-gray-700 leading-relaxed">
+              <span className="font-semibold text-gray-900">You choose the level of trust.</span>{" "}
+              Start in Draft Mode and approve every email. Move to Semi-Auto when you trust
+              the friendly ones. Go Full Auto only when you're ready — per customer, any time.
+            </p>
+          </div>
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <p className="text-sm text-gray-700 leading-relaxed">
+              <span className="font-semibold text-gray-900">Disconnect in one click,</span>{" "}
+              from the Stripe Dashboard itself — not a support ticket.
+            </p>
           </div>
         </div>
       </section>
