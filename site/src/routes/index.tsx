@@ -514,16 +514,20 @@ function Home() {
 
       {/* Pricing */}
       <section id="pricing" className="max-w-4xl mx-auto px-6 py-16">
-        <h2 className="text-3xl font-bold text-center text-gray-900 mb-10">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-4">
           Simple pricing
         </h2>
+        <p className="text-center text-gray-600 max-w-3xl mx-auto mb-10 text-sm leading-relaxed">
+          Every plan starts with a free 30-day trial — full access, no card required.
+          After that: Draft Mode stays free forever (5 drafts), or subscribe to keep
+          Standard/Pro features.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
             {
               name: "Free — Draft Mode",
               price: "Free forever, no card required",
               period: "",
-              trial: "First 30 days free — full access, no card required",
               body: "Your first month after install is completely free — full access, no card required. After that, keep Draft Mode free forever: connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
               features: [],
               cta: "Try it free",
@@ -535,7 +539,6 @@ function Home() {
               price: "$7",
               period: "/month",
               priceSub: "$50/year (save $34)",
-              trial: "First 30 days free — no card required",
               tier: "standard",
               body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
               features: [
@@ -553,7 +556,6 @@ function Home() {
               price: "$15",
               period: "/month",
               priceSub: "$100/year (save $80)",
-              trial: "First 30 days free — no card required",
               tier: "pro",
               body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
               features: [
@@ -584,11 +586,6 @@ function Home() {
               </p>
               {plan.priceSub && (
                 <p className="mt-1 text-sm text-gray-500">{plan.priceSub}</p>
-              )}
-              {plan.trial && (
-                <p className="mt-2 inline-block w-fit rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 ring-1 ring-green-200">
-                  {plan.trial}
-                </p>
               )}
               <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
               <ul className="mt-6 space-y-3">
@@ -654,12 +651,12 @@ function Home() {
               {
                 when: "Day 1–6",
                 stage: "Stage 1 · Friendly reminder",
-                example: "\u201cHey Alex, just a quick nudge that invoice #1042 for $450 was due yesterday…\u201d",
+                example: "\u201cHey Sarah, just a quick nudge that invoice #1042 for $450 was due yesterday…\u201d",
               },
               {
                 when: "Day 7–20",
                 stage: "Stage 2 · Firmer follow-up",
-                example: "\u201cFollowing up on invoice #1042 ($450, due Jun 1). It's now 9 days past due — is anything blocking payment on your end?\u201d",
+                example: "\u201cFollowing up on invoice #1042 ($450, due last month). It's now 12 days past due — is anything blocking payment on your end?\u201d",
               },
               {
                 when: "Day 21+",
