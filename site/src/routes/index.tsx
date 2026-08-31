@@ -3,6 +3,19 @@ import { createServerFn } from "@tanstack/react-start";
 import { readFile } from "node:fs/promises";
 import { SiteNav } from "../components/SiteNav";
 import { SiteFooter } from "../components/SiteFooter";
+import { SiteCTA } from "../components/SiteCTA";
+import {
+  CARD,
+  CARD_BASE,
+  BORDER_DEFAULT,
+  BTN_PRIMARY,
+  BTN_SECONDARY,
+  Check,
+  PY_MAIN,
+  PY_RELATED,
+  STATUS_AUTO,
+  TYPE,
+} from "../components/ui";
 
 const INSTALL_URL = "https://stripe-cc-production.up.railway.app/oauth/install";
 
@@ -41,30 +54,24 @@ function Home() {
                 <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
                   Now live on the Stripe App Marketplace
                 </span>
-                <span className="inline-block rounded-full bg-purple-100 px-3 py-1 text-sm font-medium text-purple-700">
+                <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
                   We never sell your data
                 </span>
               </div>
             </div>
-            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl text-gray-900">
+            <h1 className={TYPE.hero}>
               You didn't forget to follow up. You've just been avoiding it.
             </h1>
-            <p className="mt-6 max-w-xl text-lg text-gray-600 leading-relaxed">
-              CollectionsCopilot lives inside your Stripe account — no new tool, no new
-              login, no data to export. Start read-only. Decide how much you want to hand
-              off, whenever you're ready.
+            <p className={`mt-6 max-w-xl ${TYPE.bodyLg}`}>
+              CollectionsCopilot lives inside your Stripe account — no new tool, no
+              new login, no data to export. Start read-only. Decide how much you
+              want to hand off, whenever you're ready.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-4">
-              <a
-                href={INSTALL_URL}
-                className="rounded-lg bg-indigo-600 px-6 py-3 text-center text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
-              >
+              <a href={INSTALL_URL} className={BTN_PRIMARY}>
                 Install from the Stripe App Marketplace
               </a>
-              <a
-                href="/how-it-works"
-                className="rounded-lg border border-gray-300 px-6 py-3 text-center text-base font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              >
+              <a href="/how-it-works" className={BTN_SECONDARY}>
                 How it works
               </a>
             </div>
@@ -75,7 +82,7 @@ function Home() {
 
           {/* Right column — email preview */}
           <div>
-            <div className="mx-auto max-w-md rounded-2xl border border-gray-200 bg-white shadow-lg">
+            <div className={`mx-auto max-w-md ${CARD}`}>
               {/* preview header */}
               <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-base font-bold text-indigo-700">
@@ -99,9 +106,9 @@ function Home() {
                 <div className="mt-2 space-y-2 text-sm text-gray-700 leading-relaxed">
                   <p>Hi Sarah,</p>
                   <p>
-                    Hope the new site launch went well this week. Just a quick heads-up
-                    that invoice #1024 for the landing page redesign ($450) passed its
-                    due date — no rush if it's just slipped your mind.
+                    Hope the new site launch went well this week. Just a quick
+                    heads-up that invoice #1024 for the landing page redesign ($450)
+                    passed its due date — no rush if it's just slipped your mind.
                   </p>
                   <p>Let me know if anything looks off.</p>
                   <p className="font-medium">Cheers, Alex at ACME Services</p>
@@ -113,17 +120,17 @@ function Home() {
       </section>
 
       {/* Sample — one representative drafted email (full 3-stage detail lives on /how-it-works) */}
-      <section className="max-w-6xl mx-auto px-6 py-14">
+      <section className={`max-w-6xl mx-auto px-6 ${PY_RELATED}`}>
         <div className="mb-5">
           <span className="inline-block rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
             Sample · see it before you connect anything
           </span>
         </div>
-        <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+        <h2 className={TYPE.h2}>
           Here's a sample account with{" "}
-          <span className="text-amber-500">$2,150</span> in overdue invoices.
+          <span className="text-indigo-600">$2,150</span> in overdue invoices.
         </h2>
-        <p className="mt-4 max-w-3xl text-lg text-gray-600 leading-relaxed">
+        <p className={`mt-4 max-w-3xl ${TYPE.bodyLg}`}>
           No Stripe connection needed to see this — this is an illustrative
           example, not a real customer's data. Here's one representative email
           CollectionsCopilot would draft for a single invoice from that account.
@@ -132,7 +139,7 @@ function Home() {
         {/* Sample — invoice card (left) + drafted email (right), matched pair */}
         <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
           {/* Invoice card */}
-          <div className="flex flex-col rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className={`flex flex-col ${CARD}`}>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-gray-900">
@@ -145,25 +152,29 @@ function Home() {
             </div>
             <div className="flex flex-1 flex-col justify-center px-5 py-6">
               <p className="text-3xl font-bold text-gray-900">$450</p>
-              <p className="mt-1 text-xs text-gray-500">Open invoice on the account above</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Open invoice on the account above
+              </p>
             </div>
           </div>
 
           {/* Drafted email card */}
-          <div className="flex flex-col rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className={`flex flex-col ${CARD}`}>
             <div className="border-b border-gray-100 px-5 py-4">
-              <h3 className="text-sm font-semibold text-gray-900">
+              <h3 className={TYPE.h3}>
                 What CollectionsCopilot would draft for this invoice
               </h3>
               <p className="mt-1 text-xs text-gray-500 leading-relaxed">
                 The first of a three-stage sequence — see{" "}
-                <a href="/how-it-works" className="text-indigo-600 underline">How it works</a>{" "}
+                <a href="/how-it-works" className="text-indigo-600 underline">
+                  How it works
+                </a>{" "}
                 for the full escalation.
               </p>
             </div>
             <div className="flex-1 p-5">
-              <div className="overflow-hidden rounded-xl border border-gray-200">
-                <div className="flex items-center gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3">
+              <div className={`overflow-hidden ${CARD_BASE} ${BORDER_DEFAULT}`}>
+                <div className="flex items-center gap-3 border-b border-gray-100 bg-gray-50 px-5 py-3">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
                     Y
                   </span>
@@ -171,10 +182,12 @@ function Home() {
                     <p className="truncate text-sm font-semibold text-gray-900">
                       You &lt;you@yourbusiness.com&gt;
                     </p>
-                    <p className="text-xs text-gray-500">Sent automatically · Day 1–6</p>
+                    <p className={`text-xs ${STATUS_AUTO}`}>
+                      Sent automatically · Day 1–6
+                    </p>
                   </div>
                 </div>
-                <div className="px-4 py-3">
+                <div className="px-5 py-4">
                   <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
                     Subject
                   </p>
@@ -182,8 +195,8 @@ function Home() {
                     Quick nudge — invoice #1042
                   </p>
                   <p className="mt-2 text-sm text-gray-700 leading-relaxed">
-                    “Hey Sarah, just a heads-up that invoice #1042 passed its due date — no
-                    rush if it slipped your mind.”
+                    “Hey Sarah, just a heads-up that invoice #1042 passed its due
+                    date — no rush if it slipped your mind.”
                   </p>
                 </div>
               </div>
@@ -193,14 +206,12 @@ function Home() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="max-w-4xl mx-auto px-6 py-16">
-        <h2 className="text-3xl font-bold text-center text-gray-900 mb-4">
-          Simple pricing
-        </h2>
+      <section id="pricing" className={`max-w-4xl mx-auto px-6 ${PY_MAIN}`}>
+        <h2 className={`${TYPE.h2Center} mb-4`}>Simple pricing</h2>
         <p className="text-center text-gray-600 max-w-3xl mx-auto mb-10 text-sm leading-relaxed">
-          Every plan starts with a free 30-day trial — full access, no card required.
-          After that: Draft Mode stays free forever (5 drafts), or subscribe to keep
-          Standard/Pro features.
+          Every plan starts with a free 30-day trial — full access, no card
+          required. After that: Draft Mode stays free forever (5 drafts), or
+          subscribe to keep Standard/Pro features.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
@@ -253,15 +264,21 @@ function Home() {
           ].map((plan) => (
             <div
               key={plan.name}
-              className={`flex flex-col rounded-2xl border p-8 ${
+              className={`flex flex-col ${CARD_BASE} p-8 ${
                 plan.highlight
-                  ? "border-indigo-300 ring-2 ring-indigo-600 shadow-lg"
-                  : "border-gray-200"
+                  ? "border border-indigo-300 ring-2 ring-indigo-600"
+                  : BORDER_DEFAULT
               }`}
             >
-              <h3 className="text-xl font-bold text-gray-900">{plan.name}</h3>
+              <h3 className={TYPE.h3}>{plan.name}</h3>
               <p className={`mt-4 ${plan.free ? "text-lg font-semibold" : ""}`}>
-                <span className={plan.free ? "text-xl font-bold text-gray-900" : "text-4xl font-bold text-gray-900"}>
+                <span
+                  className={
+                    plan.free
+                      ? "text-xl font-bold text-gray-900"
+                      : "text-4xl font-bold text-gray-900"
+                  }
+                >
                   {plan.price}
                 </span>
                 <span className="text-gray-500">{plan.period}</span>
@@ -274,34 +291,36 @@ function Home() {
                   {plan.trialBadge}
                 </span>
               )}
-              <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
+              <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">
+                {plan.body}
+              </p>
               <ul className="mt-6 space-y-3">
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
-                    <span className="text-green-500 mt-0.5">✓</span>
+                    <Check />
                     {f}
                   </li>
                 ))}
               </ul>
               {plan.name === "Pro" && (
                 <p className="mt-4 text-xs text-gray-400 leading-relaxed">
-                  Late fee legality and limits vary by state/country — you're responsible for confirming your late fee terms comply with applicable law before enabling this feature.
+                  Late fee legality and limits vary by state/country — you're
+                  responsible for confirming your late fee terms comply with
+                  applicable law before enabling this feature.
                 </p>
               )}
               {plan.free ? (
                 <a
                   href={INSTALL_URL}
-                  className="mt-auto block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                  className={`mt-auto block w-full ${BTN_SECONDARY}`}
                 >
                   {plan.cta}
                 </a>
               ) : (
                 <a
                   href={INSTALL_URL}
-                  className={`mt-auto block w-full rounded-lg px-4 py-3 text-center text-sm font-semibold transition-colors ${
-                    plan.highlight
-                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                      : "border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  className={`mt-auto block w-full ${
+                    plan.highlight ? BTN_PRIMARY : BTN_SECONDARY
                   }`}
                 >
                   Install from the Stripe App Marketplace
@@ -317,32 +336,7 @@ function Home() {
         </p>
       </section>
 
-      {/* CTA */}
-      <section className="bg-gray-900 py-16">
-        <div className="max-w-3xl mx-auto px-6 text-center">
-          <h2 className="text-3xl font-bold text-white mb-4">
-            Ready to stop chasing payments?
-          </h2>
-          <p className="text-gray-400 max-w-lg mx-auto mb-4">
-            Install from the Stripe App Marketplace.
-            Polite, personalized, and persistent reminders — without you lifting a
-            finger.
-          </p>
-          <p className="text-indigo-300 max-w-lg mx-auto mb-8">
-            Your first month is free — full access, no card required. After that,
-            Draft Mode stays free forever with up to 5 drafts. Subscribe inside the app
-            when you're ready for sending.
-          </p>
-          <div className="flex flex-col items-center gap-4">
-            <a
-              href={INSTALL_URL}
-              className="inline-block rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white hover:bg-indigo-700 transition-colors"
-            >
-              Install from the Stripe App Marketplace
-            </a>
-          </div>
-        </div>
-      </section>
+      <SiteCTA />
 
       <SiteFooter businessName={businessName} />
     </div>

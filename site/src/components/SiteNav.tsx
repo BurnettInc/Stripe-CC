@@ -1,3 +1,5 @@
+import { BTN_PRIMARY_NAV } from "./ui";
+
 const INSTALL_URL = "https://stripe-cc-production.up.railway.app/oauth/install";
 
 const LINKS = [
@@ -40,10 +42,7 @@ export function SiteNav({ businessName = "" }: { businessName?: string }) {
             {l.label}
           </a>
         ))}
-        <a
-          href={INSTALL_URL}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
-        >
+        <a href={INSTALL_URL} className={BTN_PRIMARY_NAV}>
           Get started
         </a>
       </div>
