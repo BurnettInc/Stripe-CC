@@ -39,13 +39,13 @@ function HowItWorks() {
           <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
             <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
-                Y
+                A
               </span>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-gray-900">
-                  You &lt;you@yourbusiness.com&gt;
+                  Alex at ACME Services
                 </p>
-                <p className="text-xs text-gray-500">Sent automatically · Day 1–6</p>
+                <p className="text-xs text-green-600">Sent automatically · Day 1–6</p>
               </div>
             </div>
             <div className="px-4 py-3">
@@ -62,16 +62,16 @@ function HowItWorks() {
             </div>
           </div>
           {/* Stage 2 — waits for approval */}
-          <div className="overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm">
-            <div className="flex items-center gap-3 border-b border-indigo-100 px-4 py-3">
+          <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
-                Y
+                A
               </span>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-gray-900">
-                  You &lt;you@yourbusiness.com&gt;
+                  Alex at ACME Services
                 </p>
-                <p className="text-xs text-indigo-600">Waits for your approval · Day 7–20</p>
+                <p className="text-xs text-gray-500">Waits for your approval · Day 7–20</p>
               </div>
             </div>
             <div className="px-4 py-3">
@@ -91,11 +91,11 @@ function HowItWorks() {
           <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
             <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
-                Y
+                A
               </span>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-gray-900">
-                  You &lt;you@yourbusiness.com&gt;
+                  Alex at ACME Services
                 </p>
                 <p className="text-xs text-gray-500">Waits for your approval · Day 21+</p>
               </div>
@@ -200,38 +200,12 @@ function HowItWorks() {
         </div>
       </section>
 
-      {/* Not another tool to manage */}
-      <section className="max-w-4xl mx-auto px-6 py-16">
-        <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">
-          Not another tool to manage
-        </h2>
-        <p className="text-center text-gray-600 max-w-3xl mx-auto mb-8 leading-relaxed">
-          Most collections apps ask you to sign up somewhere new, connect your invoices
-          to their system, and hope they treat your client data carefully. CollectionsCopilot
-          is a Stripe App — it runs on the invoices already in your Stripe account. Nothing
-          to export, nothing to sync, one dashboard.
+      {/* Trust pointer (full detail lives on /trust) */}
+      <section className="max-w-4xl mx-auto px-6 py-16 text-center">
+        <p className="text-gray-600">
+          Curious about permissions and data access?{" "}
+          <a href="/trust" className="text-indigo-600 underline">See Trust &amp; Security →</a>
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="rounded-xl border border-gray-200 bg-white p-6">
-            <p className="text-sm text-gray-700 leading-relaxed">
-              <span className="font-semibold text-gray-900">Read-only by default.</span>{" "}
-              We can't touch your invoices, customers, or payment methods — ever.
-            </p>
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-6">
-            <p className="text-sm text-gray-700 leading-relaxed">
-              <span className="font-semibold text-gray-900">You choose the level of trust.</span>{" "}
-              Start in Draft Mode and approve every email. Move to Semi-Auto when you trust
-              the friendly ones. Go Full Auto only when you're ready — per customer, any time.
-            </p>
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-6">
-            <p className="text-sm text-gray-700 leading-relaxed">
-              <span className="font-semibold text-gray-900">Disconnect in one click,</span>{" "}
-              from the Stripe Dashboard itself — not a support ticket.
-            </p>
-          </div>
-        </div>
       </section>
 
       {/* CTA */}
