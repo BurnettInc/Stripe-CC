@@ -136,7 +136,7 @@
       <div class="grid">
         <div class="panel">
           <div class="dv-head">
-            <h3>Daily visits <span class="muted" id="dailyVisitsHint">— last 14 days (UTC, verified human visits)</span></h3>
+            <h3>Daily visits <span class="muted" id="dailyVisitsHint">— last 14 days (UTC, human visits)</span></h3>
             <div class="dv-toggle">
               <span class="dv-t" id="dvToggle14">14d</span>
               <span class="dv-t" id="dvToggle30">30d</span>
@@ -149,16 +149,20 @@
         <div class="panel">
           <h3>Visits by source</h3>
           <div class="scroll"><table>
-            <thead><tr><th>Source</th><th>Where</th><th>Visits (all)</th><th>Visits (7d)</th><th>First-touch visitors</th><th>Share</th></tr></thead>
+            <thead><tr><th>Source</th><th>Where</th><th>Human visits (all)</th><th>Human visits (7d)</th><th>First-touch visitors</th><th>Share</th></tr></thead>
             <tbody id="sourceBuckets"></tbody>
           </table></div>
           <div class="srcnote">
-            Sources with &lt;3 visits are collapsed into one <b>Other</b> row so a
-            dozen one-hit buckets don't drown the signal. utm_source wins when
-            present; otherwise the referrer host maps to a channel. A search
-            engine's bare homepage (no query) lands in
-            <b>search_homepage_no_query</b> (likely bot). First-touch = each
-            visitor counted once, under the source of their very first visit.
+            Counts are <b>human visits only</b> — bot / likely-bot / unknown
+            traffic is excluded by default so bots don't inflate the source
+            numbers (raw request totals stay visible in the funnel strip and
+            the visitor-signals panel). Sources with &lt;3 visits are collapsed
+            into one <b>Other</b> row so a dozen one-hit buckets don't drown
+            the signal. utm_source wins when present; otherwise the referrer
+            host maps to a channel. A search engine's bare homepage (no query)
+            lands in <b>search_homepage_no_query</b> (likely bot). First-touch
+            = each visitor counted once, under the source of their very first
+            visit.
           </div>
         </div>
         <div class="panel">
@@ -177,12 +181,18 @@
             enumeration / same-path hammering from one masked IP (Parts 2a/2c).
           </div>
         </div>
-        <!-- (d) raw Recent visits — collapsed debug view at the bottom -->
+        <!-- (d) Recent visits — collapsed debug view at the bottom; bot-free by default -->
         <div class="panel collapsible" id="recentVisits">
           <div class="col-head" onclick="toggleRecent()">
             <span class="caret">▶</span><h3>Recent visits (last 50) <span class="muted">— debug view · <span class="pill conv">→ merchant</span> = visitor later connected</span></h3>
           </div>
           <div class="col-body">
+            <div style="padding:10px 16px 4px;font-size:12px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:var(--body);">
+              <label for="includeBots" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="includeBots" style="accent-color:var(--primary);"> Include bots
+              </label>
+              <span id="visitsCaption" class="muted"></span>
+            </div>
             <div class="scroll"><table>
               <thead><tr><th>Time</th><th>Visitor</th><th>Page</th><th>Referrer</th><th>UTM</th><th>Device</th><th>Bot</th><th>Country</th><th>Verified</th></tr></thead>
               <tbody id="visits"></tbody>
@@ -329,11 +339,27 @@
       out.push(["Device/OS unknown (verified)", (us.verified&&us.verified.device!=null?esc(us.verified.device)+"% / "+esc(us.verified.os)+"%":"n/a")]);
       out.forEach(function(r){ var row=document.createElement("tr"); row.innerHTML="<td class=\"bucket\">"+esc(r[0])+"</td><td>"+r[1]+"</td>"; sigT.appendChild(row); });
     }
-    function renderRecent(d){
-      var vT=document.getElementById("visits");
-      var conv=d.conversions||{};
-      if(!d.visits.length)vT.innerHTML='<tr><td colspan="9" class="empty">No page visits yet</td></tr>';
-      d.visits.forEach(function(v){
+    var recentAll=[]; var recentConv={}; var includeBots=false;
+    // Mirror the backend's isHumanVisit: a row is worth showing by default when
+    // it's a verified (JS-executing) human OR carries a positive human bot_status.
+    // This keeps a verified human with a bot-looking UA visible (botStatusForFull
+    // flags the UA first) while hiding bot / likely_bot / unknown rows.
+    function isRowHuman(v){ return !!(v && (v.verified || v.bot_status==="human")); }
+    function renderRecent(){
+      var vT=document.getElementById("visits"),cap=document.getElementById("visitsCaption");
+      var conv=recentConv||{};
+      var shown = includeBots ? recentAll : recentAll.filter(isRowHuman);
+      var hidden=recentAll.length-shown.length;
+      cap.innerHTML="showing <b>"+esc(shown.length)+"</b> of "+esc(recentAll.length)+" recent requests"+
+        (includeBots?" (all, including bots)":" · "+esc(hidden)+" bot/likely-bot/unknown hidden");
+      if(!shown.length){
+        vT.innerHTML='<tr><td colspan="9" class="empty">'+
+          (recentAll.length?"No non-bot visits in the last 50 requests — tick &quot;Include bots&quot; to see raw traffic":"No page visits yet")+
+          '</td></tr>';
+        return;
+      }
+      vT.innerHTML="";
+      shown.forEach(function(v){
         var convHtml="";
         if(conv[v.visitor_id]&&conv[v.visitor_id].length){ convHtml=conv[v.visitor_id].map(function(m){return '<div style="margin-top:4px;"><span class="pill conv">→ '+esc(m.merchant_id)+" · "+esc(m.email)+"</span></div>";}).join(""); }
         var row=document.createElement("tr");
@@ -356,7 +382,7 @@
       var wrap=document.getElementById("dailyVisits"),box=document.getElementById("dailyVisitsEmpty"),note=document.getElementById("dailyVisitsNote"),hint=document.getElementById("dailyVisitsHint");
       document.getElementById("dvToggle14").classList.toggle("active",dvDays===14);
       document.getElementById("dvToggle30").classList.toggle("active",dvDays===30);
-      hint.innerHTML="— last "+dvDays+" days (UTC, verified human visits)";
+      hint.innerHTML="— last "+dvDays+" days (UTC, human visits)";
       var seriesTotal=(dvAll||[]).reduce(function(a,b){return a+(b&&b.count||0);},0);
       if(!dvAll||!dvAll.length||seriesTotal===0){ box.style.display=""; wrap.style.display="none"; note.textContent=""; return; }
       box.style.display="none"; wrap.style.display="";
@@ -371,7 +397,7 @@
         col.appendChild(c); col.appendChild(f); col.appendChild(date); wrap.appendChild(col);
       });
       var total=slice.reduce(function(a,b){return a+b.count;},0); var peak=slice.reduce(function(a,b){return Math.max(a,b.count);},0);
-      note.textContent=total+" verified human visits · peak "+peak+" in one day";
+      note.textContent=total+" human visits · peak "+peak+" in one day";
     }
     document.getElementById("dvToggle14").addEventListener("click",function(){dvDays=14;renderDailyVisits();});
     document.getElementById("dvToggle30").addEventListener("click",function(){dvDays=30;renderDailyVisits();});
@@ -386,9 +412,10 @@
         renderFunnel(d);
         renderSources(d);
         renderSignals(d);
-        renderRecent(d);
+        recentAll=(d.visits)||[]; recentConv=(d.conversions)||{}; renderRecent();
         dvAll=(d.visits_by_day&&d.visits_by_day.data)||[];
         renderDailyVisits();
+        document.getElementById("includeBots").addEventListener("change",function(){ includeBots=this.checked; renderRecent(); });
         document.getElementById("growthSec").style.display="";
         labelAll(document.getElementById("growthSec"));
       })
