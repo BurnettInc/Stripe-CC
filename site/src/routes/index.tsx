@@ -183,25 +183,6 @@ function Home() {
             </div>
           </div>
         </div>
-
-        {/* Footer — CTA */}
-        <div className="mt-10 flex flex-col items-start justify-between gap-6 rounded-2xl border border-gray-200 bg-gray-50 p-6 md:flex-row md:items-center">
-          <p className="max-w-xl text-sm text-gray-600 leading-relaxed">
-            Connect Stripe to see this same breakdown for your actual invoices —
-            read-only access, and nothing sends without your approval in Draft Mode.
-          </p>
-          <div className="flex flex-col items-start gap-2 md:items-end">
-            <a
-              href={INSTALL_URL}
-              className="rounded-lg bg-indigo-600 px-6 py-3 text-center text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
-            >
-              Connect Stripe to see your numbers
-            </a>
-            <span className="text-xs text-gray-500">
-              First month free — full access, no card required · then Draft Mode is free forever
-            </span>
-          </div>
-        </div>
       </section>
 
       {/* Pricing */}
@@ -231,6 +212,7 @@ function Home() {
               price: "$7",
               period: "/month",
               priceSub: "$50/year (save $34)",
+              trialBadge: "First month free — full access, no card required",
               tier: "standard",
               body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
               features: [
@@ -248,6 +230,7 @@ function Home() {
               price: "$15",
               period: "/month",
               priceSub: "$100/year (save $80)",
+              trialBadge: "First month free — full access, no card required",
               tier: "pro",
               body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
               features: [
@@ -278,6 +261,11 @@ function Home() {
               </p>
               {plan.priceSub && (
                 <p className="mt-1 text-sm text-gray-500">{plan.priceSub}</p>
+              )}
+              {plan.trialBadge && (
+                <span className="mt-3 inline-block w-fit rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 ring-1 ring-green-200">
+                  {plan.trialBadge}
+                </span>
               )}
               <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">{plan.body}</p>
               <ul className="mt-6 space-y-3">
