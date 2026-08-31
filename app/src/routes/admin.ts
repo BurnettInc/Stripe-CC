@@ -103,15 +103,33 @@ function funnel(db: Database) {
   const count = (sql: string, ...args: (string | number | null)[]): number =>
     (db.query(sql).get(...(args as never[])) as { n: number }).n;
 
+  // RAW request counts — kept so the raw-vs-human figures remain visible (the
+  // funnel strip's "N raw requests" note + the visitor-signals panel). These are
+  // NOT the headline numbers; the human-only figures below drive the funnel.
   const visitsTotal = count("SELECT COUNT(*) AS n FROM page_visits");
-  const visits24h = count("SELECT COUNT(*) AS n FROM page_visits WHERE ts >= ?", iso24);
-  const visits7d = count("SELECT COUNT(*) AS n FROM page_visits WHERE ts >= ?", iso7d);
+  const visitsRaw24h = count("SELECT COUNT(*) AS n FROM page_visits WHERE ts >= ?", iso24);
+  const visitsRaw7d = count("SELECT COUNT(*) AS n FROM page_visits WHERE ts >= ?", iso7d);
   const visitsVerified = count("SELECT COUNT(*) AS n FROM page_visits WHERE verified = 1");
-  const visitsHuman = (() => {
+  // HUMAN-only visits (all-time + trailing 24h/7d windows): bot + likely_bot +
+  // unknown + pattern-bot rows are excluded — same classification as the
+  // daily-visits chart and the sources table, so bots never inflate the
+  // headline funnel numbers.
+  const human = (() => {
     const flags = patternBotFlagIds(db);
-    let n = 0;
-    for (const r of allVisitRows(db)) if (isHumanVisit(r, flags)) n += 1;
-    return n;
+    const rows = allVisitRows(db);
+    const iso24Ms = Date.parse(iso24);
+    const iso7dMs = Date.parse(iso7d);
+    let total = 0, h24 = 0, h7d = 0;
+    for (const r of rows) {
+      if (!isHumanVisit(r, flags)) continue;
+      total += 1;
+      const ms = epochMs(r.ts);
+      if (ms != null) {
+        if (ms >= iso7dMs) h7d += 1;
+        if (ms >= iso24Ms) h24 += 1;
+      }
+    }
+    return { total, h24, h7d };
   })();
 
   const connectsTotal = count("SELECT COUNT(*) AS n FROM stripe_connections");
@@ -147,11 +165,13 @@ function funnel(db: Database) {
   ).get() as { created_at: string } | null)?.created_at ?? null;
 
   return {
-    visits_total: visitsTotal,
-    visits_verified: visitsVerified,
-    visits_human: visitsHuman,
-    visits_24h: visits24h,
-    visits_7d: visits7d,
+    visits_total: visitsTotal,       // RAW all-time (legacy key — the "N raw requests" note)
+    visits_raw_24h: visitsRaw24h,    // RAW trailing 24h
+    visits_raw_7d: visitsRaw7d,      // RAW trailing 7d
+    visits_human: human.total,       // HUMAN all-time (headline)
+    visits_24h: human.h24,           // HUMAN trailing 24h
+    visits_7d: human.h7d,            // HUMAN trailing 7d
+    visits_verified: visitsVerified, // verified (JS-executing) humans
     connects_total: connectsTotal,
     connects_24h: connects24h,
     connects_7d: connects7d,
@@ -269,40 +289,54 @@ function conversions(db: Database): Record<string, Array<{ merchant_id: number; 
 }
 
 /**
- * Visits-by-source channel attribution: every visit bucketed by utm_source
+ * Visits-by-source channel attribution: every HUMAN visit bucketed by utm_source
  * (wins), else referrer host, else "direct" — plus per-bucket counts
  * (all-time + last 7d) and a first-touch line (each distinct visitor is
  * attributed to the source of their FIRST visit row; unique visitors per
- * bucket). Each bucket also carries a friendly `display` name and the raw
- * `hosts` (referrer hostnames) behind it. See src/visit-sources.ts for the
- * deterministic bucketing rules.
+ * bucket). Bot traffic is excluded up front (see humanVisitRows) so the default
+ * Growth table never mixes bots into source counts. Each bucket also carries a
+ * friendly `display` name and the raw `hosts` (referrer hostnames) behind it.
+ * See src/visit-sources.ts for the deterministic bucketing rules.
  */
 function visitsBySource(db: Database) {
-  const rows = visitRows(db);
+  const rows = humanVisitRows(db);
   const cutoff7d = new Date(Date.now() - 7 * 86400000).toISOString();
   return aggregateVisitsBySource(rows, cutoff7d);
 }
 
 /**
- * utm_campaign rollup — the same page_visits rows grouped by non-empty
- * utm_campaign with the same counting/first-touch semantics (see
+ * utm_campaign rollup — the same HUMAN-only page_visits rows grouped by
+ * non-empty utm_campaign with the same counting/first-touch semantics (see
  * src/visit-sources.ts aggregateUtmCampaigns). Lets the owner see which
- * tracked-link campaign (e.g. a Reddit post or Product Hunt launch) each
- * visit belongs to.
+ * tracked-link campaign (e.g. a Reddit post or Product Hunt launch) each visit
+ * belongs to. Bots excluded by default just like visits_by_source.
  */
 function utmCampaigns(db: Database) {
-  const rows = visitRows(db);
+  const rows = humanVisitRows(db);
   const cutoff7d = new Date(Date.now() - 7 * 86400000).toISOString();
   return aggregateUtmCampaigns(rows, cutoff7d);
 }
 
-/** All page_visits rows with every attribution-relevant column (newest first
- *  not required here — aggregation order is insertion order, which is also
- *  id order for first-appearance semantics). */
-function visitRows(db: Database): VisitForAttribution[] {
-  return db.query(
-    "SELECT id, visitor_id, referrer, utm_source, utm_medium, utm_campaign, ts FROM page_visits"
-  ).all() as VisitForAttribution[];
+/**
+ * HUMAN-only page_visits rows projected to the attribution subset the
+ * source/campaign aggregators consume (insertion/id order, so first-appearance
+ * semantics hold). Bots are excluded here so sources + campaigns never mix bot
+ * traffic into the default numbers — the same
+ * verified/pattern/botStatusForFull classification as isHumanVisit.
+ */
+function humanVisitRows(db: Database): VisitForAttribution[] {
+  const patternFlags = patternBotFlagIds(db);
+  return allVisitRows(db)
+    .filter((r) => isHumanVisit(r, patternFlags))
+    .map((r) => ({
+      id: r.id,
+      visitor_id: r.visitor_id,
+      referrer: r.referrer,
+      utm_source: r.utm_source,
+      utm_medium: r.utm_medium,
+      utm_campaign: r.utm_campaign,
+      ts: r.ts,
+    }));
 }
 
 /** Every page_visits row with the full classification column set (id, page,
