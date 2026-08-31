@@ -61,6 +61,7 @@ import { formatSummaryEmail } from "./summary-email";
 import { sendEmailForReal } from "./sender";
 import { isPlaceholderMerchant, notifyMerchant } from "./notify";
 import { getEscalationStage } from "./escalation";
+import { recordFunnelEvent } from "../funnel";
 import {
   cancelTasksForInvoice,
   logSend,
@@ -217,6 +218,8 @@ function reconcileInvoiceStatuses(
         if (rec.recorded) {
           log(`[scheduler] invoice-sync: recovery event recorded for invoice ${row.stripe_invoice_id} (${rec.reason})`);
         }
+        // Funnel: this merchant's first overdue invoice became paid (idempotent).
+        recordFunnelEvent(db, merchantId, "paid");
       } catch (err) {
         console.error(
           `[scheduler] invoice-sync: recovery event record failed for ${row.stripe_invoice_id}: ${err instanceof Error ? err.message : String(err)}`
@@ -377,6 +380,9 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
         }
         continue;
       }
+      // Funnel: this merchant got a real invoice pull from Stripe (idempotent
+      // per merchant — recorded once even though sync runs on a cadence).
+      recordFunnelEvent(db, merchantId, "invoices_synced");
       reconcileInvoiceStatuses(db, merchantId, before, livemode, log);
 
       // Task creation for newly-overdue invoices — the core of the chase

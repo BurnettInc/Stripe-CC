@@ -58,6 +58,7 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { getInvoiceById, getMerchantById, cancelTasksForInvoice, logSend } from "../db";
+import { recordFunnelEvent } from "../funnel";
 import type { Invoice, Merchant } from "../db";
 import { notifyMerchant, isPlaceholderMerchant } from "../pipeline/notify";
 import { sendEmailForReal } from "../pipeline/sender";
@@ -232,6 +233,8 @@ export async function handleInboundReply(db: Database, req: Request): Promise<Re
     return json({ status: "ignored", reason: "duplicate" }, 200);
   }
   console.log(`[inbound] reply stored for sequence_id ${seq} (invoice ${invoice.stripe_invoice_id}, idem ${idemKey.slice(0, 12)}…)`);
+  // Funnel: this merchant received their first customer reply (idempotent).
+  recordFunnelEvent(db, invoice.merchant_id, "first_reply");
 
   // ── Auto-pause: same priority as paid/dispute/refund, all Trust Modes ──
   const stopped = stoppedReason(invoice);

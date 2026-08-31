@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { ensureDefaultMerchant, resolveMerchant } from "../db";
+import { recordFunnelEvent } from "../funnel";
 import { saveStripeConnection, getStripeConnectionFor, getStripeConnection, clearStripeConnection } from "../middleware/auth";
 import { readCookie } from "../middleware/session";
 import { notifyOwnerStripeConnect } from "../pipeline/owner-notify";
@@ -251,6 +252,9 @@ export async function handleStripeConnect(db: Database, req: Request): Promise<R
   const stripe = new Stripe(secretKey);
   const merchant = resolveMerchant(db);
   const merchantId = merchant?.id ?? 1;
+  // Funnel: a visitor starting Stripe onboarding reached the connect hop (the
+  // install CTA carries ?cc_vid=<visitor_id>; recorded idempotently per merchant).
+  recordFunnelEvent(db, merchantId, "oauth_started", new URL(req.url).searchParams.get("cc_vid"));
 
   let accountId: string | null | undefined;
   try {
@@ -387,6 +391,8 @@ export async function handleStripeOAuthCallback(db: Database, req: Request): Pro
     );
 
     console.log(`[oauth] Stripe account connected: ${accountId} (merchant ${merchantId})`);
+    // Funnel: onboarding completed successfully → merchant reached "connected".
+    recordFunnelEvent(db, merchantId, "oauth_completed");
 
     // Owner signup notification: email the owner (OWNER_NOTIFY_EMAIL) when a
     // real merchant finishes connecting. Dev/test merchants are excluded

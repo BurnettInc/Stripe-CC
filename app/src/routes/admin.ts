@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { countWaitlistSignups, listWaitlistEntries, type WaitlistEntry } from "../db";
 import { aggregateUtmCampaigns, aggregateVisitsBySource, bucketVisit, displayBucketName, referrerHost, type VisitForAttribution } from "../visit-sources";
-import { botStatusFor, classifyDevice, isBotUa } from "../visitor-signals";
+import { botStatusForFull, botLikePatternFlags, classifyDevice, isBotUa, type VisitSignalRow } from "../visitor-signals";
+import { funnelStages } from "../funnel";
 
 /**
  * Admin-only internal customer tracking dashboard (owner request 2026-08-12).
@@ -105,6 +106,13 @@ function funnel(db: Database) {
   const visitsTotal = count("SELECT COUNT(*) AS n FROM page_visits");
   const visits24h = count("SELECT COUNT(*) AS n FROM page_visits WHERE ts >= ?", iso24);
   const visits7d = count("SELECT COUNT(*) AS n FROM page_visits WHERE ts >= ?", iso7d);
+  const visitsVerified = count("SELECT COUNT(*) AS n FROM page_visits WHERE verified = 1");
+  const visitsHuman = (() => {
+    const flags = patternBotFlagIds(db);
+    let n = 0;
+    for (const r of allVisitRows(db)) if (isHumanVisit(r, flags)) n += 1;
+    return n;
+  })();
 
   const connectsTotal = count("SELECT COUNT(*) AS n FROM stripe_connections");
   const connects24h = count("SELECT COUNT(*) AS n FROM stripe_connections WHERE created_at >= ?", iso24);
@@ -140,6 +148,8 @@ function funnel(db: Database) {
 
   return {
     visits_total: visitsTotal,
+    visits_verified: visitsVerified,
+    visits_human: visitsHuman,
     visits_24h: visits24h,
     visits_7d: visits7d,
     connects_total: connectsTotal,
@@ -295,6 +305,66 @@ function visitRows(db: Database): VisitForAttribution[] {
   ).all() as VisitForAttribution[];
 }
 
+/** Every page_visits row with the full classification column set (id, page,
+ *  ip, headers, verified, ...). The source of truth for bot/pattern/verified
+ *  classification and the raw-vs-verified splits (Part 2). */
+interface AdminVisitRow {
+  id: number;
+  visitor_id: string;
+  page: string;
+  referrer: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  utm_content: string;
+  ts: string;
+  ip: string;
+  user_agent: string;
+  country: string;
+  accept_language: string | null;
+  accept_encoding: string | null;
+  verified: number;
+}
+function allVisitRows(db: Database): AdminVisitRow[] {
+  return db.query(
+    `SELECT id, visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content,
+            ts, ip, user_agent, country, accept_language, accept_encoding, verified
+     FROM page_visits`
+  ).all() as AdminVisitRow[];
+}
+
+/**
+ * Pattern-based bot detection (Part 2a): compute the set of page_visits row ids
+ * whose request pattern is bot-like (sequential path enumeration or same-path
+ * hammering from one masked IP in a short window). Pure — reads all rows once.
+ */
+function patternBotFlagIds(db: Database): Set<number> {
+  const rows: VisitSignalRow[] = allVisitRows(db).map((r) => ({
+    id: r.id,
+    page: r.page,
+    ms: epochMs(r.ts) ?? 0,
+    ip: r.ip || "",
+    verified: r.verified === 1,
+  }));
+  return botLikePatternFlags(rows);
+}
+
+/** True when a visit should count as a real (human) visit under the new
+ *  bot filtering (Part 2): not a bot UA, not bare-search-homepage, not
+ *  absent-both-headers, and not flagged by the pattern heuristic. */
+function isHumanVisit(r: AdminVisitRow, patternFlags: Set<number>): boolean {
+  if (r.verified === 1) return true; // executed JS — definitively human
+  const base = botStatusForFull(
+    r.user_agent ?? "",
+    r.referrer ?? "",
+    r.accept_language ?? null,
+    r.accept_encoding ?? null,
+  );
+  if (base === "bot" || base === "likely_bot") return false;
+  if (patternFlags.has(r.id)) return false;
+  return base === "human";
+}
+
 /**
  * Attach per-visit device/bot/geo signals to one raw page_visits row (owner
  * follow-up 2026-08-26: capture IP+UA so query-less / no-referrer visits are no
@@ -302,13 +372,26 @@ function visitRows(db: Database): VisitForAttribution[] {
  * and ADDS: ip (already masked at capture), user_agent (raw), country, plus the
  * derived {device, os, browser, bot_status, is_bot}. Pure + deterministic.
  */
-function decorateVisit(v: Record<string, unknown>): Record<string, unknown> {
+function decorateVisit(v: Record<string, unknown>, patternFlags: Set<number> = new Set()): Record<string, unknown> {
   const ua = typeof v.user_agent === "string" ? v.user_agent : "";
   const referrer = typeof v.referrer === "string" ? v.referrer : "";
+  const verified = Number(v.verified ?? 0) === 1;
   const dc = classifyDevice(ua);
-  const botStatus = botStatusFor(ua, referrer);
+  let botStatus = botStatusForFull(
+    ua,
+    referrer,
+    typeof v.accept_language === "string" ? v.accept_language : null,
+    typeof v.accept_encoding === "string" ? v.accept_encoding : null,
+    verified,
+  );
+  // Pattern heuristic downgrade (Part 2a): a tidy UA or plausible referrer can
+  // hide path-enumeration / same-path hammering — downgrade those to likely_bot.
+  if (patternFlags.has(Number(v.id)) && (botStatus === "human" || botStatus === "unknown")) {
+    botStatus = "likely_bot";
+  }
   return {
     ...v,
+    verified,
     device: dc.device,
     os: dc.os,
     browser: dc.browser,
@@ -328,40 +411,60 @@ function sortCounts(map: Record<string, number>): Array<{ key: string; count: nu
 /**
  * Aggregated visitor-signal breakdown over ALL page_visits (device / OS /
  * browser / bot-vs-human / country), for the admin "Visitor signals" panel
- * (owner 2026-08-26). Pure — reads every row once, counts by classification.
+ * (owner 2026-08-26; reworked 2026-08 for Part 2). Now computed under the
+ * FULL bot/pattern/verified classification and returns BOTH the raw-request
+ * totals and the verified-human-only totals, so the owner can see the two
+ * numbers side by side (Part 2d) and confirm the device/OS "unknown" share
+ * drops when restricted to verified visits (Part 2b).
  */
 function visitorSignals(db: Database) {
-  const rows = db.query("SELECT user_agent, referrer, ip, country FROM page_visits").all() as Array<{
-    user_agent: string;
-    referrer: string;
-    ip: string;
-    country: string;
-  }>;
-  const device: Record<string, number> = {};
-  const os: Record<string, number> = {};
-  const browser: Record<string, number> = {};
-  const bot: Record<string, number> = { bot: 0, likely_bot: 0, human: 0, unknown: 0 };
-  const country: Record<string, number> = {};
-  let withIp = 0;
-  for (const r of rows) {
-    const dc = classifyDevice(r.user_agent ?? "");
-    device[dc.device] = (device[dc.device] ?? 0) + 1;
-    os[dc.os] = (os[dc.os] ?? 0) + 1;
-    browser[dc.browser] = (browser[dc.browser] ?? 0) + 1;
-    const bs = botStatusFor(r.user_agent ?? "", r.referrer ?? "");
-    bot[bs] = (bot[bs] ?? 0) + 1;
-    const co = (r.country ?? "").toUpperCase().trim();
-    if (co) country[co] = (country[co] ?? 0) + 1;
-    if (r.ip) withIp += 1;
-  }
+  const all = allVisitRows(db);
+  const patternFlags = patternBotFlagIds(db);
+
+  const tally = (rows: AdminVisitRow[]) => {
+    const device: Record<string, number> = {};
+    const os: Record<string, number> = {};
+    const browser: Record<string, number> = {};
+    const bot: Record<string, number> = { bot: 0, likely_bot: 0, human: 0, unknown: 0 };
+    const country: Record<string, number> = {};
+    let withIp = 0;
+    for (const r of rows) {
+      const dc = classifyDevice(r.user_agent ?? "");
+      device[dc.device] = (device[dc.device] ?? 0) + 1;
+      os[dc.os] = (os[dc.os] ?? 0) + 1;
+      browser[dc.browser] = (browser[dc.browser] ?? 0) + 1;
+      let bs = botStatusForFull(r.user_agent ?? "", r.referrer ?? "",
+        r.accept_language ?? null, r.accept_encoding ?? null, r.verified === 1);
+      if (patternFlags.has(r.id) && (bs === "human" || bs === "unknown")) bs = "likely_bot";
+      bot[bs] = (bot[bs] ?? 0) + 1;
+      const co = (r.country ?? "").toUpperCase().trim();
+      if (co) country[co] = (country[co] ?? 0) + 1;
+      if (r.ip) withIp += 1;
+    }
+    return { device: sortCounts(device), os: sortCounts(os), browser: sortCounts(browser), bot, country: sortCounts(country), with_ip: withIp };
+  };
+
+  const verifiedRows = all.filter((r) => r.verified === 1);
+  const raw = tally(all);
+  const verified = tally(verifiedRows);
+  // "unknown" share of device/OS — the Part 2d proof the verified split helps.
+  const unknownShare = (t: { device: Array<{ key: string; count: number }>; os: Array<{ key: string; count: number }> }, total: number) => {
+    if (!total) return { device: null, os: null };
+    const dev = t.device.find((d) => d.key === "unknown")?.count ?? 0;
+    const osu = t.os.find((d) => d.key === "unknown")?.count ?? 0;
+    return { device: Math.round((dev / total) * 1000) / 10, os: Math.round((osu / total) * 1000) / 10 };
+  };
   return {
-    total: rows.length,
-    with_ip: withIp,
-    device: sortCounts(device),
-    os: sortCounts(os),
-    browser: sortCounts(browser),
-    bot,
-    country: sortCounts(country),
+    total: all.length,
+    verified_total: verifiedRows.length,
+    raw_requests: all.length,
+    verified_human_visits: verifiedRows.length,
+    unknown_share: {
+      raw: unknownShare(raw, all.length),
+      verified: unknownShare(verified, verifiedRows.length),
+    },
+    raw,
+    verified,
   };
 }
 
@@ -492,13 +595,13 @@ function outcomes(db: Database) {
  * stretch reads as a zero-height bar rather than disappearing.
  */
 function visitsByDay(db: Database): { days: number; tz: string; data: Array<{ date: string; count: number }> } {
-  const rows = db.query("SELECT ts, user_agent, referrer FROM page_visits").all() as
-    Array<{ ts: string | null; user_agent: string | null; referrer: string | null }>;
+  const all = allVisitRows(db);
+  const patternFlags = patternBotFlagIds(db);
   const counts = new Map<string, number>();
-  for (const r of rows) {
+  for (const r of all) {
     const ms = epochMs(r.ts);
     if (ms == null) continue;
-    if (botStatusFor(r.user_agent ?? "", r.referrer ?? "") !== "human") continue; // bot + likely_bot + unknown excluded
+    if (!isHumanVisit(r, patternFlags)) continue; // bot + likely_bot + unknown + pattern-bot excluded
     const day = new Date(ms).toISOString().slice(0, 10); // UTC "YYYY-MM-DD"
     counts.set(day, (counts.get(day) ?? 0) + 1);
   }
@@ -519,15 +622,17 @@ export function handleAdminData(db: Database, req: Request): Response {
   if (!requireAdminToken(req)) {
     return json({ error: "Unauthorized — missing or invalid ADMIN_TOKEN" }, 403);
   }
+  const patternFlags = patternBotFlagIds(db);
   const visits = (db.query(
-    "SELECT id, visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts, ip, user_agent, country FROM page_visits ORDER BY id DESC LIMIT 50"
-  ).all() as Array<Record<string, unknown>>).map(decorateVisit);
+    "SELECT id, visitor_id, page, referrer, utm_source, utm_medium, utm_campaign, utm_content, ts, ip, user_agent, country, accept_language, accept_encoding, verified FROM page_visits ORDER BY id DESC LIMIT 50"
+  ).all() as Array<Record<string, unknown>>).map((v) => decorateVisit(v, patternFlags));
   const subscriptionEvents = db.query(
     "SELECT * FROM subscription_events ORDER BY id DESC LIMIT 50"
   ).all();
   return json({
     generated_at: new Date().toISOString(),
     funnel: funnel(db),
+    funnel_lifecycle: funnelStages(db),
     merchants: merchantsList(db),
     visits,
     visits_by_source: visitsBySource(db),

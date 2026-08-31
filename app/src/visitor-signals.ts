@@ -25,7 +25,7 @@ export interface DeviceClass {
  *  false "bot" on an internal dashboard is harmless; a false "human" hides the
  *  exact noise the owner wants to see (query-less crawler bursts). */
 const BOT_UA_RE =
-  /bot|crawler|spider|slurp|scan|fetch|curl|wget|python-requests|python-urllib|python\/|go-http-client|node-fetch|node\.js|axios|okhttp|httpclient|headless|phantom|playwright|puppeteer|selenium|screaming|monitor|uptime|pingdom|statuscake|preview|facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|slackbot|discordbot|bingbot|googlebot|duckduckbot|baiduspider|yandex|softbank|petalbot|semrush|ahrefs|dotbot|mj12|rogerbot|exabot|bytespider|archive\.org|mediapartners|gptbot|ccbot|anthropic|claude|perplexity|oai-search|amazonbot|applebot|gpt-crawler/i;
+  /bot|crawler|spider|slurp|scan|fetch|curl|wget|python-requests|python-urllib|python\/|python-httpx|httpx|urllib3|libwww|lwp|mechanize|go-http-client|node-fetch|node\.js|axios|okhttp|httpclient|headless|phantom|playwright|puppeteer|selenium|screaming|monitor|uptime|pingdom|statuscake|preview|facebookexternalhit|twitterbot|linkedinbot|whatsapp|telegrambot|slackbot|discordbot|bingbot|googlebot|duckduckbot|baiduspider|yandex|softbank|petalbot|semrush|ahrefs|dotbot|mj12|rogerbot|exabot|bytespider|archive\.org|mediapartners|gptbot|ccbot|anthropic|claude|perplexity|oai-search|amazonbot|applebot|gpt-crawler/i;
 
 /** True when the User-Agent is a known bot/crawler/automation client. */
 export function isBotUa(ua: string): boolean {
@@ -99,6 +99,140 @@ export function botStatusFor(ua: string, referrer: string): string {
   const nonSearchReferrer = ref !== "" && !isBareSearchHomepage(ref);
   if (hasUa || nonSearchReferrer) return "human";
   return "unknown";
+}
+
+/**
+ * Extended bot classification that ALSO weighs request headers + JS-execution
+ * evidence (Part 2b/2c of the admin rework):
+ *
+ *   `acceptLanguage` / `acceptEncoding` — the request's header values. A real
+ *   browser ALWAYS sends Accept-Language AND Accept-Encoding; a bare scraper
+ *   usually sends neither. We treat "both present-but-absent (empty string)"
+ *   as bot evidence → "bot". NULL means the headers were never captured
+ *   (historical/pre-migration rows) → the heuristic is SKIPPED so every old
+ *   visit isn't wrongly downgraded to bot.
+ *
+ *   `verified` — true when we observed the visitor execute JS (the post-render
+ *   beacon). A verified visit is strong positive human evidence and overrides
+ *   an absent-header reading (a real browser that round-tripped JS is human,
+ *   even for a cosmetic header quirk).
+ *
+ * Order: explicit bot UA > verified human > bare-search referrer > absent-both
+ * headers > positive-human evidence > unknown. Returns the same status strings
+ * botStatusFor returns ("bot" | "likely_bot" | "human" | "unknown").
+ */
+export function botStatusForFull(
+  ua: string,
+  referrer: string,
+  acceptLanguage?: string | null,
+  acceptEncoding?: string | null,
+  verified?: boolean,
+): string {
+  if (isBotUa(ua)) return "bot";
+  const ref = (referrer || "").trim();
+  if (ref && isBareSearchHomepage(ref)) return "likely_bot";
+  // Verified JS-execution is the single best human signal — a visit that
+  // executed our scripts (and, by definition, sent a real browser's headers)
+  // is human regardless of any absent-header quirk.
+  if (verified) return "human";
+  // Absent Accept-Language AND absent Accept-Encoding → bot-like. Only applies
+  // when the server actually captured the headers (they're '' — handled as an
+  // explicit capture) and NOT when they're NULL (never captured → historical).
+  if (acceptLanguage !== null && acceptEncoding !== null
+    && !acceptLanguage && !acceptEncoding) {
+    return "bot";
+  }
+  const hasUa = !!(ua || "").trim();
+  const nonSearchReferrer = ref !== "" && !isBareSearchHomepage(ref);
+  if (hasUa || nonSearchReferrer) return "human";
+  return "unknown";
+}
+
+/**
+ * Pattern-based bot heuristic over a set of page-visit rows grouped by a
+ * visitor/ip key (Part 2a). Flags bot-like "sequential path enumeration"
+ * (hitting many DISTINCT paths in a few seconds) and "same-path hammering"
+ * (hitting the same path repeatedly from one masked IP in a short window) —
+ * the classic behaviors of crawlers/URL-fuzzing scanners that a tidy UA or a
+ * plausible referrer can otherwise hide. Deterministic + pure.
+ *
+ *   rows      — the visits to classify, each {page, ms, ip}.
+ *   opts      — tunables with conservative defaults.
+ * Returns the SET of row ids that look bot-like (so a caller can flag exactly
+ * those rows). A visitor that has verified (JS-executing) visits is never
+ * flagged here — real users follow distinct paths too.
+ */
+export interface VisitSignalRow {
+  /** unique row id — the returned flag set is keyed by this. */
+  id: number;
+  page: string;
+  /** epoch ms */
+  ms: number;
+  ip: string;
+  verified?: boolean;
+}
+export interface PatternBotOptions {
+  /** Distinct paths within this many ms = enumeration. Default 6000 (6s). */
+  distinctWindowMs?: number;
+  /** Minimum distinct paths inside the window to call it enumeration. Default 3. */
+  minDistinctPaths?: number;
+  /** Same-path hits within this many ms from one IP = hammering. Default 9min. */
+  repeatWindowMs?: number;
+  /** Minimum same-path hits inside the window to call it hammering. Default 8. */
+  minRepeatHits?: number;
+}
+export function botLikePatternFlags(rows: VisitSignalRow[], opts: PatternBotOptions = {}): Set<number> {
+  const distinctWindowMs = opts.distinctWindowMs ?? 6000;
+  const minDistinctPaths = opts.minDistinctPaths ?? 3;
+  const repeatWindowMs = opts.repeatWindowMs ?? 9 * 60 * 1000;
+  const minRepeatHits = opts.minRepeatHits ?? 8;
+  const flagged = new Set<number>();
+  if (!rows.length) return flagged;
+
+  // Group by masked IP (per-instance key = ip; a visitor_id is per-browser, so
+  // IP is the stronger bot "instance" signal). A verified (JS-executing) row is
+  // never flagged — a real user legitimately explores distinct paths.
+  const byIp = new Map<string, VisitSignalRow[]>();
+  for (const r of rows) {
+    if (r.verified) continue; // real user — never a pattern-bot
+    byIp.set(r.ip, [...(byIp.get(r.ip) ?? []), r]);
+  }
+  // Pre-sort each group by ms.
+  for (const [ip, list] of byIp) {
+    list.sort((a, b) => a.ms - b.ms);
+    // 1. Sequential path enumeration: >= minDistinctPaths DISTINCT pages within
+    //    any distinctWindowMs span from one IP.
+    for (let i = 0; i < list.length; i++) {
+      const seen = new Set<string>();
+      for (let j = i; j < list.length; j++) {
+        if (list[j].ms - list[i].ms > distinctWindowMs) break;
+        seen.add(list[j].page);
+        if (seen.size >= minDistinctPaths) {
+          for (let k = i; k <= j; k++) flagged.add(list[k].id);
+          break;
+        }
+      }
+    }
+    // 2. Same-path hammering: >= minRepeatHits on the SAME page within any
+    //    repeatWindowMs span from one IP.
+    const byPage = new Map<string, VisitSignalRow[]>();
+    for (const r of list) byPage.set(r.page, [...(byPage.get(r.page) ?? []), r]);
+    for (const pageRows of byPage.values()) {
+      pageRows.sort((a, b) => a.ms - b.ms);
+      for (let i = 0; i < pageRows.length; i++) {
+        let hits = 0;
+        for (let j = i; j < pageRows.length; j++) {
+          if (pageRows[j].ms - pageRows[i].ms > repeatWindowMs) break;
+          hits++;
+          if (hits >= minRepeatHits) {
+            for (let k = i; k <= j; k++) flagged.add(pageRows[k].id);
+            break;
+          }
+        }
+      }
+    }
+  }
+  return flagged;
 }
 
 /**

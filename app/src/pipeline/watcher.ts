@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById, isMerchantPaused, isMerchantDisconnected, isActiveProSubscriber, isInvoiceSequenceStopped, recordRecoveryEvent } from "../db";
+import { recordFunnelEvent, recordFunnelEventForTask } from "../funnel";
 import type { Invoice } from "../db";
 import { getEscalationStage } from "./escalation";
 import { getStripeKey } from "../middleware/auth";
@@ -209,6 +210,9 @@ export async function createTaskForOverdueInvoice(
       db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
         draft.subject, draft.body, taskId,
       ]);
+      // Funnel: this merchant produced their first AI/template draft
+      // (idempotent per merchant).
+      recordFunnelEventForTask(db, taskId, "first_draft");
       // The freemium allowance is derived from drafted tasks (see
       // freeDraftsRemaining in db.ts) — no counter write needed here.
       const review = reviewDraft(draft, invoice, {
@@ -428,6 +432,8 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
           if (rec.recorded) {
             console.log(`[watcher] recovery event recorded for invoice ${stripeInvoiceId} (${rec.reason})`);
           }
+          // Funnel: this merchant's first overdue invoice got PAID (idempotent).
+          recordFunnelEvent(db, existing.merchant_id, "paid");
         } catch (err) {
           console.error(
             `[watcher] recovery event record failed for ${stripeInvoiceId}: ${err instanceof Error ? err.message : String(err)}`
