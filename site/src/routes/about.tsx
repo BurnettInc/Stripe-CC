@@ -10,8 +10,8 @@ function About() {
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
         <div className="flex items-center gap-3">
           <a href="/" className="flex items-center gap-3">
-            <img src="/logo.png" alt="CollectionsCopilot logo" className="h-8 w-auto" />
-            <span className="font-bold text-lg text-indigo-600">CollectionsCopilot</span>
+            <img src="/logo.png" alt="Collections Copilot logo" className="h-8 w-auto" />
+            <span className="font-bold text-lg text-indigo-600">Collections Copilot</span>
           </a>
         </div>
         <a
@@ -22,10 +22,10 @@ function About() {
         </a>
       </nav>
       <main className="max-w-3xl mx-auto px-6 py-12 prose prose-gray">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">About CollectionsCopilot</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">About Collections Copilot</h1>
 
         <p className="text-gray-700 leading-relaxed">
-          CollectionsCopilot was built by Cody Burnett, a solo developer frustrated
+          Collections Copilot was built by Cody Burnett, a solo developer frustrated
           with chasing down late invoice payments manually. Rather than another
           all-or-nothing automation tool, it's designed around one idea: you should
           be able to start cautious and earn your way to hands-off, on your own

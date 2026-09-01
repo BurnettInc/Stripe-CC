@@ -168,7 +168,7 @@ async function main(): Promise<void> {
   // Body: the exact persisted plain-text body + the deterministically
   // reconstructed CAN-SPAM footer (what the recipient actually saw).
   check("reminders detail shows full sent body (real row)", remAll.includes("friendly reminder that invoice pgs_ovd_a is due") && remAll.includes("This is your final notice for invoice pgs_ovd_b"), "");
-  check("reminders detail includes the CAN-SPAM footer", remAll.includes("Unsubscribe:") && remAll.includes("To stop receiving reminders for this invoice") && remAll.includes("CollectionsCopilot") && remAll.includes("Texas, USA"), "");
+  check("reminders detail includes the CAN-SPAM footer", remAll.includes("Unsubscribe:") && remAll.includes("To stop receiving reminders for this invoice") && remAll.includes("Collections Copilot") && remAll.includes("Texas, USA"), "");
 
   // ── FEATURE 2: manual escalation-stage override on /past-due ──
   // Auto-is-the-default: every row renders a Stage select defaulting to Auto,

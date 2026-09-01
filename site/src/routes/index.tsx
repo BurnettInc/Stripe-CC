@@ -63,7 +63,7 @@ function Home() {
               You didn't forget to follow up. You've just been avoiding it.
             </h1>
             <p className={`mt-6 max-w-xl ${TYPE.bodyLg}`}>
-              CollectionsCopilot lives inside your Stripe account — no new tool, no
+              Collections Copilot lives inside your Stripe account — no new tool, no
               new login, no data to export. Start read-only. Decide how much you
               want to hand off, whenever you're ready.
             </p>
@@ -133,7 +133,7 @@ function Home() {
         <p className={`mt-4 max-w-3xl ${TYPE.bodyLg}`}>
           No Stripe connection needed to see this — this is an illustrative
           example, not a real customer's data. Here's one representative email
-          CollectionsCopilot would draft for a single invoice from that account.
+          Collections Copilot would draft for a single invoice from that account.
         </p>
 
         {/* Sample — invoice card (left) + drafted email (right), matched pair */}
@@ -162,7 +162,7 @@ function Home() {
           <div className={`flex flex-col ${CARD}`}>
             <div className="border-b border-gray-100 px-5 py-4">
               <h3 className={TYPE.h3}>
-                What CollectionsCopilot would draft for this invoice
+                What Collections Copilot would draft for this invoice
               </h3>
               <p className="mt-1 text-xs text-gray-500 leading-relaxed">
                 The first of a three-stage sequence — see{" "}

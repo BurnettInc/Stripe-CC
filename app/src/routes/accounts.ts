@@ -119,11 +119,11 @@ async function sendMagicLinkEmail(db: Database, toEmail: string, token: string, 
   const baseUrl = process.env.BASE_URL || "http://localhost:3002";
   const verifyUrl = `${baseUrl}/api/account/verify?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`;
   const draft: EmailDraft = {
-    subject: "Your CollectionsCopilot sign-in link",
+    subject: "Your Collections Copilot sign-in link",
     body: [
       `Hi,`,
       ``,
-      `Here's your one-time sign-in link for CollectionsCopilot:`,
+      `Here's your one-time sign-in link for Collections Copilot:`,
       ``,
       verifyUrl,
       ``,
@@ -304,7 +304,7 @@ function magicLinkErrorPage(): Response {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign-in link invalid — CollectionsCopilot</title>
+  <title>Sign-in link invalid — Collections Copilot</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F3F4F6; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 36px 40px; max-width: 460px; width: 100%; box-sizing: border-box; text-align: center; }

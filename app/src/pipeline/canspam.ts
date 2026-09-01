@@ -8,7 +8,7 @@
  */
 
 /** Fallback business address used when BUSINESS_ADDRESS is not configured. */
-export const DEFAULT_BUSINESS_ADDRESS = "CollectionsCopilot — Texas, USA";
+export const DEFAULT_BUSINESS_ADDRESS = "Collections Copilot — Texas, USA";
 
 /**
  * Public opt-out endpoint. Defaults to the platform site (which proxies

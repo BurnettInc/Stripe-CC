@@ -1,7 +1,7 @@
 /**
  * Stripe Apps OAuth v2 install flow (marketplace install).
  *
- * The Stripe App Marketplace installs CollectionsCopilot through Stripe's
+ * The Stripe App Marketplace installs Collections Copilot through Stripe's
  * OAuth v2 flow (https://docs.stripe.com/stripe-apps/api-authentication/oauth),
  * NOT the Express connected-account + Account Links flow used by the web
  * dashboard (/stripe/connect). The two flows are parallel: this module owns
@@ -418,7 +418,7 @@ export function installPageHtml(
       // form (nothing left to submit, so the input/status/script are gone).
       body = `${successBanner}${supportLine}`;
     } else {
-      body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Sign in to install CollectionsCopilot. We'll email you a one-time sign-in link — no password needed.</p>
+      body = `<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Sign in to install Collections Copilot. We'll email you a one-time sign-in link — no password needed.</p>
       ${errorBanner}
       <form id="magic-link-form" method="post" action="/api/account/request-magic-link" style="margin:0 0 12px;">
         <input type="email" id="magic-email" name="email" required placeholder="you@company.com" autocomplete="email" style="display:block;width:100%;box-sizing:border-box;padding:12px 14px;font-size:15px;border:1px solid #D1D5DB;border-radius:8px;margin-bottom:12px;" />
@@ -520,11 +520,11 @@ export function installPageHtml(
       }).join("");
       body = `${accountLine}${connectedLine}<p style="color:#B45309;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:12px 16px;font-size:14px;"><strong>Installation is not configured yet.</strong>${perMode} Once set, this page will show a "Connect with Stripe" button. No action is needed on your side.</p>`;
     } else {
-      body = `${accountLine}${connectedLine}<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Connect your Stripe account to let CollectionsCopilot watch for overdue invoices and send your customers friendly, automatic payment reminders.</p>
+      body = `${accountLine}${connectedLine}<p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">Connect your Stripe account to let Collections Copilot watch for overdue invoices and send your customers friendly, automatic payment reminders.</p>
         <ol style="color:#4B5563;font-size:14px;line-height:1.8;margin:0 0 22px;padding-left:20px;text-align:left;">
           <li>Click <strong>Connect with Stripe</strong> below — you'll be taken to Stripe's authorization screen.</li>
           <li>Review the permissions and approve the connection.</li>
-          <li>You'll land in your CollectionsCopilot dashboard, ready to configure reminders.</li>
+          <li>You'll land in your Collections Copilot dashboard, ready to configure reminders.</li>
         </ol>
         ${shownModes.includes("test") ? buttonFor("test", "Connect with Stripe — test mode") : ""}
         ${shownModes.includes("live") ? buttonFor("live", "Connect with Stripe — live mode") : ""}
@@ -543,7 +543,7 @@ export function installPageHtml(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Install CollectionsCopilot — Connect Stripe</title>
+  <title>Install Collections Copilot — Connect Stripe</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F3F4F6; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 40px 44px; max-width: 480px; width: 100%; box-sizing: border-box; text-align: center; }
@@ -557,7 +557,7 @@ export function installPageHtml(
 <body>
   <div class="card">
     <div class="logo">Collections<span>Copilot</span></div>
-    <h1>Install CollectionsCopilot</h1>
+    <h1>Install Collections Copilot</h1>
     ${body}
   </div>
 </body>
@@ -1266,7 +1266,7 @@ function appOAuthErrorPage(message: string, hint?: string): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Installation issue — CollectionsCopilot</title>
+  <title>Installation issue — Collections Copilot</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F3F4F6; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 36px 40px; max-width: 460px; width: 100%; box-sizing: border-box; text-align: center; }

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 /* =====================================================================
- * CollectionsCopilot marketing-site design system
+ * Collections Copilot marketing-site design system
  * ---------------------------------------------------------------------
  * Single source of truth for the shared visual recipes used across the
  * landing, how-it-works, trust, and FAQ pages. The goal is that every

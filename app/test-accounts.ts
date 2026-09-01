@@ -301,7 +301,7 @@ async function main(): Promise<void> {
 
   // ── (e) install page gating ──
   const pageOut = await (await fetch(`${BASE}/oauth/install`)).text();
-  check("e1: signed-out page is 200 HTML with the sign-in card", pageOut.includes("Install CollectionsCopilot") && pageOut.includes("Email me a sign-in link") && pageOut.includes('type="email"') && pageOut.includes("magic-link-form"), "");
+  check("e1: signed-out page is 200 HTML with the sign-in card", pageOut.includes("Install Collections Copilot") && pageOut.includes("Email me a sign-in link") && pageOut.includes('type="email"') && pageOut.includes("magic-link-form"), "");
   check("e2: signed-out page has NO connect buttons", !pageOut.includes("oauth/install/start?link="), "");
   check("e3: signed-out page has the support line", pageOut.includes("support@getcollectionscopilot.com"), "");
 

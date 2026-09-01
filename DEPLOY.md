@@ -1,4 +1,4 @@
-# DEPLOY.md — CollectionsCopilot production launch checklist
+# DEPLOY.md — Collections Copilot production launch checklist
 
 **Status (2026-08-11):** backend is feature-complete for the homepage promise; production
 (`https://stripe-cc-production.up.railway.app`) is healthy; email delivery is configured (Resend,
@@ -92,7 +92,7 @@ On your own machine (Stripe CLI logged in — `stripe login`), from the repo roo
 ./deploy-app.sh
 ```
 (script installs deps, builds, runs `stripe apps upload`). Then in the Stripe dashboard:
-**Developers → Apps → CollectionsCopilot → Submit for review** — public marketplace listing
+**Developers → Apps → Collections Copilot → Submit for review** — public marketplace listing
 requires Stripe's approval (usually a few business days). Manifest + views already point at the
 Railway backend (#26); `distribution_type` is `public`; app version 0.1.11.
 

@@ -3,7 +3,7 @@ export function SiteFooter({ businessName = "" }: { businessName?: string }) {
     <footer className="border-t border-gray-200 py-8 text-center text-sm text-gray-500">
       <img
         src="/logo.png"
-        alt="CollectionsCopilot logo"
+        alt="Collections Copilot logo"
         className="h-8 w-auto mx-auto mb-4"
       />
       <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-2 mb-3">
@@ -29,7 +29,7 @@ export function SiteFooter({ businessName = "" }: { businessName?: string }) {
           Support
         </a>
       </div>
-      <p>{businessName || "CollectionsCopilot"}</p>
+      <p>{businessName || "Collections Copilot"}</p>
     </footer>
   );
 }

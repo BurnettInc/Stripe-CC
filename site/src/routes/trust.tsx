@@ -139,7 +139,7 @@ function Trust() {
           <div className={`${CARD} p-8`}>
             <h2 className={TYPE.h3}>Not a debt collection service</h2>
             <p className="mt-3 text-sm text-gray-600 leading-relaxed">
-              CollectionsCopilot sends polite, personalized payment reminders — never
+              Collections Copilot sends polite, personalized payment reminders — never
               legal threats, never harassment. Our AI is explicitly instructed to
               preserve your customer relationships, not damage them. If you need formal
               debt collection, this isn't the tool for that.
