@@ -172,7 +172,7 @@ export function billingSignInRequiredPage(): Response {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in required — CollectionsCopilot</title>
+  <title>Sign in required — Collections Copilot</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F3F4F6; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 36px 40px; max-width: 440px; width: 100%; box-sizing: border-box; text-align: center; }
@@ -189,7 +189,7 @@ export function billingSignInRequiredPage(): Response {
   <div class="card">
     <div class="logo">Collections<span>Copilot</span></div>
     <h1>Sign in to continue</h1>
-    <p>Plans and billing are tied to your CollectionsCopilot account, so you need to be signed in to subscribe or manage your plan. If you haven't connected your Stripe account yet, the dashboard will walk you through it — it only takes a minute.</p>
+    <p>Plans and billing are tied to your Collections Copilot account, so you need to be signed in to subscribe or manage your plan. If you haven't connected your Stripe account yet, the dashboard will walk you through it — it only takes a minute.</p>
     <a class="btn" href="/oauth/install">Install &amp; connect Stripe</a><br>
     <a class="alt" href="/dashboard">Open the dashboard</a>
     <p class="small">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>
@@ -557,7 +557,7 @@ function noActiveSubscriptionResponse(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>No active subscription — CollectionsCopilot</title>
+  <title>No active subscription — Collections Copilot</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f8fa; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.12); padding: 40px 48px; max-width: 460px; margin: 24px; text-align: center; }
@@ -571,7 +571,7 @@ function noActiveSubscriptionResponse(
   <div class="card">
     <h1>${copy?.title ?? "No active subscription"}</h1>
     <p>${copy?.message ?? "We couldn't find an active subscription for your account. Subscribe to a plan to manage billing and keep your reminders running."}</p>
-    <a class="button" href="/billing/checkout?tier=pro">Subscribe to CollectionsCopilot</a><br>
+    <a class="button" href="/billing/checkout?tier=pro">Subscribe to Collections Copilot</a><br>
     <a class="secondary" href="/dashboard">Back to dashboard</a>
   </div>
 </body>

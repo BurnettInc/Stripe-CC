@@ -10,8 +10,8 @@ function Privacy() {
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
         <div className="flex items-center gap-3">
           <a href="/" className="flex items-center gap-3">
-            <img src="/logo.png" alt="CollectionsCopilot logo" className="h-8 w-auto" />
-            <span className="font-bold text-lg text-indigo-600">CollectionsCopilot</span>
+            <img src="/logo.png" alt="Collections Copilot logo" className="h-8 w-auto" />
+            <span className="font-bold text-lg text-indigo-600">Collections Copilot</span>
           </a>
         </div>
         <a
@@ -26,7 +26,7 @@ function Privacy() {
         <p className="text-sm text-gray-500 mb-8">Last updated: August 2026</p>
 
         <p className="text-gray-700 leading-relaxed">
-          CollectionsCopilot is operated by Cody Burnett, a sole proprietor
+          Collections Copilot is operated by Cody Burnett, a sole proprietor
           based in Texas, USA. This policy explains what data the app collects, how
           it's used, and who it's shared with.
         </p>

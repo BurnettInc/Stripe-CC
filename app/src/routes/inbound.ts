@@ -139,7 +139,7 @@ async function forwardReply(
     (reply.subject ? `Subject: ${reply.subject}\n` : "") +
     `\n${(reply.body || "").trimEnd()}\n\n` +
     `— — —\n` +
-    `This customer reply paused CollectionsCopilot's reminder sequence for invoice ${invoice.stripe_invoice_id}. ` +
+    `This customer reply paused Collections Copilot's reminder sequence for invoice ${invoice.stripe_invoice_id}. ` +
     `It is captured in your dashboard; reminders stay paused until you resume the sequence.`;
 
   const draft: EmailDraft = { subject, body: bodyText };

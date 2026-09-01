@@ -132,16 +132,16 @@ export function handleOAuthHandoff(db: Database, req: Request): Response {
 function successPageHtml(baseUrl: string, wantsStripe: boolean): string {
   return wantsStripe
     ? `<!DOCTYPE html>
-    <html><head><title>Connected — CollectionsCopilot</title>
+    <html><head><title>Connected — Collections Copilot</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     </head>
     <body style="font-family:system-ui,sans-serif;text-align:center;padding-top:80px;background:#F9FAFB;">
     <div style="background:white;max-width:420px;margin:0 auto;padding:40px 30px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
       <div style="font-size:48px;margin-bottom:16px;">✅</div>
       <h2 style="margin:0 0 8px;color:#111827;">Stripe account connected!</h2>
-      <p style="color:#6B7280;margin:0 0 24px;">Your CollectionsCopilot app is set up. Taking you back to Stripe…</p>
+      <p style="color:#6B7280;margin:0 0 24px;">Your Collections Copilot app is set up. Taking you back to Stripe…</p>
       <a href="https://dashboard.stripe.com" style="display:inline-block;background:#635BFF;color:#fff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:8px;">Return to Stripe dashboard</a>
-      <p style="color:#9CA3AF;margin:20px 0 0;font-size:13px;">or open your <a href="${baseUrl}/dashboard" style="color:#6B7280;">CollectionsCopilot dashboard</a></p>
+      <p style="color:#9CA3AF;margin:20px 0 0;font-size:13px;">or open your <a href="${baseUrl}/dashboard" style="color:#6B7280;">Collections Copilot dashboard</a></p>
     </div>
     <script>
       try { window.opener?.postMessage('oauth-complete', '*'); } catch(_) {}
@@ -149,7 +149,7 @@ function successPageHtml(baseUrl: string, wantsStripe: boolean): string {
     </script>
     </body></html>`
     : `<!DOCTYPE html>
-    <html><head><title>Connected — CollectionsCopilot</title>
+    <html><head><title>Connected — Collections Copilot</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     </head>
     <body style="font-family:system-ui,sans-serif;text-align:center;padding-top:80px;background:#F9FAFB;">

@@ -278,7 +278,7 @@ async function main(): Promise<void> {
   const page = await fetch(`${BASE}/oauth/install`);
   const pageHtml = await page.text();
   check("a1: install page 200 html", page.status === 200 && page.headers.get("content-type")?.includes("text/html"), `status=${page.status}`);
-  check("a2: branded title", pageHtml.includes("Install CollectionsCopilot"), "");
+  check("a2: branded title", pageHtml.includes("Install Collections Copilot"), "");
   check("a2b: signed-out page shows the sign-in card (email input + magic-link button)", pageHtml.includes("Email me a sign-in link") && pageHtml.includes('type="email"') && pageHtml.includes("magic-link-form"), "");
   check("a2c: signed-out page shows NO connect buttons", !pageHtml.includes("oauth/install/start?link="), "");
   // ── (a2) NO-JS sign-in: native form + server-rendered banners ──

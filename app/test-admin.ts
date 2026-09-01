@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   r = await fetch(`${BASE}/admin?token=${TOKEN}`);
   const html = await r.text();
   check("admin right token (query) → 200", r.status === 200, `got ${r.status}`);
-  check("admin page is HTML with title", html.includes("CollectionsCopilot — Admin"), "title missing");
+  check("admin page is HTML with title", html.includes("Collections Copilot — Admin"), "title missing");
   check("admin page injects token for /admin/data", html.includes(`__CC_ADMIN_TOKEN__`) === false && html.includes(TOKEN), "token not injected");
   check("admin page carries noindex robots tag", (r.headers.get("X-Robots-Tag") || "").includes("noindex"), "X-Robots-Tag missing");
   r = await fetch(`${BASE}/admin`, { headers: { Authorization: `Bearer ${TOKEN}` } });

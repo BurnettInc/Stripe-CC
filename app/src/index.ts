@@ -700,7 +700,7 @@ async function handleRequest(req: Request): Promise<Response> {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Unsubscribed — CollectionsCopilot</title>
+  <title>Unsubscribed — Collections Copilot</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f8fa; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
     .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.12); padding: 40px 48px; max-width: 460px; margin: 24px; text-align: center; }
@@ -736,7 +736,7 @@ async function handleRequest(req: Request): Promise<Response> {
           recordUnsubscribe(db, merchantId, customerParam);
         }
 
-        return unsubscribePage("You've been unsubscribed from CollectionsCopilot reminders. No further emails will be sent for this invoice.");
+        return unsubscribePage("You've been unsubscribed from Collections Copilot reminders. No further emails will be sent for this invoice.");
       }
 
       // GET /summary?merchantId=1 — weekly summary stats (default merchantId=1)

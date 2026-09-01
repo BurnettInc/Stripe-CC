@@ -16,7 +16,7 @@ const FAQS = [
   },
   {
     q: "Does this work with one-off invoices as well as recurring ones?",
-    a: "Yes. CollectionsCopilot monitors your Stripe invoices regardless of whether they're one-off or subscription-based. If it's overdue in Stripe, we'll help you follow up.",
+    a: "Yes. Collections Copilot monitors your Stripe invoices regardless of whether they're one-off or subscription-based. If it's overdue in Stripe, we'll help you follow up.",
   },
   {
     q: "What happens if an invoice is disputed, voided, or marked uncollectible?",

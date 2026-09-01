@@ -127,7 +127,7 @@ export async function notifyOwnerWaitlistSignup(
 ): Promise<OwnerNotifyResult> {
   const subject = `New waitlist signup: ${email}`;
   const body = [
-    `A new visitor just joined the CollectionsCopilot waitlist.`,
+    `A new visitor just joined the Collections Copilot waitlist.`,
     ``,
     `  Email:      ${email}`,
     `  Signed up:  ${new Date().toISOString()}`,
@@ -159,7 +159,7 @@ export async function notifyOwnerStripeConnect(
   const email = (accountEmail || merchant?.email || "unknown").trim();
   const subject = `🎉 New signup — ${email} connected Stripe`;
   const body = [
-    `A new merchant just connected Stripe to CollectionsCopilot.`,
+    `A new merchant just connected Stripe to Collections Copilot.`,
     ``,
     `  Email:        ${email}`,
     `  Stripe acct:  ${stripeAccountId}`,
@@ -194,7 +194,7 @@ export async function notifyOwnerPaidSubscription(
   const email = (merchant?.email || "unknown").trim();
   const subject = `💳 Paid subscription — ${email} subscribed to ${label}`;
   const body = [
-    `A merchant just subscribed to a paid CollectionsCopilot plan.`,
+    `A merchant just subscribed to a paid Collections Copilot plan.`,
     ``,
     `  Email:     ${email}`,
     `  Plan:      ${label}`,
@@ -226,7 +226,7 @@ export async function notifyOwnerCancelledSubscription(
   const email = (merchant?.email || "unknown").trim();
   const subject = `❌ ${email} canceled ${planName(tier)}`;
   const body = [
-    `A merchant just canceled their CollectionsCopilot paid plan.`,
+    `A merchant just canceled their Collections Copilot paid plan.`,
     ``,
     `  Email:  ${email}`,
     `  Plan:   ${planName(tier)}`,
