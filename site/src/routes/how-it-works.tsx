@@ -34,7 +34,7 @@ function HowItWorks() {
 
       {/* Full 3-stage escalation detail */}
       <section className={`max-w-5xl mx-auto px-6 ${PY_RELATED}`}>
-        <h2 className={TYPE.h2Center}>Every sequence escalates in three stages</h2>
+        <h2 className={TYPE.h2Center}>Every unpaid invoice escalates in three stages</h2>
         <p className={`text-center text-gray-600 max-w-xl mx-auto ${TYPE.bodyLg}`}>
           Two or three gentle, personalized emails — drafted and sent automatically
           on a schedule you control. They read like you, because they're from you.
