@@ -46,6 +46,9 @@ function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           {/* Left column */}
           <div className="text-left">
+            <p className="mb-6 text-lg font-semibold text-gray-900">
+              Automatic follow-ups for unpaid Stripe invoices.
+            </p>
             <div className="mb-6 space-y-3">
               <span className="inline-block rounded-full bg-green-600 px-5 py-2 text-sm font-bold text-white shadow-md">
                 Sign up today and receive a free month — no card required
@@ -63,9 +66,9 @@ function Home() {
               You didn't forget to follow up. You've just been avoiding it.
             </h1>
             <p className={`mt-6 max-w-xl ${TYPE.bodyLg}`}>
-              Collections Copilot lives inside your Stripe account — no new tool, no
-              new login, no data to export. Start read-only. Decide how much you
-              want to hand off, whenever you're ready.
+              Collections Copilot chases down your overdue Stripe invoices for you
+              — no new tool, no new login, no data to export. Start read-only.
+              Decide how much you want to hand off, whenever you're ready.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-4">
               <a href={INSTALL_URL} className={BTN_PRIMARY}>
