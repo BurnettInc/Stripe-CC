@@ -213,8 +213,8 @@ function Home() {
         <h2 className={`${TYPE.h2Center} mb-4`}>Simple pricing</h2>
         <p className="text-center text-gray-600 max-w-3xl mx-auto mb-10 text-sm leading-relaxed">
           Every plan starts with a free 30-day trial — full access, no card
-          required. After that: Draft Mode stays free forever (5 drafts), or
-          subscribe to keep Standard/Pro features.
+          required. After that, Draft Mode stays free forever with unlimited drafts — subscribe
+          to unlock sending and Standard/Pro features.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
@@ -222,7 +222,7 @@ function Home() {
               name: "Free — Draft Mode",
               price: "Free forever, no card required",
               period: "",
-              body: "Your first month after install is completely free — full access, no card required. After that, keep Draft Mode free forever: connect your Stripe account and see AI-drafted reminders for your real overdue invoices — up to 5 drafts. Approve each send yourself, or let friendly Stage-1 reminders go automatically in Semi-Auto. Subscribe when you want more.",
+              body: "Your first month after install is completely free — full access, no card required. After that, Draft Mode stays free forever: connect your Stripe account and see AI-drafted reminders for your real overdue invoices — unlimited, no cap. Draft any reminder free; subscribe when you want to unlock sending (and Semi-Auto/Full Auto escalation, plus 50-invoice tracking).",
               features: [],
               cta: "Try it free",
               highlight: true,

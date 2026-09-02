@@ -323,15 +323,15 @@ async function handleRequest(req: Request): Promise<Response> {
         // Total invoices processed (any status)
         const totalInvoicesRow = db.query("SELECT COUNT(*) as count FROM invoices WHERE merchant_id=?").get(merchantId) as { count: number };
         const totalInvoices = totalInvoicesRow.count;
+        // Free Draft Mode is UNLIMITED and free forever (owner decision 9/2):
+        // every merchant has unlimited free drafts. free_drafts_remaining is a
+        // large sentinel (never blocks anything), and free_drafts_unlimited is
+        // always true so the dashboard renders "Unlimited" for everyone —
+        // free merchants, trial merchants and paid merchants alike. SENDING
+        // remains the paid unlock (gated in the approve/process/watcher-send
+        // paths), which is what the dashboard sub-copy now says.
         const freeDrafts = freeDraftsRemaining(db, merchantId);
-        // The 5-draft free allowance only applies to merchants with no active
-        // paid subscription. Paid merchants (Standard or Pro active) have no
-        // draft cap — the dashboard renders "Unlimited" instead of the
-        // misleading countdown (which would otherwise show a number for a plan
-        // that has no limit). A merchant inside its 30-day full-access free
-        // trial counts as paid-equivalent here too, so it is shown as
-        // full-access (Unlimited) rather than a depleted free account.
-        const freeDraftsUnlimited = isActivePaidSubscriber(db, merchantId);
+        const freeDraftsUnlimited = true;
         // True while the merchant is inside its automatic 30-day full-access
         // free trial (isWithinFreeTrial) — lets the dashboard show honest
         // "Free trial" copy instead of claiming the merchant is a paying

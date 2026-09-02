@@ -411,10 +411,8 @@ export function isWithinFreeTrial(db: Database, merchantId: number): boolean {
 /** Whether the merchant's most recent subscription is currently active. */
 export function hasActiveSubscription(db: Database, merchantId: number): boolean {
   if (isDevPro(db, merchantId)) return true;
-  // A merchant inside its 30-day full-access free trial is treated as paid for
-  // entitlement purposes: the free-draft send gates (which key off
-  // `!hasActiveSubscription(...) && freeDraftsRemaining(...) <= 0`) must be
-  // bypassed during the trial, exactly as for an active subscriber.
+  // A merchant inside its 30-day full-access free trial is treated as
+  // subscribed for entitlement purposes, exactly as for an active subscriber.
   if (isWithinFreeTrial(db, merchantId)) return true;
   const sub = getSubscriptionByMerchantId(db, merchantId);
   return sub?.status === "active";
@@ -671,48 +669,30 @@ export function purgeMerchantData(db: Database, merchantId: number): void {
   }
 }
 
-const FREE_DRAFT_LIMIT = 5;
-
 /**
- * Upgrade-prompt message shown when a free merchant exhausts the 5-draft
- * allowance. Free merchants may SEND within the allowance (owner direction,
- * rev 23) — the 402 appears only when sending would require drafting a NEW
- * draft and no allowance remains. Single source of truth for the task
- * approve/process gates and the UI copy.
+ * Free Draft Mode is UNLIMITED and free forever (owner decision 9/2): any
+ * merchant may draft AI reminders on unlimited invoices with NO subscription.
+ * The paid unlock is SENDING reminder emails — every send path gates on
+ * `!hasActiveSubscription(...)` and returns the 402 upgrade prompt.
+ *
+ * No per-merchant draft allowance exists anymore, so there is no "remaining"
+ * count and no allowance-exhausted message. These helpers are kept as thin,
+ * always-enabled shims so callers that used to reference the 5-draft cap
+ * continue to typecheck and the /stats fields stay meaningful:
+ *   - freeDraftsRemaining() → a large sentinel (drafting is never blocked).
+ *   - FREE_ALLOWANCE_MESSAGE → kept as the upgrade-prompt copy for the 402
+ *     SENDING gate (sending requires a plan), reworded to match the new
+ *     Draft-Mode-free / Sending-paid split.
+ *
+ * The legacy `merchants.drafts_used` column is no longer written or read
+ * (left in the schema — dropping it would need a table rebuild; it is
+ * harmlessly ignored).
  */
-export const FREE_ALLOWANCE_MESSAGE = "You've used your free draft allowance. Subscribe to keep sending reminders.";
-
-/**
- * Number of free drafts still available (an all-time, merchant-scoped cap).
- *
- * Only meaningful for merchants WITHOUT an active paid subscription: the
- * 5-draft allowance is a free-tier concept. Paid merchants (Standard or Pro
- * active — see isActivePaidSubscriber) have no draft cap; the dashboard
- * renders "Unlimited" for them (GET /stats → free_drafts_unlimited) and the
- * pipeline gates below already skip the allowance for any active subscriber,
- * so this count is never used to block a paid merchant. Keep using this raw
- * count for the free-tier gates (tasks.ts) — do not return "unlimited" here.
- *
- * Derived from reality, not a stored counter: counts the merchant's
- * reminder_tasks that carry a draft (joined through their invoice), so the
- * value self-heals. Drafts created before the rev-23 counter existed (e.g.
- * the E2E task, drafted mid-test) count immediately, and the count can never
- * drift below the true number of drafts the merchant has used. The legacy
- * `merchants.drafts_used` column is no longer written or read here (left in
- * the schema — dropping it would need a table rebuild; it just stops being
- * used).
- *
- * Rev-23 semantics: the allowance is consumed at draft time, once per task,
- * lifetime. Sent / cancelled / rejected tasks that carry a draft still count
- * (the draft was consumed); pending tasks with no draft do not.
- */
-export function freeDraftsRemaining(db: Database, merchantId: number): number {
-  const row = db.query(
-    "SELECT COUNT(*) AS n FROM reminder_tasks rt JOIN invoices i ON rt.invoice_id = i.id WHERE i.merchant_id = ? AND rt.draft_body != ''"
-  ).get(merchantId) as { n: number } | undefined;
-  const used = row?.n ?? 0;
-  return Math.max(0, FREE_DRAFT_LIMIT - used);
+export function freeDraftsRemaining(_db: Database, _merchantId: number): number {
+  return Number.MAX_SAFE_INTEGER;
 }
+
+export const FREE_ALLOWANCE_MESSAGE = "Drafting reminders is free. Sending them requires a plan — subscribe to send.";
 
 const STANDARD_INVOICE_LIMIT = 50;
 
@@ -746,10 +726,11 @@ export function isActivePaidSubscriber(db: Database, merchantId: number): boolea
   if (isDevPro(db, merchantId)) return true;
   // The 30-day free trial grants paid-equivalent FULL access to a
   // non-subscriber: GET /stats reports free_drafts_unlimited (so the
-  // dashboard renders "Unlimited" instead of a depleted "N of 5" countdown)
-  // and every paid send path treats the merchant as subscribed. Once the
-  // trial lapses (with no active paid sub) this returns false and the
-  // standard free-tier behavior returns.
+  // dashboard renders "Unlimited") and every paid send path treats the
+  // merchant as subscribed. Once the trial lapses (with no active paid sub)
+  // this returns false and the standard free-tier behavior returns — since
+  // 9/2 "free-tier behavior" means unlimited DRAFTING with sending gated on
+  // hasActiveSubscription.
   if (isWithinFreeTrial(db, merchantId)) return true;
   const sub = getSubscriptionByMerchantId(db, merchantId);
   return !!sub && sub.status === "active" && (sub.tier === "standard" || sub.tier === "pro");
@@ -1115,6 +1096,7 @@ export interface Merchant {
   stripe_account_id: string;
   email: string;
   trust_mode: string;
+  /** Legacy, no longer written/read (kept in schema — harmless). */
   drafts_used: number;
   paused: number;
   disconnected: number;
