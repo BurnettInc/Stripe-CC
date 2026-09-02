@@ -48,9 +48,10 @@ const json = (body: unknown, status: number) =>
 
 /** Normalize a Resend message_id (RFC Message-ID header) to something
  *  comparable against `data.email_id` and the stored id. Resend example:
- *  "<111-222-333@abc>.csv" → "111-222-333@abc". */
+ *  "<111-222-333@abc>.csv" → "111-222-333@abc". The ".csv" suffix must be
+ *  stripped BEFORE the trailing ">" (the bracketed form is "<x@y>.csv"). */
 function normalizeMessageId(raw: string): string {
-  return raw.trim().replace(/^<+/, "").replace(/[>]+$/, "").replace(/\.csv$/i, "").trim();
+  return raw.trim().replace(/\.csv$/i, "").replace(/^<+/, "").replace(/[>]+$/, "").trim();
 }
 
 /** Verify a Svix/Resend signature header against msgId + timestamp + raw body.

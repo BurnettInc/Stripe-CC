@@ -179,9 +179,14 @@ async function main(): Promise<void> {
     check("duplicate click: count incremented, clicked_at NOT overwritten, opens unaffected", row.click_count === 2 && row.open_count === 2, JSON.stringify(row));
   }
 
-  // ── message_id fallback: an event with only message_id still matches ──
-  const msgOnly = db().query("INSERT INTO send_logs (reminder_task_id, type, status, provider_message, resend_message_id) VALUES ((SELECT id FROM reminder_tasks WHERE invoice_id=(SELECT id FROM invoices WHERE stripe_invoice_id='eng_001') ORDER BY id DESC LIMIT 1), 'reminder', 'success', 'Email sent via Resend (id res-engage-email-002)', 'res-engage-email-002') RETURNING id").get() as { id: number };
-  const msgIdOnlyPayload = JSON.stringify({ type: "email.opened", data: { message_id: "<111-222-333@abc>.csv" } });
+  // ── message_id fallback: an event with ONLY data.message_id still matches ──
+  // Resend's data.email_id (the POST /emails response id, stored by sender.ts)
+  // and data.message_id (the RFC Message-ID header) live in different id
+  // spaces — this branch covers a legacy/rolling capture that stored the bare
+  // message-id token: an event whose message_id "<x@y>.csv" normalizes to x@y
+  // must match the stored "x@y".
+  const msgOnly = db().query("INSERT INTO send_logs (reminder_task_id, type, status, provider_message, resend_message_id) VALUES ((SELECT id FROM reminder_tasks WHERE invoice_id=(SELECT id FROM invoices WHERE stripe_invoice_id='eng_001') ORDER BY id DESC LIMIT 1), 'reminder', 'success', 'Email sent via Resend (id res-engage-msg-002@email.amazonses.com)', 'res-engage-msg-002@email.amazonses.com') RETURNING id").get() as { id: number };
+  const msgIdOnlyPayload = JSON.stringify({ type: "email.opened", data: { message_id: "<res-engage-msg-002@email.amazonses.com>.csv" } });
   const { sig: msgIdOnlySig } = sign(msgIdOnlyPayload, "msg_8", ts);
   await postWebhook(msgIdOnlyPayload, { "svix-id": "msg_8", "svix-timestamp": ts, "svix-signature": msgIdOnlySig });
   const msgRow = db().query("SELECT opened_at, open_count FROM send_logs WHERE id=?").get(msgOnly.id) as { opened_at: string | null; open_count: number };
@@ -209,8 +214,8 @@ async function main(): Promise<void> {
 
   // ── /overdue/summary recent_reminders carries engagement ──
   const ovd = await (await fetch(BASE + "/overdue/summary", { headers: { Cookie: `session=${SESSION}` } })).json() as { recent_reminders: Array<{ engagement?: { has_id: boolean; opened_at: string | null; open_count: number; clicked_at: string | null; click_count: number } }> };
-  const withEng = ovd.recent_reminders.find((r) => r.engagement !== undefined);
-  check("overdue/summary recent_reminders includes engagement object", !!withEng && withEng.engagement?.has_id === true && withEng.engagement?.open_count === 2 && withEng.engagement?.click_count === 2, JSON.stringify(withEng));
+  const engaged = ovd.recent_reminders.find((r) => r.engagement?.open_count === 2 && r.engagement?.click_count === 2);
+  check("overdue/summary recent_reminders includes engagement object", !!engaged && engaged.engagement?.has_id === true, JSON.stringify(engaged));
 
   console.log(failures === 0 ? "\nALL PASS — resend engagement" : `\n${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);
