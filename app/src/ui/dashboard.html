@@ -1398,7 +1398,7 @@
             if (freeDraftsHint) freeDraftsHint.textContent = 'Developer preview';
           } else {
             var activeSub = !!s.sub_status && s.sub_status === 'active';
-            if (freeDraftsSub) freeDraftsSub.textContent = activeSub ? 'included in your plan' : 'draft any reminder free \u00b7 sending requires a plan';
+            if (freeDraftsSub) freeDraftsSub.textContent = activeSub ? 'unlimited drafts \u00b7 included in your plan' : 'draft any reminder free \u00b7 sending requires a plan';
             if (freeDraftsLink) {
               freeDraftsLink.href = activeSub ? '/billing/portal' : '/billing/checkout?tier=standard';
               freeDraftsLink.title = activeSub ? 'Manage your subscription' : 'Upgrade to send reminders';

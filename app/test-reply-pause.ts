@@ -361,14 +361,20 @@ async function main(): Promise<void> {
     check("(j) inbound webhook with wrong token → 403", wrongToken.status === 403, `status=${wrongToken.status}`);
   }
 
-  // ── (k) Resume a free merchant with exhausted allowance (watcher-mirror gate) ──
+  // ── (k) Resume a FREE merchant (no sub, out of trial): unlimited drafting
+  //         means resume ALWAYS re-opens a fresh drafted task for the
+  //         sequence — never gated, never skipped. Sending stays the paid
+  //         unlock: the resumed task can be drafted/processed (200) but
+  //         /approve 402s the plan gate. ──
   {
     const d3 = db();
-    d3.run("INSERT OR REPLACE INTO subscriptions (id, merchant_id, stripe_subscription_id, tier, status) VALUES (1, ?, 'sub_reply_free', 'pro', 'cancelled')", [MERCHANT]);
-    // exhaust the derived allowance: 5 drafted tasks for this merchant
+    d3.run("UPDATE subscriptions SET status='cancelled' WHERE merchant_id=?", [MERCHANT]);
+    d3.run("UPDATE merchants SET created_at=datetime('now', '-40 days') WHERE id=?", [MERCHANT]); // out of trial
+    // Leave 6+ drafted tasks behind (past the old 5-draft allowance) so the
+    // free-draft gate (if it ever fired) WOULD be exhausted — it must not.
     d3.run("DELETE FROM reminder_tasks WHERE invoice_id IN (SELECT id FROM invoices WHERE merchant_id=?) AND draft_body='Exhaust'", [MERCHANT]);
     const count = (d3.query("SELECT COUNT(*) AS n FROM reminder_tasks rt JOIN invoices i ON rt.invoice_id=i.id WHERE i.merchant_id=? AND rt.draft_body != ''").get(MERCHANT) as { n: number }).n;
-    for (let i = count; i < 5; i++) {
+    for (let i = count; i < 6; i++) {
       const sid = `rp_exhaust_${i}`;
       d3.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, amount_cents, due_date, status) VALUES (?, ?, 'X', 100, datetime('now'), 'overdue')", [sid, MERCHANT]);
       const iid = Number(d3.query("SELECT id FROM invoices WHERE stripe_invoice_id=?").get(sid)!.id);
@@ -379,7 +385,17 @@ async function main(): Promise<void> {
     await postInbound({ sequence_id: String(invId3), from_email: "jane@customer.com", body: "pause me", provider_message_id: "msg-exh-1" });
     const resume3 = await af("/tasks/resume", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invoice_id: invId3 }) });
     const b3 = await resume3.json();
-    check("(k) resume clears pause even when free allowance exhausted (no new task, clear message)", resume3.status === 200 && b3.ok === true && b3.paused === false && b3.task_created === false && String(b3.message).includes("draft allowance"), JSON.stringify(b3));
+    check("(k) free merchant: resume re-opens a fresh drafted task despite 6+ drafts (never gated)", resume3.status === 200 && b3.ok === true && b3.paused === false && b3.task_created === true, JSON.stringify(b3));
+    const fresh = db().query("SELECT status, draft_body FROM reminder_tasks WHERE invoice_id=? AND status IN ('pending','drafted','reviewed') ORDER BY id DESC LIMIT 1").get(invId3) as { status: string; draft_body: string } | null;
+    check("(k) free merchant: resumed task is drafted/reviewed with a body (sequence can draft again)", fresh !== null && fresh.draft_body.length > 0, JSON.stringify(fresh));
+    // Drafting = free: /process on the resumed (reviewed) task is 200.
+    const resumeProc = await af(`/tasks/${(b3.task_id ?? fresh?.id) > 0 ? (b3.task_id ?? fresh?.id) : fresh?.id}/process`, { method: "POST" });
+    check("(k) free merchant: resumed task processes (200, draft kept reviewed — sending still gated)", resumeProc.status === 200, `status=${resumeProc.status}`);
+    // Sending = paid: /approve on a reviewed task → 402 subscription_required.
+    const approveId = fresh?.id ?? b3.task_id;
+    const resumeApprove = await af(`/tasks/${approveId}/approve`, { method: "POST" });
+    const resumeApproveBody = await resumeApprove.json().catch(() => null) as { error?: string } | null;
+    check("(k) free merchant: approve to SEND after resume → 402 subscription_required (send step)", resumeApprove.status === 402 && resumeApproveBody?.error === "subscription_required", `status=${resumeApprove.status} ${JSON.stringify(resumeApproveBody)}`);
     // restore pro subscription so nothing downstream is affected
     db().run("INSERT OR REPLACE INTO subscriptions (id, merchant_id, stripe_subscription_id, tier, status) VALUES (1, ?, 'sub_reply', 'pro', 'active')", [MERCHANT]);
   }

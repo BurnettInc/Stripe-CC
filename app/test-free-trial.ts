@@ -3,8 +3,8 @@
  *
  * Owner directive: give newly installed merchants FULL access for 30 days
  * from install (merchants.created_at, set at OAuth connect), then lock them
- * to the normal 5-draft free tier — purely time-based, self-expiring, no
- * manual flag. This suite proves that:
+ * they are a normal FREE merchant (drafting stays unlimited forever; sending
+ * requires a plan) — purely time-based, self-expiring, no manual flag.
  *   (a) the boundary is exact: created_at <30 days ago → in trial; exactly
  *       30 days ago → trial has elapsed; >30 days → out of trial;
  *   (b) during the trial a merchant with NO subscription gets full access:
@@ -13,13 +13,13 @@
  *       and invoiceLimit is null (uncapped, Pro-equivalent);
  *   (c) Pro/paid settings gates pass during the trial (Full Auto, custom
  *       timing, late fee, branding) and 402 for an out-of-trial free merchant;
- *   (d) the free-draft 5-cap is bypassed during the trial (a merchant with 6+
- *       drafts can still /process a pending task and the watcher still
- *       creates tasks), while an out-of-trial free merchant at the cap 402s
- *       and the watcher skips task creation;
- *   (e) the SAME merchant auto-returns to the normal 5-draft free tier when
- *       its trial lapses: free_trial=false, free_drafts_unlimited=false,
- *       0 drafts remaining, /process 402s, watcher skips — no manual step;
+ *   (d) drafting is unlimited for EVERYONE (trial or out-of-trial free): a
+ *       merchant with 6+ drafts can still /process a pending task and the
+ *       watcher still creates tasks; the SENDING gate is the trial unlock —
+ *       an out-of-trial free merchant 402s on /approve (send step, not draft).
+ *   (e) the SAME merchant's trial lapses back to the free tier when
+ *       its trial lapses: free_trial=false, free_drafts_unlimited=true
+ *       (still unlimited — nobody loses drafting), /approve 402s;
  *   (f) an active subscriber mid-trial is never "in trial" (free_trial=false)
  *       and is never downgraded — the real subscription wins and survives
  *       the trial expiring;
@@ -184,7 +184,7 @@ async function main(): Promise<void> {
   {
     const s = await stats(SESSION_TRIAL);
     check("(b) trial merchant → free_trial=true", s.free_trial === true, JSON.stringify(s));
-    check("(b) trial merchant → free_drafts_unlimited=true (full access)", s.free_drafts_unlimited === true, JSON.stringify(s));
+    check("(b) trial merchant → free_drafts_unlimited=true (unlimited for every merchant)", s.free_drafts_unlimited === true, JSON.stringify(s));
     check("(b) trial merchant → plan 'free' (not claiming to be a paying customer)", s.plan === "free", `plan=${s.plan}`);
     check("(b) trial merchant → sub_status 'none' (nothing fabricated)", s.sub_status === "none", `sub_status=${s.sub_status}`);
     check("(b) trial merchant → invoiceLimit=null (Pro-equivalent, uncapped)", s.invoiceLimit === null, `invoiceLimit=${s.invoiceLimit}`);
@@ -213,52 +213,66 @@ async function main(): Promise<void> {
     check("(c) expired merchant: branding → 402", res.status === 402, `status=${res.status}`);
   }
 
-  // ── (d) Free-draft 5-cap bypass during trial ──
+  // ── (d) Drafting unlimited for everyone; sending is the trial unlock ──
   {
-    // Trial merchant: burn 6 drafts (over the 5 cap).
+    // Trial merchant: 6+ drafted tasks (unlimited drafting).
     for (let i = 0; i < 6; i++) seedTask(TRIAL_MERCHANT, `${PREFIX}_trialdraft_${i}`, "reviewed", `Draft ${i}`);
-    check("(d) trial merchant has 6+ drafted tasks (past the 5 cap)", draftedTaskCount(TRIAL_MERCHANT) >= 6, `count=${draftedTaskCount(TRIAL_MERCHANT)}`);
+    check("(d) trial merchant has 6+ drafted tasks (past the old 5 cap)", draftedTaskCount(TRIAL_MERCHANT) >= 6, `count=${draftedTaskCount(TRIAL_MERCHANT)}`);
     // A fresh PENDING task — /process must draft it without 402.
     const trialPendingId = seedTask(TRIAL_MERCHANT, `${PREFIX}_trialpending`, "pending", "");
     const trialProc = await af(`/tasks/${trialPendingId}/process`, SESSION_TRIAL, { method: "POST" });
-    check("(d) trial merchant: /process past the 5-cap → 200 (not 402)", trialProc.status === 200, `status=${trialProc.status}`);
-    // Watcher: a webhook still creates a task for the trial merchant.
+    check("(d) trial merchant: /process drafts + sends past the old cap → 200 (full access)", trialProc.status === 200, `status=${trialProc.status}`);
+    // Watcher: a webhook still creates a task for the trial merchant (unlimited).
     const trialWh = await fireOverdue(`${PREFIX}_trialwatch`, 3, "acct_trial");
-    check("(d) trial merchant: watcher creates task despite exhausted cap (taskId present)",
+    check("(d) trial merchant: watcher creates task despite 6+ drafts (taskId present)",
       typeof trialWh.taskId === "number" && taskStatus(trialWh.taskId) !== null, JSON.stringify(trialWh));
-    // Expired (fresh, separate) merchant control: burn the full 5-draft allowance.
-    for (let i = 0; i < 5; i++) seedTask(EXPIRED_MERCHANT, `${PREFIX}_expireddraft_${i}`, "reviewed", `Draft ${i}`);
-    check("(d) expired merchant has 5 drafted tasks (allowance exhausted)", draftedTaskCount(EXPIRED_MERCHANT) === 5, `count=${draftedTaskCount(EXPIRED_MERCHANT)}`);
+    // Expired (fresh, separate) merchant control: drafting is STILL unlimited,
+    // but every send attempt 402s (the plan gate lives at the send step).
+    for (let i = 0; i < 6; i++) seedTask(EXPIRED_MERCHANT, `${PREFIX}_expireddraft_${i}`, "reviewed", `Draft ${i}`);
+    check("(d) expired merchant has 6+ drafted tasks (past the old 5-cap)", draftedTaskCount(EXPIRED_MERCHANT) >= 6, `count=${draftedTaskCount(EXPIRED_MERCHANT)}`);
     const expiredPendingId = seedTask(EXPIRED_MERCHANT, `${PREFIX}_expiredpending`, "pending", "");
     const expiredProc = await af(`/tasks/${expiredPendingId}/process`, SESSION_EXPIRED, { method: "POST" });
     const expiredProcBody = await expiredProc.json().catch(() => null) as { error?: string } | null;
-    check("(d) expired merchant: /process past the cap → 402 subscription_required",
-      expiredProc.status === 402 && expiredProcBody?.error === "subscription_required", `status=${expiredProc.status} ${JSON.stringify(expiredProcBody)}`);
+    check("(d) expired merchant: /process drafts a pending task past the old cap → 200 (draft free for everyone)",
+      expiredProc.status === 200, `status=${expiredProc.status} ${JSON.stringify(expiredProcBody)}`);
+    // The send gate: approve → 402 subscription_required for the out-of-trial free merchant.
+    const expiredApproveId = seedTask(EXPIRED_MERCHANT, `${PREFIX}_expiredapprove`, "reviewed", "Ready");
+    const expiredApprove = await af(`/tasks/${expiredApproveId}/approve`, SESSION_EXPIRED, { method: "POST" });
+    const expiredApproveBody = await expiredApprove.json().catch(() => null) as { error?: string } | null;
+    check("(d) expired merchant: approve to SEND → 402 subscription_required (send step, not draft step)",
+      expiredApprove.status === 402 && expiredApproveBody?.error === "subscription_required", `status=${expiredApprove.status} ${JSON.stringify(expiredApproveBody)}`);
+    // Watcher expired control: webhook still CREATES + auto-drafts a task (unlimited).
     const expiredWh = await fireOverdue(`${PREFIX}_expiredwatch`, 3, "acct_expired");
-    check("(d) expired merchant: watcher skips task creation at cap (no taskId)",
-      expiredWh.taskId === undefined && String(expiredWh.action).includes("free draft limit"), JSON.stringify(expiredWh));
+    check("(d) expired merchant: watcher creates + auto-drafts a task despite 6+ drafts (no taskId skip)",
+      typeof expiredWh.taskId === "number" && taskStatus(expiredWh.taskId) !== null, JSON.stringify(expiredWh));
   }
 
-  // ── (e) Same merchant self-expires back onto the 5-draft free tier ──
+  // ── (e) Same merchant self-expires back onto the free tier (drafting stays unlimited) ──
   {
     // The trial merchant is currently full-access (hasActiveSubscription via
-    // trial → unlimited drafts). Let its trial lapse by moving created_at past
-    // 30 days. NO manual flag, NO manual expiry step.
+    // trial). Let its trial lapse by moving created_at past 30 days. NO manual
+    // flag, NO manual expiry step.
     setCreatedAt(TRIAL_MERCHANT, 31);
     const s = await stats(SESSION_TRIAL);
     check("(e) same merchant after 30 days → free_trial=false", s.free_trial === false, JSON.stringify(s));
-    check("(e) same merchant after 30 days → free_drafts_unlimited=false", s.free_drafts_unlimited === false, JSON.stringify(s));
-    check("(e) same merchant after 30 days → free_drafts_remaining=0 (5-cap exhausted)", s.free_drafts_remaining === 0, `remaining=${s.free_drafts_remaining}`);
-    // /process past the cap now 402s for the same merchant.
+    check("(e) same merchant after 30 days → free_drafts_unlimited=true (unlimited for everyone)", s.free_drafts_unlimited === true, JSON.stringify(s));
+    check("(e) same merchant after 30 days → free_drafts_remaining is a huge sentinel (unlimited)", s.free_drafts_remaining === Number.MAX_SAFE_INTEGER, `remaining=${s.free_drafts_remaining}`);
+    // Drafting still works (unlimited) — /process on a pending task is 200.
     const expiredPendingId = seedTask(TRIAL_MERCHANT, `${PREFIX}_afterexpiry_pending`, "pending", "");
     const proc = await af(`/tasks/${expiredPendingId}/process`, SESSION_TRIAL, { method: "POST" });
     const procBody = await proc.json().catch(() => null) as { error?: string } | null;
-    check("(e) same merchant after 30 days: /process past the cap → 402 subscription_required",
-      proc.status === 402 && procBody?.error === "subscription_required", `status=${proc.status} ${JSON.stringify(procBody)}`);
-    // And the watcher now skips task creation for the same merchant.
+    check("(e) same merchant after 30 days: /process drafts a pending task → 200 (never a draft 402)",
+      proc.status === 200, `status=${proc.status} ${JSON.stringify(procBody)}`);
+    // SENDING is the paid unlock — approve → 402 subscription_required.
+    const afterExpiryApproveId = seedTask(TRIAL_MERCHANT, `${PREFIX}_afterexpiry_approve`, "reviewed", "Ready");
+    const procA = await af(`/tasks/${afterExpiryApproveId}/approve`, SESSION_TRIAL, { method: "POST" });
+    const procABody = await procA.json().catch(() => null) as { error?: string } | null;
+    check("(e) same merchant after 30 days: approve to SEND → 402 subscription_required (send step, not draft step)",
+      procA.status === 402 && procABody?.error === "subscription_required", `status=${procA.status} ${JSON.stringify(procABody)}`);
+    // And the watcher still creates tasks for the same merchant (unlimited).
     const wh = await fireOverdue(`${PREFIX}_afterexpiry_watch`, 3, "acct_trial");
-    check("(e) same merchant after 30 days: watcher skips (no taskId)",
-      wh.taskId === undefined && String(wh.action).includes("free draft limit"), JSON.stringify(wh));
+    check("(e) same merchant after 30 days: watcher creates + auto-drafts a task (no taskId skip)",
+      typeof wh.taskId === "number" && taskStatus(wh.taskId) !== null, JSON.stringify(wh));
     // Pro trust_mode granted during the trial no longer counts: the FFR gate
     // (isActiveProSubscriber) is now false, so 'full' would be demoted on the
     // next enforcement and the watcher's auto-send branch refuses it.
