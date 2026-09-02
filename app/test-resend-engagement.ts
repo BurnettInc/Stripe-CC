@@ -39,7 +39,9 @@ const BASE = process.env.TEST_BASE || "http://localhost:3101";
 const DB_PATH = process.env.TEST_DB_PATH || "/tmp/cc-resend-engage.db";
 const SECRET = process.env.RESEND_WEBHOOK_SECRET || "whsec_testsecret";
 const SESSION = "resend-engage-session";
-const MERCHANT = 2; // dedicated merchant (like the pages suite)
+const MERCHANT = 2; // dedicated PRO merchant (like the pages suite)
+const FREE_MERCHANT = 3; // free merchant — engagement pill must NOT render
+const FREE_SESSION = "resend-engage-free-session";
 let failures = 0;
 
 function check(label: string, cond: boolean, detail = ""): void {
@@ -71,15 +73,36 @@ function seed(): { taskId: number; emailId: string; messageId: string } {
     [MERCHANT]
   );
   d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))", [SESSION, MERCHANT]);
+  // The PRO merchant has a real, active Pro subscription — the engagement
+  // pill is a Pro-tier feature (owner 9/2). Data collection stays un-gated,
+  // only the dashboard DISPLAY is Pro-only.
+  d.run("DELETE FROM subscriptions WHERE merchant_id=?", [MERCHANT]);
+  d.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (?, 'sub_resend_engage', 'pro', 'active')", [MERCHANT]);
+  // A FREE merchant (no subscription row) with its own session + send rows —
+  // used to prove the pill does NOT leak to free users. Created 40 days ago so
+  // it is OUTSIDE the 30-day free trial (trial = full Pro access, so a
+  // freshly-created merchant legitimately sees the pill).
+  d.run(
+    "INSERT OR REPLACE INTO merchants (id, stripe_account_id, email, trust_mode, created_at) VALUES (?, 'acct_resend_free', 'free@example.com', 'draft', datetime('now', '-40 days'))",
+    [FREE_MERCHANT]
+  );
+  d.run("INSERT OR REPLACE INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))", [FREE_SESSION, FREE_MERCHANT]);
   d.run("DELETE FROM send_logs");
   d.run("DELETE FROM reminder_tasks");
-  d.run("DELETE FROM invoices WHERE merchant_id=?", [MERCHANT]);
+  d.run("DELETE FROM invoices WHERE merchant_id IN (?, ?)", [MERCHANT, FREE_MERCHANT]);
   d.run(
     "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, livemode) VALUES ('eng_001', ?, 'Engage Customer', 'engage@cust.com', 9900, 'usd', datetime('now', '-10 days'), 'overdue', 1)",
     [MERCHANT]
   );
+  d.run(
+    "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, livemode) VALUES ('eng_free_001', ?, 'Free Customer', 'free@cust.com', 4900, 'usd', datetime('now', '-12 days'), 'overdue', 1)",
+    [FREE_MERCHANT]
+  );
   const task = d.query(
     "INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body) VALUES ((SELECT id FROM invoices WHERE stripe_invoice_id='eng_001'), 2, 'sent', 'Payment reminder', 'Body') RETURNING id"
+  ).get() as { id: number };
+  const freeTask = d.query(
+    "INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body) VALUES ((SELECT id FROM invoices WHERE stripe_invoice_id='eng_free_001'), 2, 'sent', 'Payment reminder', 'Free body') RETURNING id"
   ).get() as { id: number };
   // Real send via Resend: id captured at send time (what sender.ts now persists).
   const emailId = "res-engage-email-001";
@@ -87,6 +110,12 @@ function seed(): { taskId: number; emailId: string; messageId: string } {
   d.run(
     "INSERT INTO send_logs (reminder_task_id, type, status, provider_message, created_at, resend_message_id) VALUES (?, 'reminder', 'success', 'Email sent via Resend to engage@cust.com (id res-engage-email-001)', datetime('now', '-2 days'), ?)",
     [task.id, emailId]
+  );
+  // The free merchant's send also HAS a resend id + engagement events fired —
+  // the webhook records data for every send; only the display is Pro-gated.
+  d.run(
+    "INSERT INTO send_logs (reminder_task_id, type, status, provider_message, created_at, resend_message_id, opened_at, open_count, clicked_at, click_count) VALUES (?, 'reminder', 'success', 'Email sent via Resend to free@cust.com (id res-engage-free-001)', datetime('now', '-3 days'), 'res-engage-free-001', datetime('now', '-1 day'), 2, datetime('now', '-1 day'), 1)",
+    [freeTask.id]
   );
   d.close();
   return { taskId: task.id, emailId, messageId };
@@ -205,12 +234,26 @@ async function main(): Promise<void> {
   const bouncy = await postWebhook(bouncyPayload, { "svix-id": "msg_10", "svix-timestamp": ts, "svix-signature": bouncySig });
   check("unsupported event type → 200 ignored", bouncy.status === 200, `status=${bouncy.status}`);
 
-  // ── /reminders renders the engagement pill + column ──
+  // ── /reminders renders the engagement pill + column (PRO merchant) ──
   const rem = await (await fetch(BASE + "/reminders", { headers: { Cookie: `session=${SESSION}` } })).text();
   check("reminders renders Engagement column header", rem.includes('data-sort-key="engagement"'), "");
-  check("reminders shows opened+clicked pill for the engaged row", rem.includes("Opened &amp; clicked") || rem.includes("Opened & clicked"), "");
-  check("reminders engagement pill carries the timestamps in title", /title="Clicked [^"]+ — opened [^"]+"/.test(rem), "");
+  // Assert on the rendered pill MARKUP, not plain text — the shared template
+  // ships the .chip-engagement CSS rules + a comment naming the pill labels,
+  // which would false-positive a plain-text match.
+  check("reminders shows opened+clicked pill for the engaged row", rem.includes('class="chip chip-engagement chip-engagement-clicked"'), "");
+  check("reminders engagement pill carries the timestamps in title", /<span class="chip chip-engagement chip-engagement-clicked" title="Clicked [^"]+ — opened [^"]+"/.test(rem), "");
   check("reminders labels untracked (stub) rows No data", rem.includes("No data"), "");
+
+  // ── PRO-tier gating: a FREE merchant must NOT see the engagement pill ──
+  const remFree = await (await fetch(BASE + "/reminders", { headers: { Cookie: `session=${FREE_SESSION}` } })).text();
+  check("free merchant: reminders row shows a bare — instead of a pill", remFree.includes('class="cell-muted">—</span>'), "");
+  // The shared template ships the .chip-engagement CSS rules for every page,
+  // so assert on the pill MARKUP (a rendered <span class="chip chip-engagement…">),
+  // not on the class string existing in the stylesheet.
+  check("free merchant: no engagement pill element renders", !remFree.includes('class="chip chip-engagement'), "");
+  check("free merchant: no Opened/clicked label leaks", !remFree.includes(">Opened") && !remFree.includes(">clicked"), "");
+  check("free merchant: no upgrade/teaser copy in the engagement slot", !remFree.includes("Upgrade") && !remFree.includes("tracking is") && !remFree.includes("Pro"), "");
+  check("free merchant: subtitle does not mention open/click tracking", !remFree.includes("open or clicked each reminder"), "");
 
   // ── /overdue/summary recent_reminders carries engagement ──
   const ovd = await (await fetch(BASE + "/overdue/summary", { headers: { Cookie: `session=${SESSION}` } })).json() as { recent_reminders: Array<{ engagement?: { has_id: boolean; opened_at: string | null; open_count: number; clicked_at: string | null; click_count: number } }> };

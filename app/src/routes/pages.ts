@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { getEscalationStage } from "../pipeline/escalation";
 import { appendCanspamFooter } from "../pipeline/canspam";
 import { buildFromAddress, trackedReplyToForTask } from "../pipeline/sender";
+import { isActiveProSubscriber } from "../db";
 
 // Server-side rendered list pages for the dashboard's drill-down links:
 //   GET /past-due  — past-due (overdue) invoices
@@ -298,7 +299,14 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
   const replyToFor = (log: typeof logs[number]): string | undefined =>
     trackedReplyToForTask({ invoice_id: log.invoice_id } as { invoice_id: number });
 
-  // Resend open/click engagement (migration 034 / /webhook/resend-events):
+  // Resend open/click engagement (migration 034 / /webhook/resend-events).
+  // PRO-TIER FEATURE (owner 9/2): the engagement pill is displayed ONLY for
+  // active Pro subscribers (and dev-flagged Pro merchants). Data collection is
+  // un-gated — the webhook keeps recording opened_at/open_count/clicked_at/
+  // click_count for every send — but free/Standard merchants see nothing in
+  // this slot: a bare "—" (no "locked", no "upgrade", no hint that tracking
+  // exists). The sell for the feature lives on the landing page, not as a
+  // teaser inside the product.
   //   - no resend_message_id → "No data" (stub/legacy rows — honest, unlike a
   //     fabricated "Not opened"; a send without a Resend id was never tracked)
   //   - resend id, no opens yet → "Not opened"
@@ -306,23 +314,24 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
   //   - clicked_at set  → "Opened & clicked" (a click implies an open)
   // Lightweight pill next to each row — no new page, no JS. Colors via the
   // chip-engagement-* classes in list-page.html.
+  const isPro = isActiveProSubscriber(db, merchantId);
+  const engagementPayload = (log: typeof logs[number]): { label: string; cls: string; title: string } | null => {
+    if (!log.resend_message_id) return null;
+    if (log.clicked_at) {
+      return { label: "Opened & clicked", cls: "chip-engagement-clicked", title: `Clicked ${log.clicked_at} — opened ${log.opened_at ?? "n/a"}` };
+    }
+    if (log.opened_at) {
+      return { label: "Opened", cls: "chip-engagement-opened", title: `Opened ${log.opened_at}${log.open_count > 1 ? ` (${log.open_count} opens)` : ""}` };
+    }
+    return { label: "Not opened", cls: "chip-engagement-none", title: "No opens recorded yet" };
+  };
   const engagement = (log: typeof logs[number]): string => {
-    if (!log.resend_message_id) {
+    if (!isPro) return '<span class="cell-muted">—</span>';
+    const p = engagementPayload(log);
+    if (!p) {
       return '<span class="chip chip-engagement chip-engagement-none" title="No engagement data for this send">No data</span>';
     }
-    let label = "Not opened";
-    let cls = "chip-engagement-none";
-    let title = "No opens recorded yet";
-    if (log.clicked_at) {
-      label = "Opened & clicked";
-      cls = "chip-engagement-clicked";
-      title = `Clicked ${log.clicked_at} — opened ${log.opened_at ?? "n/a"}`;
-    } else if (log.opened_at) {
-      label = "Opened";
-      cls = "chip-engagement-opened";
-      title = `Opened ${log.opened_at}${log.open_count > 1 ? ` (${log.open_count} opens)` : ""}`;
-    }
-    return `<span class="chip chip-engagement ${cls}" title="${esc(title)}">${esc(label)}</span>`;
+    return `<span class="chip chip-engagement ${p.cls}" title="${esc(p.title)}">${esc(p.label)}</span>`;
   };
 
   let rows = "";
@@ -368,9 +377,13 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
       <tbody>${rows}</tbody></table></div>`;
   }
 
+  const engagementSubtitle = isPro
+    ? "The Engagement column shows whether a recipient opened or clicked each reminder (via Resend open/click tracking). "
+    : "";
   return renderPage(
     "Sent reminders",
-    "Reminder emails sent to your customers, newest first. The Engagement column shows whether a recipient opened or clicked each reminder (via Resend open/click tracking). Test sends are labeled “Test send”. Open any row to see the full email exactly as sent.",
+    "Reminder emails sent to your customers, newest first. " + engagementSubtitle +
+      "Test sends are labeled “Test send”. Open any row to see the full email exactly as sent.",
     "",
     rows
   );

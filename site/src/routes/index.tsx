@@ -256,6 +256,7 @@ function Home() {
               body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
               features: [
                 "Everything in Standard",
+                "Open & click tracking — see which reminders get read",
                 "Unlimited overdue invoices",
                 "Custom escalation timing",
                 "Late-fee automation",
@@ -336,6 +337,47 @@ function Home() {
           Install from the Stripe App Marketplace — subscribe inside the app after
           connecting. Every tier is free for your first 30 days, no card required.
           Then $7/mo or $50/yr Standard · $15/mo or $100/yr Pro.
+        </p>
+      </section>
+
+      {/* Compare plans — Standard vs Pro, one glance */}
+      <section className={`max-w-4xl mx-auto px-6 ${PY_MAIN}`}>
+        <h2 className={TYPE.h2Center}>Compare plans</h2>
+        <p className="text-center text-gray-600 max-w-2xl mx-auto mt-3 text-sm leading-relaxed">
+          Everything in Draft Mode is free forever. The table below shows what
+          each paid plan unlocks.
+        </p>
+        <div className="mt-8 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-300">
+                <th scope="col" className="text-left py-3 pr-4 font-semibold text-gray-900">Feature</th>
+                <th scope="col" className="text-center py-3 px-2 font-semibold text-gray-700">Standard</th>
+                <th scope="col" className="text-center py-3 pl-2 font-semibold text-indigo-700">Pro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { feature: "Overdue invoices tracked", std: "Up to 50", pro: "Unlimited" },
+                { feature: "Open & click tracking — see which reminders get read", std: "—", pro: "✓ Included" },
+                { feature: "3-stage escalation ladder", std: "✓", pro: "✓" },
+                { feature: "Custom sender branding", std: "✓", pro: "✓" },
+                { feature: "Custom escalation timing", std: "—", pro: "✓" },
+                { feature: "Late-fee automation", std: "—", pro: "✓" },
+                { feature: "Priority support (same-business-day first response)", std: "—", pro: "✓" },
+              ].map((row) => (
+                <tr key={row.feature} className="border-b border-gray-100">
+                  <td className="py-3 pr-4 text-gray-700">{row.feature}</td>
+                  <td className="text-center py-3 px-2 text-gray-600">{row.std}</td>
+                  <td className="text-center py-3 pl-2 font-medium text-indigo-700">{row.pro}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-4 text-xs text-gray-500 text-center">
+          Open &amp; click tracking shows whether each reminder was opened or
+          clicked, per send, on your Sent Reminders page.
         </p>
       </section>
 

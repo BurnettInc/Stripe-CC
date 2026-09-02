@@ -326,6 +326,37 @@ async function main(): Promise<void> {
       freeLookup.tier === null && freeLookup.subscriptionStatus === "none" && freeLookup.devPro === false, JSON.stringify(freeLookup));
   }
 
+  // ── (i) Engagement pill is a Pro-tier feature (owner 9/2) ──
+  {
+    // Seed one sent reminder + Resend engagement data for BOTH the dev-pro
+    // merchant (1) and the free merchant (2): data collection is un-gated
+    // (webhook records for everyone), but the /reminders DISPLAY only renders
+    // for active Pro / dev-pro.
+    const d = db();
+    const seedSend = (merchantId: number, sid: string, resendId: string): number => {
+      d.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES (?, ?, 'Pill', 'pill@example.com', 3000, 'usd', datetime('now'), 'overdue')", [sid, merchantId]);
+      const inv = d.query("SELECT id FROM invoices WHERE stripe_invoice_id=?").get(sid) as { id: number };
+      const t = d.run("INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body) VALUES (?, 1, 'sent', 'Pill', 'Body')", [inv.id]);
+      d.run("INSERT INTO send_logs (reminder_task_id, type, status, provider_message, created_at, resend_message_id, opened_at, open_count, clicked_at, click_count) VALUES (?, 'reminder', 'success', 'Sent via Resend', datetime('now','-1 day'), ?, datetime('now','-1 hour'), 2, datetime('now','-1 hour'), 1)", [Number(t.lastInsertRowid), resendId]);
+      return Number(t.lastInsertRowid);
+    };
+    seedSend(DEV_MERCHANT, `${PREFIX}_pilldev`, "pill-dev-resend");
+    seedSend(FREE_MERCHANT, `${PREFIX}_pillfree`, "pill-free-resend");
+    d.close();
+
+    const devRem = await (await fetch(`${BASE}/reminders`, { headers: { Cookie: `session=${SESSION_DEV}` } })).text();
+    // Assert on the rendered pill MARKUP (the CSS rules are in the shared
+    // template and would false-positive a plain-text match).
+    check("(i) dev_pro merchant: engagement pill element renders (Opened & clicked)", devRem.includes('class="chip chip-engagement chip-engagement-clicked"'), "");
+    check("(i) dev_pro merchant: pill label is Opened & clicked", devRem.includes(">Opened &amp; clicked</span>") || devRem.includes(">Opened & clicked</span>"), "");
+    const freeRem = await (await fetch(`${BASE}/reminders`, { headers: { Cookie: `session=${SESSION_FREE}` } })).text();
+    check("(i) free merchant: engagement pill does NOT render (bare —)", freeRem.includes('class="cell-muted">—</span>'), "");
+    // The shared template ships the .chip-engagement CSS rules for every page,
+    // so assert on the pill MARKUP, not the stylesheet class strings.
+    check("(i) free merchant: no engagement pill element renders", !freeRem.includes('class="chip chip-engagement'), "");
+    check("(i) free merchant: no open/click copy leaks", !freeRem.includes(">Opened") && !freeRem.includes(">clicked") && !freeRem.includes("open or clicked"), "");
+  }
+
   console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
   process.exit(failures === 0 ? 0 : 1);
 }
