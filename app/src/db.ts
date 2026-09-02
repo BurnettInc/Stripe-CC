@@ -272,10 +272,10 @@ export function cancelTasksForInvoice(db: Database, invoiceId: number) {
 
 // ── Logging helpers ──
 
-export function logSend(db: Database, taskId: number, status: string, message: string, type: string = "reminder") {
+export function logSend(db: Database, taskId: number, status: string, message: string, type: string = "reminder", resendMessageId?: string | null) {
   db.run(
-    "INSERT INTO send_logs (reminder_task_id, type, status, provider_message) VALUES (?, ?, ?, ?)",
-    [taskId === 0 ? null : taskId, type, status, message]
+    "INSERT INTO send_logs (reminder_task_id, type, status, provider_message, resend_message_id) VALUES (?, ?, ?, ?, ?)",
+    [taskId === 0 ? null : taskId, type, status, message, resendMessageId || null]
   );
 }
 

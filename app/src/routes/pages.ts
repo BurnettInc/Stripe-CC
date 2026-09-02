@@ -245,6 +245,7 @@ export function handlePastDuePage(db: Database, merchantId: number, statusParam:
 
 const LOG_COLUMNS = `
   SELECT sl.id, sl.status, sl.provider_message, sl.created_at AS sent_at,
+         sl.resend_message_id, sl.opened_at, sl.open_count, sl.clicked_at, sl.click_count,
          rt.id AS task_id, rt.stage, rt.draft_subject, rt.draft_body, rt.invoice_id,
          i.id AS invoice_id, i.merchant_id, i.customer_name, i.customer_email, i.amount_cents, i.currency, i.due_date, i.stripe_invoice_id,
          m.sender_name
@@ -280,6 +281,7 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
     `${LOG_COLUMNS} ORDER BY sl.created_at DESC, sl.id DESC LIMIT 200`
   ).all(merchantId) as Array<{
     id: number; status: string; provider_message: string; sent_at: string;
+    resend_message_id: string | null; opened_at: string | null; open_count: number; clicked_at: string | null; click_count: number;
     task_id: number; stage: number; draft_subject: string; draft_body: string; invoice_id: number;
     merchant_id: number; customer_name: string; customer_email: string; amount_cents: number; currency: string; due_date: string; stripe_invoice_id: string;
     sender_name: string | null;
@@ -295,6 +297,33 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
     buildFromAddress(process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com", log.sender_name);
   const replyToFor = (log: typeof logs[number]): string | undefined =>
     trackedReplyToForTask({ invoice_id: log.invoice_id } as { invoice_id: number });
+
+  // Resend open/click engagement (migration 034 / /webhook/resend-events):
+  //   - no resend_message_id → "No data" (stub/legacy rows — honest, unlike a
+  //     fabricated "Not opened"; a send without a Resend id was never tracked)
+  //   - resend id, no opens yet → "Not opened"
+  //   - opened_at set   → "Opened" (title shows the timestamp; count when >1)
+  //   - clicked_at set  → "Opened & clicked" (a click implies an open)
+  // Lightweight pill next to each row — no new page, no JS. Colors via the
+  // chip-engagement-* classes in list-page.html.
+  const engagement = (log: typeof logs[number]): string => {
+    if (!log.resend_message_id) {
+      return '<span class="chip chip-engagement chip-engagement-none" title="No engagement data for this send">No data</span>';
+    }
+    let label = "Not opened";
+    let cls = "chip-engagement-none";
+    let title = "No opens recorded yet";
+    if (log.clicked_at) {
+      label = "Opened & clicked";
+      cls = "chip-engagement-clicked";
+      title = `Clicked ${log.clicked_at} — opened ${log.opened_at ?? "n/a"}`;
+    } else if (log.opened_at) {
+      label = "Opened";
+      cls = "chip-engagement-opened";
+      title = `Opened ${log.opened_at}${log.open_count > 1 ? ` (${log.open_count} opens)` : ""}`;
+    }
+    return `<span class="chip chip-engagement ${cls}" title="${esc(title)}">${esc(label)}</span>`;
+  };
 
   let rows = "";
   if (logs.length === 0) {
@@ -329,18 +358,19 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
           `<td class="cell-amount" data-sort="${log.amount_cents}">${esc(formatMoney(log.amount_cents, log.currency))}</td>` +
           `<td data-sort="${log.stage}">${chip("chip-stage st" + log.stage, "Stage " + log.stage)}</td>` +
           `<td class="cell-muted" data-sort="${esc(log.sent_at)}">${esc(formatDateTime(log.sent_at))}</td>` +
+          `<td data-sort="${log.open_count + log.click_count}">${engagement(log)}</td>` +
           `<td data-sort="${esc(log.draft_subject ?? "")}">${log.draft_subject ? esc(log.draft_subject) : '<span class="cell-muted">—</span>'}</td>` +
           `<td>${isStub ? chip("chip-stub", "Test send") : chip("chip-sent", "Sent")}</td>` +
         "</tr>";
     }
     rows = `<div class="table-wrap"><table>
-      <thead><tr><th scope="col">Email</th><th scope="col">Customer</th>${thSort("amount", "Amount")}${thSort("stage", "Stage")}${thSort("sent_at", "Sent at")}${thSort("subject", "Subject")}<th scope="col">Result</th></tr></thead>
+      <thead><tr><th scope="col">Email</th><th scope="col">Customer</th>${thSort("amount", "Amount")}${thSort("stage", "Stage")}${thSort("sent_at", "Sent at")}${thSort("engagement", "Engagement")}${thSort("subject", "Subject")}<th scope="col">Result</th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
   }
 
   return renderPage(
     "Sent reminders",
-    "Reminder emails sent to your customers, newest first. Test sends are labeled “Test send”. Open any row to see the full email exactly as sent.",
+    "Reminder emails sent to your customers, newest first. The Engagement column shows whether a recipient opened or clicked each reminder (via Resend open/click tracking). Test sends are labeled “Test send”. Open any row to see the full email exactly as sent.",
     "",
     rows
   );

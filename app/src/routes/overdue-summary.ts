@@ -17,7 +17,10 @@ import { getEscalationStage } from "../pipeline/escalation";
  *       days_overdue, stage, status: 'active'|'paused'|'awaiting_approval',
  *       pause_reason: 'manual'|'reply'|null },
  *   recent_reminders: up to 5 most recent successful reminder sends:
- *     { invoice_id, customer_name, amount_due (cents), currency, stage, sent_at }
+ *     { invoice_id, customer_name, amount_due (cents), currency, stage, sent_at,
+ *       engagement: { has_id, opened_at, open_count, clicked_at, click_count } }
+ *     (engagement = Resend open/click tracking, migration 034; has_id false
+ *     for stub/legacy sends that were never tracked)
  * }
  *
  * Status derivation mirrors the watcher's model:
@@ -141,7 +144,8 @@ export function handleOverdueSummary(db: Database, merchantId: number, req: Requ
 
   const recentRows = db.query(`
     SELECT sl.created_at AS sent_at, rt.stage, i.id AS invoice_id, i.customer_name,
-           i.amount_cents, i.currency
+           i.amount_cents, i.currency,
+           sl.resend_message_id, sl.opened_at, sl.open_count, sl.clicked_at, sl.click_count
     FROM send_logs sl
     JOIN reminder_tasks rt ON sl.reminder_task_id = rt.id
     JOIN invoices i ON rt.invoice_id = i.id
@@ -151,6 +155,7 @@ export function handleOverdueSummary(db: Database, merchantId: number, req: Requ
   `).all(merchantId, livemode) as Array<{
     sent_at: string; stage: number; invoice_id: number; customer_name: string;
     amount_cents: number; currency: string;
+    resend_message_id: string | null; opened_at: string | null; open_count: number; clicked_at: string | null; click_count: number;
   }>;
 
   const recent_reminders = recentRows.map((r) => ({
@@ -160,6 +165,16 @@ export function handleOverdueSummary(db: Database, merchantId: number, req: Requ
     currency: r.currency,
     stage: r.stage,
     sent_at: r.sent_at,
+    // Resend open/click engagement (migration 034): surfaced so the Stripe App
+    // drawer can show the same small status the dashboard shows. Additive —
+    // old drawer versions ignore unknown fields. No tier gating (owner-deferred).
+    engagement: {
+      has_id: !!r.resend_message_id,
+      opened_at: r.opened_at,
+      open_count: r.open_count,
+      clicked_at: r.clicked_at,
+      click_count: r.click_count,
+    },
   }));
 
   return respond(200, { counts, invoices: invoicesOut, recent_reminders });
