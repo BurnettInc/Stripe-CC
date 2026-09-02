@@ -103,6 +103,19 @@ function RootDocument({ children }: { children: ReactNode }) {
               "(function(){try{var p=location.pathname;if(localStorage.getItem('cc_skip')==='1')return;if(p==='/support'||p==='/privacy'||p==='/terms'||p==='/admin'||p.indexOf('/support/')===0||p.indexOf('/privacy/')===0||p.indexOf('/terms/')===0||p.indexOf('/admin/')===0)return;var v=localStorage.getItem('cc_vid');if(!v)return;function fire(){try{var b=new Blob([JSON.stringify({visitor_id:v,page:p,verified:true})],{type:'application/json'});if(navigator.sendBeacon){navigator.sendBeacon('/api/track',b)}else{var x=new XMLHttpRequest();x.open('POST','/api/track',true);x.send(b)}}catch(e){}}var done=false;function go(){if(done)return;done=true;if(typeof requestAnimationFrame==='function'){requestAnimationFrame(function(){setTimeout(fire,50)})}else{setTimeout(fire,100)}}if(document.readyState==='complete'){setTimeout(go,0)}else{window.addEventListener('load',function(){setTimeout(go,0)})}}catch(e){}})();",
           }}
         />
+        {/* Microsoft Clarity analytics (owner 2026-09-02). Script body is
+            verbatim from the owner; encoded as a string because raw JSX
+            breaks on the braces. Renders as the exact snippet. */}
+        <script
+          type="text/javascript"
+          dangerouslySetInnerHTML={{
+            __html: `(function(c,l,a,r,i,t,y){
+              c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+              t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+              y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+            })(window, document, "clarity", "script", "yc6gd7x9vk");`,
+          }}
+        />
       </head>
       <body>
         {children}
