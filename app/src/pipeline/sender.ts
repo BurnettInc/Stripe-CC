@@ -249,9 +249,25 @@ export async function sendEmailForReal(
       });
 
       if (res.ok) {
-        const msg = `Email sent via Resend to ${toEmail}`;
+        // Resend POST /emails returns { id, ... } — the API email id. Reuse it
+        // as the engagement webhook key: sender.ts persists it on the send_logs
+        // row (resend_message_id) so /webhook/resend-events can match
+        // email.opened / email.clicked events (Resend posts both data.email_id
+        // — this id — and data.message_id, the RFC Message-ID header; we match
+        // email_id first, then fall back to a normalized message_id).
+        let resendId = "";
+        try {
+          const sendResp = (await res.json()) as { id?: unknown };
+          if (typeof sendResp.id === "string" && sendResp.id.trim()) resendId = sendResp.id.trim();
+        } catch {
+          console.warn(`[sender] Could not read Resend send response body — engagement tracking unavailable for this send (logId row persists without an id)`);
+        }
+        if (resendId) {
+          console.log(`[sender] Resend message id captured: ${resendId}`);
+        }
+        const msg = `Email sent via Resend to ${toEmail}${resendId ? ` (id ${resendId})` : ""}`;
         if (task) {
-          logSend(db, task.id, "success", msg);
+          logSend(db, task.id, "success", msg, "reminder", resendId);
           const now = new Date().toISOString();
           db.run("UPDATE reminder_tasks SET status='sent', sent_at=? WHERE id=?", [now, task.id]);
           recordFunnelEventForTask(db, task.id, "first_sent");

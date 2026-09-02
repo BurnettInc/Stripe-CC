@@ -138,6 +138,13 @@
     .chip-stage { background: var(--badge-draft-bg); color: var(--badge-draft-text); }
     .chip-stage.st2 { background: var(--badge-semi-bg); color: var(--badge-semi-text); }
     .chip-stage.st3 { background: #FEE2E2; color: #991B1B; }
+    /* Resend open/click engagement (migration 034): "Not opened" (neutral
+       slate), "Opened" (blue), "Opened & clicked" (green). "No data" is the
+       muted tone used for stub/legacy sends that were never tracked. */
+    .chip-engagement { background: #F3F4F6; color: #4B5563; }
+    .chip-engagement-opened { background: #DBEAFE; color: #1E40AF; }
+    .chip-engagement-clicked { background: #ECFDF5; color: #047857; }
+    .chip-engagement-none { background: #F3F4F6; color: #9CA3AF; }
 
     /* ── Pills — small inline row labels (e.g. "Test send" next to a name) ── */
     .pill {

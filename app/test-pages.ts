@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   check("reminders stub rows hidden unconditionally by list-page CSS", /tr\.row-test\s*\{\s*display:\s*none/.test(remAll), "");
   check("reminders ?type=real is a no-op (single view)", rows(remReal).join(",") === rows(remAll).join(",") && (remReal.match(/<a class="summary-chip/g) || []).length === 0, rows(remReal).join(","));
   check("reminders ?type=bogus is a no-op (single view)", rows(remBogus).join(",") === rows(remAll).join(","), rows(remBogus).join(","));
-  check("reminders has sortable headers + data-sort cells", (remAll.match(/data-sort-key=/g) || []).length === 4 && (remAll.match(/data-sort="/g) || []).length >= 8, `keys=${(remAll.match(/data-sort-key=/g) || []).length}`);
+  check("reminders has sortable headers + data-sort cells", (remAll.match(/data-sort-key=/g) || []).length === 5 && (remAll.match(/data-sort="/g) || []).length >= 10, `keys=${(remAll.match(/data-sort-key=/g) || []).length}`);
 
   // Auth must still be enforced on the new query-param variants.
   const unauth = await fetch(BASE + "/past-due?status=all", { headers: { Cookie: "session=nope" } });

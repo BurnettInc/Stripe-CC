@@ -1,6 +1,7 @@
 import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscriber, recordUnsubscribe, countOverdueInvoices, invoiceLimitFor, isMerchantDisconnected, getSubscriptionByMerchantId, isDevPro, isWithinFreeTrial } from "./db";
 import { corsHeadersFor } from "./middleware/cors";
 import { handleWebhook } from "./routes/webhook";
+import { handleResendWebhook } from "./routes/resend-webhook";
 import { handlePastDuePage, handleRemindersPage } from "./routes/pages";
 import { handleTasks } from "./routes/tasks";
 import { handleInboundReply } from "./routes/inbound";
@@ -162,6 +163,17 @@ if (process.env.STRIPE_WEBHOOK_SECRET) {
     process.exit(1);
   }
   console.log(`   Webhook verification: disabled (test mode)`);
+}
+
+// Resend engagement webhook status (open/click tracking). The endpoint at
+// /webhook/resend-events returns 503 when RESEND_WEBHOOK_SECRET is unset —
+// checked at request time in routes/resend-webhook.ts, logged here for boot
+// visibility (no boot guard: unlike the Stripe webhook, processing can safely
+// stay disabled without refusing boot).
+if (process.env.RESEND_WEBHOOK_SECRET) {
+  console.log(`   Resend engagement webhook: enabled (RESEND_WEBHOOK_SECRET set)`);
+} else {
+  console.log(`   Resend engagement webhook disabled (RESEND_WEBHOOK_SECRET unset — /webhook/resend-events returns 503)`);
 }
 
 // From-address boot guard. sender.ts falls back to
@@ -414,6 +426,15 @@ async function handleRequest(req: Request): Promise<Response> {
       // POST /webhook — Stripe webhook events
       if (path === "/webhook") {
         return handleWebhook(db, req);
+      }
+
+      // POST /webhook/resend-events — Resend delivery/engagement webhooks
+      // (email.opened / email.clicked → open/click tracking on send_logs).
+      // Signature-verified with the Svix scheme under RESEND_WEBHOOK_SECRET;
+      // the endpoint returns 503 and processes NOTHING when the secret is
+      // unset (fail-safe, same pattern as /inbound/reply + /support/*).
+      if (path === "/webhook/resend-events") {
+        return handleResendWebhook(db, req);
       }
 
       // POST /inbound/reply — inbound customer-reply webhook (reply-pause
