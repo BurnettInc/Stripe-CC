@@ -194,7 +194,7 @@ async function main(): Promise<void> {
     check("(b) dev_pro → free_drafts_unlimited=true", stats.free_drafts_unlimited === true, JSON.stringify(stats));
     check("(b) dev_pro → invoiceLimit=null (not Standard-capped)", stats.invoiceLimit === null, `invoiceLimit=${stats.invoiceLimit}`);
     const freeStats = await (await af("/stats", SESSION_FREE)).json() as { free_drafts_unlimited: boolean };
-    check("(b) free merchant → free_drafts_unlimited=false", freeStats.free_drafts_unlimited === false, JSON.stringify(freeStats));
+    check("(b) free merchant → free_drafts_unlimited=true (unlimited for every merchant)", freeStats.free_drafts_unlimited === true, JSON.stringify(freeStats));
     const stdStats = await (await af("/stats", SESSION_STD)).json() as { invoiceLimit: number | null; overInvoiceLimit: boolean };
     check("(b) real Standard subscriber keeps 50 cap (0 overdue → not over)", stdStats.invoiceLimit === 50 && stdStats.overInvoiceLimit === false, JSON.stringify(stdStats));
   }
