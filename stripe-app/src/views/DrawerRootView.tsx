@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { useCallback, useEffect, useState } from 'react';
-import { Banner, Box, Button, ContextView, Spinner } from '@stripe/ui-extension-sdk/ui';
+import { Banner, Box, Button, ContextView, Icon, Spinner } from '@stripe/ui-extension-sdk/ui';
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import OverviewView from './OverviewView';
 import { apiFetch, DASHBOARD_URL, installUrlFor, modeTitleSuffix, setActiveMode, type Mode } from '../api';
@@ -91,7 +91,7 @@ export default function DrawerRootView(props?: { environment?: ExtensionContextV
   // dashboard escape hatch. Free-plan merchants get a de-emphasized pointer to
   // the Settings viewport for billing — no subscribe UI in the drawer.
   return (
-    <Box css={{ stack: 'y', gap: 'small' }}>
+    <Box css={{ stack: 'y', gap: 'small', padding: 'medium' }}>
       <OverviewView mode={mode} />
       {subscription?.status !== 'active' && (
         <Banner
@@ -101,7 +101,7 @@ export default function DrawerRootView(props?: { environment?: ExtensionContextV
         />
       )}
       <Button href={DASHBOARD_URL} target="_blank" type="secondary">
-        Open full dashboard
+        Open full dashboard <Icon name="external" size="xsmall" />
       </Button>
     </Box>
   );
