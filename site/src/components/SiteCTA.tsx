@@ -17,7 +17,7 @@ export function SiteCTA() {
         </p>
         <p className="text-indigo-300 max-w-lg mx-auto mb-8">
           Your first month is free — full access, no card required. After that,
-          Draft Mode stays free forever with up to 5 drafts. Subscribe inside
+          Draft Mode stays free forever with unlimited drafts. Subscribe inside
           the app when you're ready for sending.
         </p>
         <div className="flex flex-col items-center gap-4">

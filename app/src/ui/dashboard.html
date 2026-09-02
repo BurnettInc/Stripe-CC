@@ -922,11 +922,11 @@
         </a>
       </div>
       <div class="stat-card linkable">
-        <a class="stat-link" id="stat-free-drafts-link" href="/billing/checkout?tier=standard" title="Upgrade for unlimited drafts">
-          <div class="stat-value" id="stat-free-drafts">—</div>
+        <a class="stat-link" id="stat-free-drafts-link" href="/billing/checkout?tier=standard" title="Draft reminders free — upgrade to send">
+          <div class="stat-value" id="stat-free-drafts">Unlimited</div>
           <div class="stat-label">Free Drafts</div>
-          <div class="stat-sub" id="stat-free-drafts-sub">of 5 remaining</div>
-          <span class="stat-sub-hint" id="stat-free-drafts-hint">Upgrade for unlimited &rarr;</span>
+          <div class="stat-sub" id="stat-free-drafts-sub">draft any reminder free</div>
+          <span class="stat-sub-hint" id="stat-free-drafts-hint">Upgrade to send &rarr;</span>
         </a>
       </div>
       <!-- Stripe connection: the static card below is a REAL link to
@@ -1377,37 +1377,35 @@
           document.getElementById('stat-emails').textContent = (s.emailsSent || 0) + ' real sends';
           // Free-drafts card: paid merchants (Standard or Pro active) have no
           // draft cap — "Unlimited" + "Manage plan →" (Stripe Customer Portal).
-          // Free merchants keep the truthful "N of 5" countdown + "Upgrade for
-          // unlimited →" (checkout). The whole card is a real <a> either way,
-          // so it never reads as a dead button.
+          // Free Draft Mode is UNLIMITED and free forever (owner 9/2): every
+          // merchant renders "Unlimited" here. SENDING is the paid unlock, so
+          // the sub-copy says so honestly and the card links to checkout
+          // ("Upgrade to send →") for non-subscribers. Free-trial merchants
+          // (30-day full access) keep the trial badge + no plan link; paid
+          // merchants get the "Manage plan" portal link.
           var freeDraftsValue = document.getElementById('stat-free-drafts');
           var freeDraftsSub = document.getElementById('stat-free-drafts-sub');
           var freeDraftsLink = document.getElementById('stat-free-drafts-link');
           var freeDraftsHint = document.getElementById('stat-free-drafts-hint');
-          // Free-trial merchants (30-day full access, no paid subscription):
-          // show "Unlimited" with honest free-trial copy and NO "Manage plan"
-          // link (they have no plan to manage). After expiry free_trial is
-          // false and they fall through to the normal free countdown.
+          if (freeDraftsValue) freeDraftsValue.textContent = 'Unlimited';
           if (s.free_trial && !IS_DEV_PRO) {
-            if (freeDraftsValue) freeDraftsValue.textContent = 'Unlimited';
             if (freeDraftsSub) freeDraftsSub.textContent = 'full access during your free trial';
             if (freeDraftsLink) { freeDraftsLink.removeAttribute('href'); freeDraftsLink.title = 'Free trial \u2014 full access'; }
             if (freeDraftsHint) freeDraftsHint.textContent = 'Free trial \u00b7 no card needed';
-          } else if (s.free_drafts_unlimited) {
-            if (freeDraftsValue) freeDraftsValue.textContent = 'Unlimited';
+          } else if (IS_DEV_PRO) {
             if (freeDraftsSub) freeDraftsSub.textContent = 'no limit on your plan';
-            if (freeDraftsLink) {
-              if (IS_DEV_PRO) { freeDraftsLink.removeAttribute('href'); freeDraftsLink.title = 'Developer preview'; }
-              else { freeDraftsLink.href = '/billing/portal'; freeDraftsLink.title = 'Manage your subscription'; }
-            }
-            if (freeDraftsHint) freeDraftsHint.textContent = IS_DEV_PRO ? 'Developer preview' : 'Manage plan \u2192';
+            if (freeDraftsLink) { freeDraftsLink.removeAttribute('href'); freeDraftsLink.title = 'Developer preview'; }
+            if (freeDraftsHint) freeDraftsHint.textContent = 'Developer preview';
           } else {
-            if (freeDraftsValue) freeDraftsValue.textContent = (s.free_drafts_remaining ?? 0) + ' of 5';
-            if (freeDraftsSub) freeDraftsSub.textContent = 'of 5 remaining';
-            if (freeDraftsLink) { freeDraftsLink.href = '/billing/checkout?tier=standard'; freeDraftsLink.title = 'Upgrade for unlimited drafts'; }
-            if (freeDraftsHint) freeDraftsHint.textContent = 'Upgrade for unlimited \u2192';
+            var activeSub = !!s.sub_status && s.sub_status === 'active';
+            if (freeDraftsSub) freeDraftsSub.textContent = activeSub ? 'unlimited drafts \u00b7 included in your plan' : 'draft any reminder free \u00b7 sending requires a plan';
+            if (freeDraftsLink) {
+              freeDraftsLink.href = activeSub ? '/billing/portal' : '/billing/checkout?tier=standard';
+              freeDraftsLink.title = activeSub ? 'Manage your subscription' : 'Upgrade to send reminders';
+            }
+            if (freeDraftsHint) freeDraftsHint.textContent = activeSub ? 'Manage plan \u2192' : 'Upgrade to send \u2192';
           }
-          // Stripe connection card: a genuine STATUS when connected (green dot,
+                    // Stripe connection card: a genuine STATUS when connected (green dot,
           // no pointer/hover, no "→"), a real link to /stripe/connect when not
           // connected or deauthorized.
           var stripeCard = document.getElementById('stat-stripe-card');

@@ -200,9 +200,13 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   seedConnection(m1, "rk_m1");
   stubState.invoiceSets["rk_m1"] = [openInvoice("in_m1_ovd", DAYS(10), 12345)];
 
-  // m2: free, semi mode → stage-1 invoice auto-sent (Trust Mode respected).
+  // m2: ACTIVE Standard subscriber, semi mode → stage-1 invoice auto-sent
+  // (Trust Mode respected; an out-of-trial FREE merchant in semi mode would
+  // have its stage-1 send blocked by the sending gate — we subscribe here so
+  // the auto-send assertion below stays valid).
   const m2 = seedMerchant("acct_m2", { trustMode: "semi" });
   seedConnection(m2, "rk_m2");
+  seedStandardSub(m2, "standard");
   stubState.invoiceSets["rk_m2"] = [openInvoice("in_m2_ovd", DAYS(2), 5000)];
 
   // m3: active Standard → 55 overdue invoices: 50 tracked, 5 cap-blocked.

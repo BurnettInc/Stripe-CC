@@ -13,14 +13,17 @@
  *       a normal free merchant is untouched ({tier:null, status:'none'});
  *       real Standard/Pro subscribers unchanged.
  *   (b) /stats: dev_pro → free_drafts_unlimited=true, invoiceLimit=null;
- *       free merchant → countdown; Standard subscriber keeps its 50 cap.
+ *       free merchant → free_drafts_unlimited=true too (unlimited for all);
+ *       Standard subscriber keeps its 50 cap.
  *   (c) PUT /settings Pro gates (Full Auto, custom timing, late fee) and the
  *       Standard+ branding gate all pass for dev_pro; a free merchant still
  *       402s on each.
- *   (d) Free-draft 5-cap bypass: dev_pro with 6+ drafted tasks can still
- *       /process a pending task (200, not 402) and the watcher still creates
- *       tasks from webhooks; a free merchant with 5 drafts used gets 402 and
- *       the watcher skips task creation.
+ *   (d) Free Draft Mode is UNLIMITED and free forever (owner 9/2): dev_pro
+ *       with 6+ drafted tasks can still /process a pending task (200, not
+ *       402) and the watcher still creates tasks from webhooks; a free
+ *       merchant can draft PAST the old 5-cap (200 at the draft/process
+ *       step), but every SEND attempt 402s (approve → 402 subscription_required)
+ *       and the watcher's semi auto-send never fires (task kept 'reviewed').
  *   (e) Standard 50-invoice cap treated as Pro: dev_pro with 60+ overdue
  *       invoices reports invoiceLimit=null / overInvoiceLimit=false, while a
  *       real Standard subscriber with 60 overdue still reports the cap.
@@ -191,7 +194,7 @@ async function main(): Promise<void> {
     check("(b) dev_pro → free_drafts_unlimited=true", stats.free_drafts_unlimited === true, JSON.stringify(stats));
     check("(b) dev_pro → invoiceLimit=null (not Standard-capped)", stats.invoiceLimit === null, `invoiceLimit=${stats.invoiceLimit}`);
     const freeStats = await (await af("/stats", SESSION_FREE)).json() as { free_drafts_unlimited: boolean };
-    check("(b) free merchant → free_drafts_unlimited=false", freeStats.free_drafts_unlimited === false, JSON.stringify(freeStats));
+    check("(b) free merchant → free_drafts_unlimited=true (unlimited for every merchant)", freeStats.free_drafts_unlimited === true, JSON.stringify(freeStats));
     const stdStats = await (await af("/stats", SESSION_STD)).json() as { invoiceLimit: number | null; overInvoiceLimit: boolean };
     check("(b) real Standard subscriber keeps 50 cap (0 overdue → not over)", stdStats.invoiceLimit === 50 && stdStats.overInvoiceLimit === false, JSON.stringify(stdStats));
   }
@@ -235,19 +238,27 @@ async function main(): Promise<void> {
     check("(d) dev_pro: watcher creates task despite exhausted draft cap (taskId present)",
       typeof wh.taskId === "number" && taskStatus(wh.taskId) !== null, JSON.stringify(wh));
 
-    // Free merchant control: burn the full 5-draft allowance.
-    for (let i = 0; i < 5; i++) seedTask(FREE_MERCHANT, `${PREFIX}_freedraft_${i}`, "reviewed", `Draft ${i}`);
-    check("(d) free merchant has 5 drafted tasks (allowance exhausted)", draftedTaskCount(FREE_MERCHANT) === 5, `count=${draftedTaskCount(FREE_MERCHANT)}`);
+    // Free merchant control (Free Draft Mode unlimited): draft PAST the old
+    // 5-cap without 402; the SEND step is where the plan gate lives.
+    for (let i = 0; i < 6; i++) seedTask(FREE_MERCHANT, `${PREFIX}_freedraft_${i}`, "reviewed", `Draft ${i}`);
+    check("(d) free merchant has 6+ drafted tasks (past the old 5-cap)", draftedTaskCount(FREE_MERCHANT) >= 6, `count=${draftedTaskCount(FREE_MERCHANT)}`);
+    // A pending task with no draft — /process must DRAFT it without 402.
     const freePendingId = seedTask(FREE_MERCHANT, `${PREFIX}_freepending`, "pending", "");
     const freeProc = await af(`/tasks/${freePendingId}/process`, SESSION_FREE, { method: "POST" });
     const freeProcBody = await freeProc.json().catch(() => null) as { error?: string } | null;
-    check("(d) free merchant: /process past the cap → 402 subscription_required (unchanged)",
-      freeProc.status === 402 && freeProcBody?.error === "subscription_required", `status=${freeProc.status} ${JSON.stringify(freeProcBody)}`);
-
-    // Watcher free control: webhook for the free merchant → no task created.
+    check("(d) free merchant: /process drafts a pending task past the old cap → 200 (not 402 at draft step)",
+      freeProc.status === 200, `status=${freeProc.status} ${JSON.stringify(freeProcBody)}`);
+    // SENDING is the paid unlock: approve → 402 subscription_required.
+    const freeApproveId = seedTask(FREE_MERCHANT, `${PREFIX}_freeapprove`, "reviewed", "Ready");
+    const freeApprove = await af(`/tasks/${freeApproveId}/approve`, SESSION_FREE, { method: "POST" });
+    const freeApproveBody = await freeApprove.json().catch(() => null) as { error?: string } | null;
+    check("(d) free merchant: approve to SEND → 402 subscription_required (send step, not draft step)",
+      freeApprove.status === 402 && freeApproveBody?.error === "subscription_required", `status=${freeApprove.status} ${JSON.stringify(freeApproveBody)}`);
+    // Watcher free control: webhook for the free merchant (draft Trust Mode) →
+    // task still CREATED + auto-drafted (unlimited), never skipped.
     const freeWh = await fireOverdue(`${PREFIX}_freewatch`, 3, "acct_free_control");
-    check("(d) free merchant: watcher skips task creation at cap (no taskId)",
-      freeWh.taskId === undefined && String(freeWh.action).includes("free draft limit"), JSON.stringify(freeWh));
+    check("(d) free merchant: watcher creates + auto-drafts a task despite 6+ drafts (no taskId skip)",
+      typeof freeWh.taskId === "number" && taskStatus(freeWh.taskId) !== null, JSON.stringify(freeWh));
   }
 
   // ── (e) Standard 50-invoice cap treated as Pro ──

@@ -183,6 +183,9 @@ export async function createTaskForOverdueInvoice(
   }
 
   if (!hasActiveSubscription(db, merchantId) && freeDraftsRemaining(db, merchantId) <= 0) {
+    // Dead code since 9/2 (Free Draft Mode is unlimited): freeDraftsRemaining
+    // is an always-enabled sentinel, so this branch can never fire. Kept for
+    // defense-in-depth only — non-subscribers may ALWAYS create draft tasks.
     console.log(`Skipping task creation for merchant ${merchantId}: free draft limit reached, no subscription`);
     return { action: `skipped reminder task for invoice ${invoice.stripe_invoice_id}: free draft limit reached`, invoiceId: invoice.id, skipped: "free-draft-limit" };
   }
@@ -213,8 +216,7 @@ export async function createTaskForOverdueInvoice(
       // Funnel: this merchant produced their first AI/template draft
       // (idempotent per merchant).
       recordFunnelEventForTask(db, taskId, "first_draft");
-      // The freemium allowance is derived from drafted tasks (see
-      // freeDraftsRemaining in db.ts) — no counter write needed here.
+      // Free Draft Mode is unlimited (9/2) — no allowance counter to write.
       const review = reviewDraft(draft, invoice, {
         lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
       });
@@ -251,38 +253,50 @@ export async function createTaskForOverdueInvoice(
           }
           const autoSend = effective === "full" || (effective === "semi" && task.stage === 1);
           if (autoSend) {
-            const paused = isMerchantPaused(db, invoice.merchant_id);
-            const disconnected = isMerchantDisconnected(db, invoice.merchant_id);
-            // Reply-pause defense-in-depth: the stale guard above skips
-            // re-fired events for reply-paused and manually-paused
-            // invoices entirely, and the pause handlers stop open tasks —
-            // so a send should never see one here. If it does (race),
-            // skip like paused.
-            const replyPaused = !!invoice.reply_paused_at;
-            const manuallyPaused = !!invoice.manually_paused_at;
-            if (paused || disconnected || replyPaused || manuallyPaused) {
-              const reason = disconnected
-                ? "stripe account disconnected"
-                : replyPaused
-                  ? "invoice reply-paused — skipped"
-                  : manuallyPaused
-                    ? "invoice manually paused — skipped"
-                    : "collections paused";
-              logSend(db, taskId, "skipped", `${reason} — automatic send skipped (task kept for resume)`);
-              console.log(`[watcher] task ${taskId} auto-send skipped: ${reason}`);
+            // SENDING gate (owner decision 9/2): Free Draft Mode is unlimited,
+            // but SENDING remains the paid unlock. A merchant with no active
+            // subscription (and not on the full-access free trial, which
+            // hasActiveSubscription includes) must NOT auto-send — the draft
+            // stays 'reviewed' in the inbox for their manual approval, which
+            // still 402s on /approve. Only active subscribers (or trial
+            // merchants) reach the send below.
+            if (!hasActiveSubscription(db, invoice.merchant_id)) {
+              logSend(db, taskId, "skipped", "free merchant — sending requires a plan; draft kept for review");
+              console.log(`[watcher] task ${taskId} auto-send skipped: free merchant (sending requires a plan) — draft ${taskId} kept 'reviewed'`);
             } else {
-              const prior = db.query(
-                "SELECT COALESCE(MAX(stage),0) AS s FROM reminder_tasks WHERE invoice_id=? AND sent_at IS NOT NULL"
-              ).get(invoice.id) as { s: number };
-              if (task.stage <= prior.s) {
-                logSend(db, taskId, "skipped", `duplicate event — invoice already has a sent reminder at stage ${prior.s}; auto-send skipped`);
-                console.log(`[watcher] task ${taskId} auto-send skipped: duplicate webhook (prior sent stage ${prior.s} >= ${task.stage})`);
+              const paused = isMerchantPaused(db, invoice.merchant_id);
+              const disconnected = isMerchantDisconnected(db, invoice.merchant_id);
+              // Reply-pause defense-in-depth: the stale guard above skips
+              // re-fired events for reply-paused and manually-paused
+              // invoices entirely, and the pause handlers stop open tasks —
+              // so a send should never see one here. If it does (race),
+              // skip like paused.
+              const replyPaused = !!invoice.reply_paused_at;
+              const manuallyPaused = !!invoice.manually_paused_at;
+              if (paused || disconnected || replyPaused || manuallyPaused) {
+                const reason = disconnected
+                  ? "stripe account disconnected"
+                  : replyPaused
+                    ? "invoice reply-paused — skipped"
+                    : manuallyPaused
+                      ? "invoice manually paused — skipped"
+                      : "collections paused";
+                logSend(db, taskId, "skipped", `${reason} — automatic send skipped (task kept for resume)`);
+                console.log(`[watcher] task ${taskId} auto-send skipped: ${reason}`);
               } else {
-                const customerEmail = invoice.customer_email;
-                const sendResult = customerEmail && customerEmail !== ""
-                  ? await sendEmailForReal(db, task, draft, customerEmail)
-                  : sendEmail(db, task, draft);
-                console.log(`[watcher] task ${taskId} auto-sent (trust ${trustMode}, stage ${task.stage}) via ${sendResult.provider || "stub"}: ${sendResult.message}`);
+                const prior = db.query(
+                  "SELECT COALESCE(MAX(stage),0) AS s FROM reminder_tasks WHERE invoice_id=? AND sent_at IS NOT NULL"
+                ).get(invoice.id) as { s: number };
+                if (task.stage <= prior.s) {
+                  logSend(db, taskId, "skipped", `duplicate event — invoice already has a sent reminder at stage ${prior.s}; auto-send skipped`);
+                  console.log(`[watcher] task ${taskId} auto-send skipped: duplicate webhook (prior sent stage ${prior.s} >= ${task.stage})`);
+                } else {
+                  const customerEmail = invoice.customer_email;
+                  const sendResult = customerEmail && customerEmail !== ""
+                    ? await sendEmailForReal(db, task, draft, customerEmail)
+                    : sendEmail(db, task, draft);
+                  console.log(`[watcher] task ${taskId} auto-sent (trust ${trustMode}, stage ${task.stage}) via ${sendResult.provider || "stub"}: ${sendResult.message}`);
+                }
               }
             }
           }

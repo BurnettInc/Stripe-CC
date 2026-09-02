@@ -28,7 +28,7 @@
  *      invoice's stage by days-overdue against the merchant's ladder timing
  *      (default 1–6 / 7–20 / 21+; Pro custom stage1_days/stage2_days) and
  *      advance when a threshold is crossed, honoring the same task rules
- *      (free-draft allowance, Trust Mode auto-send, stopped-sequence guard).
+ *      (Standard invoice cap, Trust Mode auto-send, stopped-sequence guard).
  *   3. WEEKLY SUMMARY PASS (default daily, per-merchant 7-day cadence) —
  *      reuse the existing summary generation + paid-gated send for merchants
  *      with a real email on a paid plan; each merchant is sent at most once
@@ -67,7 +67,6 @@ import {
   logSend,
   purgeMerchantData,
   invoiceLimitFor,
-  freeDraftsRemaining,
   isActivePaidSubscriber,
   isInvoiceSequenceStopped,
   getTaskForInvoice,
@@ -276,7 +275,7 @@ export interface InvoiceSyncPassResult {
   merchants: number;
   invoicesUpserted: number;
   tasksCreated: number;
-  blocked: { standardLimit: number; freeDraftLimit: number; stopped: number };
+  blocked: { standardLimit: number; stopped: number };
   disconnected: string[];
   errors: string[];
 }
@@ -284,8 +283,9 @@ export interface InvoiceSyncPassResult {
 /**
  * Pull invoices for every connected merchant and reconcile local state:
  * upsert (idempotent), propagate paid/void transitions, and create tasks for
- * newly-overdue invoices (Standard cap + blocked-resume, free-draft allowance,
- * Trust Mode via the shared watcher factory). HTTP 401 → mark disconnected.
+ * newly-overdue invoices (Standard cap + blocked-resume, stopped-sequence
+ * guard, Trust Mode via the shared watcher factory). HTTP 401 → mark
+ * disconnected.
  *
  * MODE-AWARE since reviewer fix #5: the pass runs ONCE PER MODE for every
  * merchant — live (livemode=1, always: web-connect merchants have only the
@@ -313,7 +313,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
     merchants: 0,
     invoicesUpserted: 0,
     tasksCreated: 0,
-    blocked: { standardLimit: 0, freeDraftLimit: 0, stopped: 0 },
+    blocked: { standardLimit: 0, stopped: 0 },
     disconnected: [],
     errors: [],
   };
@@ -417,8 +417,6 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
         tracked++;
       } else if (created.skipped === "standard-limit") {
         result.blocked.standardLimit++;
-      } else if (created.skipped === "free-draft-limit") {
-        result.blocked.freeDraftLimit++;
       } else {
         result.blocked.stopped++;
       }
@@ -429,7 +427,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
   log(
     `[scheduler] invoice-sync pass: ${result.merchants} merchant(s), ${result.invoicesUpserted} invoice(s) upserted, ` +
       `${result.tasksCreated} task(s) created, ${result.blocked.standardLimit} cap-blocked, ` +
-      `${result.blocked.freeDraftLimit} draft-blocked, ${result.blocked.stopped} stopped, ` +
+      `${result.blocked.stopped} stopped, ` +
       `${result.disconnected.length} disconnected, ${result.errors.length} error(s)`
   );
   return result;
@@ -441,7 +439,7 @@ export interface AdvancePassResult {
   merchants: number;
   advanced: number;
   alreadyLatest: number;
-  skipped: { stopped: number; cancelled: number; noTask: number; draftLimit: number };
+  skipped: { stopped: number; cancelled: number; noTask: number };
   errors: string[];
 }
 
@@ -465,7 +463,7 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
     merchants: 0,
     advanced: 0,
     alreadyLatest: 0,
-    skipped: { stopped: 0, cancelled: 0, noTask: 0, draftLimit: 0 },
+    skipped: { stopped: 0, cancelled: 0, noTask: 0 },
     errors: [],
   };
 
@@ -520,16 +518,14 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
         continue;
       }
       // overdueBefore=0: an already-tracked invoice is never cap-blocked
-      // (getTaskForInvoice short-circuits the Standard-limit check), and the
-      // free-draft gate still applies (a free merchant at the allowance cap
-      // cannot draft the next stage).
+      // (getTaskForInvoice short-circuits the Standard-limit check). Free
+      // Draft Mode is unlimited (9/2) — the draft allowance gate is gone, so
+      // escalation advances for every merchant; only the Standard invoice cap
+      // (and stopped-sequence guards) can hold a sequence back.
       const created = await createTaskForOverdueInvoice(db, invoice, { overdueBefore: 0, now });
       if (created.taskId) {
         result.advanced++;
         log(`[scheduler] escalation-advance: invoice ${invoice.stripe_invoice_id} stage ${latest.stage} → ${expected} (${daysOverdue} days overdue, task ${created.taskId})`);
-      } else if (created.skipped === "free-draft-limit") {
-        result.skipped.draftLimit++;
-        log(`[scheduler] escalation-advance: invoice ${invoice.stripe_invoice_id} not advanced — free draft allowance exhausted`);
       } else if (created.skipped === "stopped") {
         result.skipped.stopped++;
       } else {
@@ -541,7 +537,7 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
   log(
     `[scheduler] escalation-advance pass: ${result.merchants} merchant(s), ${result.advanced} sequence(s) advanced, ` +
       `${result.alreadyLatest} already at latest stage, ${result.skipped.stopped} stopped, ` +
-      `${result.skipped.cancelled} cancelled-latest, ${result.skipped.noTask} no-task, ${result.skipped.draftLimit} draft-blocked`
+      `${result.skipped.cancelled} cancelled-latest, ${result.skipped.noTask} no-task`
   );
   return result;
 }
