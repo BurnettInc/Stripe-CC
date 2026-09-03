@@ -24,13 +24,14 @@ WORKDIR /app
 # ── Marketing site: install full deps (build needs devDependencies) and build ──
 COPY site/package.json site/bun.lock ./site/
 RUN cd site && bun install --frozen-lockfile
-COPY site/ ./site/
-RUN cd site && bun run build
-
-# ── Backend: install production deps and copy source ──
+# The site build resolves the LIVE dashboard file (site/src/routes/demo.tsx
+# imports ../../../app/src/ui/dashboard.html?raw so /demo is a pixel-exact
+# replica) — app/ must be in the image before `cd site && bun run build`.
 COPY app/package.json app/bun.lock ./app/
 RUN cd app && bun install --frozen-lockfile --production
 COPY app/ ./app/
+COPY site/ ./site/
+RUN cd site && bun run build
 
 # The backend reads PORT from the environment (src/index.ts); 3002 is the
 # local-dev default. DB_PATH (Railway volume mount, e.g. /data/app.db) is read
