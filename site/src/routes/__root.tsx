@@ -32,7 +32,7 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", type: "image/png", href: "/logo.png" },
+      { rel: "icon", type: "image/png", href: "/collectionscopilot-logo.png" },
     ],
   }),
   notFoundComponent: () => <div>Page not found</div>,

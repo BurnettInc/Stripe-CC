@@ -2,7 +2,7 @@ export function SiteFooter({ businessName = "" }: { businessName?: string }) {
   return (
     <footer className="border-t border-gray-200 py-8 text-center text-sm text-gray-500">
       <img
-        src="/logo.png"
+        src="/collectionscopilot-logo.png"
         alt="Collections Copilot logo"
         className="h-8 w-auto mx-auto mb-4"
       />
