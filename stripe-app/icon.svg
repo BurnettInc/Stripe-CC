@@ -1,7 +1,0 @@
-<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <!-- Collections Copilot C-shield brand mark (vector, matches logo-1024.png) -->
-  <path d="M135 226 H888 Q930 226 930 282 Q930 620 790 712 Q650 800 511.5 828 Q374 800 234 712 Q94 620 94 282 Q94 226 135 226 Z" fill="#EFEDFF"/>
-  <path d="M173 278 H851 Q878 278 878 320 Q878 590 760 676 Q645 756 511.5 786 Q378 756 264 676 Q146 590 146 320 Q146 278 173 278 Z" fill="#F7F6FF"/>
-  <path d="M511.5 295 A205 205 0 0 1 511.5 705" fill="none" stroke="#5B4FE9" stroke-width="150" stroke-linecap="round"/>
-  <path d="M511.5 335 A165 165 0 0 1 511.5 665" fill="none" stroke="#2B2560" stroke-width="54" stroke-linecap="round" opacity="0.35"/>
-</svg>

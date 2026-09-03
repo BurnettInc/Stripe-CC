@@ -75,7 +75,7 @@ function getSiteHandler(): Promise<SiteHandler | null> {
 }
 
 // Serve a built site static asset (dist/client/<path>) for GET requests whose
-// path maps to a real file — e.g. /assets/*.js, /icon.svg. Paths are joined
+// path maps to a real file — e.g. /assets/*.js, /og-image.png. Paths are joined
 // onto SITE_CLIENT_DIR and must stay inside it (no traversal).
 async function serveSiteAsset(pathname: string): Promise<Response | null> {
   const clean = pathname.replace(/^\/+/, "");
