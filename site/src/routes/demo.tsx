@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { SiteNav } from "../components/SiteNav";
 import { SiteFooter } from "../components/SiteFooter";
+import { DemoTabs } from "../components/DemoListPage";
 import { BTN_PRIMARY, BTN_SECONDARY } from "../components/ui";
 
 /* The LIVE dashboard file (served at /dashboard) is the single source of
@@ -377,6 +378,7 @@ function Demo() {
             Click an invoice to open it, then try the Trust Mode toggle to see
             how each mode behaves.
           </p>
+          <DemoTabs active="pipeline" />
         </div>
       </section>
 
