@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title></title></head>
+<body>
+<!-- Cross-origin visitor-id bridge for the app beacon (owner 9/2: app/dashboard
+     visits counted as a NEW visitor each time). The app origin
+     (stripe-cc-production.up.railway.app) cannot read the marketing site's
+     localStorage (origin-scoped), so the app's dashboard/list beacons load this
+     page in a hidden same-sandboxed iframe and read the landing-site cc_vid via
+     postMessage. Minimal by design: this page exposes ONLY the cc_vid string (or
+     null) — no other data, no PII. The RECEIVER (app beacon) validates
+     event.origin before ever using the value, so '*' here is safe. -->
+<script>
+(function(){
+  try {
+    var v = localStorage.getItem('cc_vid');
+    var vid = (typeof v === 'string' && v.length > 0) ? v : null;
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({type: 'cc-vid', vid: vid}, '*');
+    }
+  } catch (e) { /* never throw out of an iframe bridge */ }
+})();
+</script>
+</body>
+</html>
