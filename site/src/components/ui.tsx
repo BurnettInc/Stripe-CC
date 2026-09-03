@@ -32,6 +32,8 @@ export const BTN_SECONDARY =
   "inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-6 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50";
 export const BTN_PRIMARY_NAV =
   "inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700";
+export const BTN_SECONDARY_NAV =
+  "inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50";
 
 /* ---- Type scale (5 deliberate levels, same classes per role) ---- */
 export const TYPE = {
