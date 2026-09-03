@@ -1,4 +1,4 @@
-import { BTN_PRIMARY_NAV } from "./ui";
+import { BTN_PRIMARY_NAV, BTN_SECONDARY_NAV } from "./ui";
 
 const INSTALL_URL = "https://stripe-cc-production.up.railway.app/oauth/install";
 
@@ -40,6 +40,9 @@ export function SiteNav({ businessName = "" }: { businessName?: string }) {
             {l.label}
           </a>
         ))}
+        <a href="/demo" className={BTN_SECONDARY_NAV}>
+          Live Demo
+        </a>
         <a href={INSTALL_URL} className={BTN_PRIMARY_NAV}>
           Get started
         </a>
