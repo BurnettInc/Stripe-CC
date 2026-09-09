@@ -27,7 +27,7 @@
  * ── reply_status state machine (see migrations/011 for the full picture) ──
  *   captured         stored here (D1a)
  *   pending_approval classified + drafted + held for approve/edit/reject (D1b)
- *   auto_sent        question + high confidence + Full Auto: sent automatically
+ *   auto_sent        question + high confidence + Copilot Mode: sent automatically
  *   sent             merchant approved (optionally after editing) and it sent
  *   rejected         merchant rejected the draft
  *   handled          terminal: opt-out confirmation sent / no response needed

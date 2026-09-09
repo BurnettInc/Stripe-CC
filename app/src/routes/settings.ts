@@ -235,13 +235,13 @@ export async function handleSettings(db: Database, req: Request, merchantId: num
       }
     }
 
-    // Full Auto (hands-off sending) is a Pro-only feature: require an active
+    // Copilot Mode (hands-off sending) is a Pro-only feature: require an active
     // Pro subscription (dev_pro counts) before allowing the merchant to switch
     // to it.
     if (trustMode === "full") {
       if (!isActiveProSubscriber(db, merchantId)) {
         return new Response(
-          JSON.stringify({ error: "Full Auto mode requires a Pro subscription. Upgrade to unlock." }),
+          JSON.stringify({ error: "Copilot Mode requires a Pro subscription. Upgrade to unlock." }),
           { status: 402, headers }
         );
       }

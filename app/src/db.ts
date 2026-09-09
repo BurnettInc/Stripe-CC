@@ -420,7 +420,7 @@ export function hasActiveSubscription(db: Database, merchantId: number): boolean
 
 /**
  * Whether the merchant's most recent subscription is an ACTIVE Pro one —
- * or the merchant is dev-flagged Pro (isDevPro). Full Auto (trust_mode
+ * or the merchant is dev-flagged Pro (isDevPro). Copilot Mode (trust_mode
  * "full") is Pro-only — the settings PUT gates switching to it,
  * enforceTierTrustMode demotes on downgrade, and the watcher's auto-send
  * branch re-checks this before trusting a stored "full".
@@ -428,7 +428,7 @@ export function hasActiveSubscription(db: Database, merchantId: number): boolean
 export function isActiveProSubscriber(db: Database, merchantId: number): boolean {
   if (isDevPro(db, merchantId)) return true;
   // The 30-day free trial grants Pro-equivalent FULL access to a
-  // non-subscriber: Pro-only gates (Full Auto trust mode, Pro settings)
+  // non-subscriber: Pro-only gates (Copilot Mode trust mode, Pro settings)
   // pass, and enforceTierTrustMode keeps a trial merchant's "full" intact.
   // Once the trial lapses (with no active paid sub) this returns false and
   // the same gates re-lock, demoting "full" back to "semi".
@@ -438,7 +438,7 @@ export function isActiveProSubscriber(db: Database, merchantId: number): boolean
 }
 
 /**
- * Tier enforcement: Full Auto (trust_mode "full") is Pro-only. If the
+ * Tier enforcement: Copilot Mode (trust_mode "full") is Pro-only. If the
  * merchant's now-effective subscription is NOT an active Pro one (no sub,
  * cancelled, past_due, or tier != "pro"), demote trust_mode "full" → "semi"
  * so the merchant stays operational (Semi-Auto still auto-sends stage 1)

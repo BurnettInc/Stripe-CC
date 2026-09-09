@@ -43,7 +43,7 @@ export async function handleInvoices(db: Database, req: Request, rawPath: string
   // Reconciles the invoice's current OPEN task so the override takes effect on
   // the very next reminder: the open task's stage + draft content are
   // re-drafted at the new effective stage (no immediate send, no free-draft
-  // consumption, no cancel → a Full-Auto merchant is never surprised by a send
+  // consumption, no cancel → a Copilot-mode merchant is never surprised by a send
   // just from setting an override).
   if (action === "stage") {
     if (req.method !== "PUT") {
