@@ -1,19 +1,13 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { readFile } from "node:fs/promises";
 import { SiteNav } from "../components/SiteNav";
 import { SiteFooter } from "../components/SiteFooter";
-import { SiteCTA } from "../components/SiteCTA";
 import {
-  CARD,
-  CARD_BASE,
-  BORDER_DEFAULT,
   BTN_PRIMARY,
   BTN_SECONDARY,
   Check,
-  PY_MAIN,
-  PY_RELATED,
-  STATUS_AUTO,
   TYPE,
 } from "../components/ui";
 
@@ -35,464 +29,522 @@ export const Route = createFileRoute("/")({
   component: Home,
 });
 
+function TrustBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[13.5px] text-muted">
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+        aria-hidden="true"
+        className="shrink-0"
+      >
+        <path
+          d="M2.5 7.25 5.5 10.25 11.5 3.75"
+          stroke="#5B4FE0"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      {label}
+    </span>
+  );
+}
+
 function Home() {
   const businessName = Route.useLoaderData();
   return (
     <div className="min-h-dvh">
       <SiteNav businessName={businessName} />
 
-      {/* Hero — two column */}
-      <section className="max-w-6xl mx-auto px-6 pt-16 pb-14">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          {/* Left column */}
+      {/* 2. Hero — approx 55/45 split */}
+      <section className="max-w-6xl mx-auto px-6 pt-14 pb-16">
+        <div className="grid grid-cols-1 lg:grid-cols-[55fr_45fr] gap-12 items-center">
           <div className="text-left">
-            <p className="mb-6 text-lg font-semibold text-gray-900">
-              Automatic follow-ups for unpaid Stripe invoices.
-            </p>
-            <div className="mb-6 space-y-3">
-              <span className="inline-block rounded-full bg-green-600 px-5 py-2 text-sm font-bold text-white shadow-md">
-                Sign up today and receive a free month — no card required
-              </span>
-              <div className="flex flex-wrap gap-x-3 gap-y-2">
-                <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
-                  Now live on the Stripe App Marketplace
-                </span>
-                <span className="inline-block rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
-                  We never sell your data
-                </span>
-              </div>
+            <div className="mb-6 flex flex-wrap gap-x-5 gap-y-2">
+              <TrustBadge label="Built for Stripe" />
+              <TrustBadge label="No credit card required" />
+              <TrustBadge label="Cancel anytime" />
             </div>
-            <h1 className={TYPE.hero}>
-              Get paid on overdue Stripe invoices — without chasing anyone.
-            </h1>
-            <p className={`mt-6 max-w-xl ${TYPE.bodyLg}`}>
-              Collections Copilot automatically follows up with customers who
-              haven't paid, using personalized email sequences that escalate
-              gently when invoices remain unpaid. Start in Draft Mode — approve
-              every email yourself, then turn on automation when you're ready.
+            <h1 className={TYPE.hero}>Stop chasing unpaid invoices.</h1>
+            <p className={`mt-6 max-w-[46ch] ${TYPE.bodyLg}`}>
+              Collections Copilot automatically follows up with customers when
+              Stripe invoices go overdue — so you can get paid without sending
+              another awkward reminder.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-4">
               <a href={INSTALL_URL} className={BTN_PRIMARY}>
-                Connect Stripe — See My Overdue Invoices
+                Try it free →
               </a>
-              <a href="/how-it-works" className={BTN_SECONDARY}>
-                How it works
+              <a href="/demo" className={BTN_SECONDARY}>
+                See the demo
               </a>
             </div>
-            <p className="mt-3 text-sm text-gray-500">
-              Start in Draft Mode. No credit card required.
+            <p className="mt-3 text-[13px] text-muted">
+              See it in action — no Stripe connection needed.
             </p>
           </div>
 
-          {/* Right column — email preview */}
+          {/* Right: real invoice example card */}
           <div>
-            <div className={`mx-auto max-w-md ${CARD}`}>
-              {/* preview header */}
-              <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-base font-bold text-indigo-700">
-                  A
-                </span>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-gray-900">
-                    Alex at ACME Services
-                  </p>
-                  <p className="text-xs text-gray-500">to Sarah</p>
-                </div>
-              </div>
-              {/* preview body */}
-              <div className="px-5 py-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
-                  Email preview
-                </p>
-                <p className="text-sm font-semibold text-gray-900">
-                  Quiet nudge — invoice #1024
-                </p>
-                <div className="mt-2 space-y-2 text-sm text-gray-700 leading-relaxed">
-                  <p>Hi Sarah,</p>
-                  <p>
-                    Hope the new site launch went well this week. Just a quick
-                    heads-up that invoice #1024 for the landing page redesign ($450)
-                    passed its due date — no rush if it's just slipped your mind.
-                  </p>
-                  <p>Let me know if anything looks off.</p>
-                  <p className="font-medium">Cheers, Alex at ACME Services</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Stripe vs Collections Copilot — the follow-up gap */}
-      <section className={`max-w-6xl mx-auto px-6 ${PY_RELATED}`}>
-        <h2 className={TYPE.h2}>
-          Stripe sends reminders. Collections Copilot manages the follow-up.
-        </h2>
-        <p className={`mt-4 max-w-3xl ${TYPE.bodyLg}`}>
-          Stripe can remind customers about unpaid invoices. Collections Copilot
-          takes over when a reminder isn't enough — following up again,
-          escalating appropriately, and stopping automatically when payment is
-          detected.
-        </p>
-        <div className="mt-8 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-300">
-                <th
-                  scope="col"
-                  className="text-left py-3 pr-4 font-semibold text-gray-900"
-                >
-                  Capability
-                </th>
-                <th
-                  scope="col"
-                  className="text-center py-3 px-2 font-semibold text-gray-700"
-                >
-                  Stripe
-                </th>
-                <th
-                  scope="col"
-                  className="text-center py-3 pl-2 pr-4 font-semibold text-indigo-700 bg-indigo-50"
-                >
-                  Collections Copilot
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { capability: "Scheduled payment reminders", stripe: "✓" },
-                {
-                  capability: "Full follow-up sequence, escalating in tone",
-                  stripe: "manual",
-                },
-                {
-                  capability: "Personalized messages, not a generic template",
-                  stripe: null,
-                },
-                {
-                  capability: "Pauses automatically when the customer replies",
-                  stripe: null,
-                },
-                {
-                  capability: "Stops the moment payment is detected",
-                  stripe: "you manage this",
-                },
-                { capability: "Custom sender branding", stripe: null },
-                { capability: "Weekly recovery reports", stripe: null },
-                { capability: "Open & click tracking", stripe: null, pro: true },
-                { capability: "Custom escalation timing", stripe: null, pro: true },
-                { capability: "Late-fee automation", stripe: null, pro: true },
-              ].map((row) => (
-                <tr key={row.capability} className="border-b border-gray-100">
-                  <td className="py-3 pr-4 text-gray-700">{row.capability}</td>
-                  <td className="text-center py-3 px-2 whitespace-nowrap">
-                    {row.stripe === "✓" ? (
-                      <span className="font-medium text-gray-700">✓</span>
-                    ) : row.stripe === null ? (
-                      <span className="text-gray-400">—</span>
-                    ) : (
-                      <span className="italic text-gray-500">
-                        &quot;{row.stripe}&quot;
-                      </span>
-                    )}
-                  </td>
-                  <td className="text-center py-3 pl-2 pr-4 whitespace-nowrap bg-indigo-50">
-                    <span className="font-medium text-indigo-600">✓</span>
-                    {row.pro && (
-                      <span className="ml-1.5 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
-                        PRO
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-4 max-w-3xl text-sm text-gray-500 leading-relaxed">
-          Start in Draft Mode, then move up the trust ladder — Semi-Auto, then
-          Full Auto — as you get comfortable approving emails. Collections
-          Copilot uses read-only Stripe access: it can never edit invoices or
-          charge your customers.
-        </p>
-      </section>
-
-      {/* Sample — one representative drafted email (full 3-stage detail lives on /how-it-works) */}
-      <section className={`max-w-6xl mx-auto px-6 ${PY_RELATED}`}>
-        <div className="mb-5">
-          <span className="inline-block rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
-            Sample · see it before you connect anything
-          </span>
-        </div>
-        <h2 className={TYPE.h2}>
-          Here's a sample account with{" "}
-          <span className="text-indigo-600">$2,150</span> in overdue invoices.
-        </h2>
-        <p className={`mt-4 max-w-3xl ${TYPE.bodyLg}`}>
-          No Stripe connection needed to see this — this is an illustrative
-          example, not a real customer's data. Here's one representative email
-          Collections Copilot would draft for a single invoice from that account.
-        </p>
-
-        {/* Sample — invoice card (left) + drafted email (right), matched pair */}
-        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
-          {/* Invoice card */}
-          <div className={`flex flex-col ${CARD}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-gray-900">
-                  Acme LLC — Invoice #1042
-                </p>
-                <p className="mt-0.5 text-xs text-gray-500">
-                  12 days overdue · last contacted 4 days ago
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-1 flex-col justify-center px-5 py-6">
-              <p className="text-3xl font-bold text-gray-900">$450</p>
-              <p className="mt-1 text-xs text-gray-500">
-                Open invoice on the account above
+            <div className="mx-auto max-w-md rounded-[14px] border border-hairline bg-white shadow-sm p-6">
+              <p className="font-display text-[36px] sm:text-[44px] font-semibold tracking-[-0.01em] text-ink leading-none">
+                $450 overdue
               </p>
-            </div>
-          </div>
-
-          {/* Drafted email card */}
-          <div className={`flex flex-col ${CARD}`}>
-            <div className="border-b border-gray-100 px-5 py-4">
-              <h3 className={TYPE.h3}>
-                What Collections Copilot would draft for this invoice
-              </h3>
-              <p className="mt-1 text-xs text-gray-500 leading-relaxed">
-                The first of a three-stage sequence — see{" "}
-                <a href="/how-it-works" className="text-indigo-600 underline">
-                  How it works
-                </a>{" "}
-                for the full escalation.
+              <p className="mt-2 text-[13px] text-muted">
+                Acme Design Co. — Invoice #1048 · 14 days late
               </p>
-            </div>
-            <div className="flex-1 p-5">
-              <div className={`overflow-hidden ${CARD_BASE} ${BORDER_DEFAULT}`}>
-                <div className="flex items-center gap-3 border-b border-gray-100 bg-gray-50 px-5 py-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
-                    Y
+              <div className="mt-5 divide-y divide-hairline border-t border-hairline">
+                <div className="flex items-center justify-between gap-3 py-3">
+                  <p className="text-[13.5px] text-ink">
+                    Day 1 — Friendly reminder sent
+                  </p>
+                  <span className="shrink-0 text-[13px] text-muted">
+                    (Delivered)
                   </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-gray-900">
-                      You &lt;you@yourbusiness.com&gt;
-                    </p>
-                    <p className={`text-xs ${STATUS_AUTO}`}>
-                      Sent automatically · Day 1–6
+                </div>
+                <div className="flex items-center justify-between gap-3 py-3">
+                  <p className="text-[13.5px] text-ink">
+                    Day 4 — Second follow-up sent
+                  </p>
+                  <span className="shrink-0 text-[13px] text-muted">
+                    (Delivered)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 py-3">
+                  <p className="text-[13.5px] text-ink">
+                    Day 7 — Customer paid
+                  </p>
+                  <span className="shrink-0 text-[13px] font-medium text-success-text">
+                    (Paid)
+                  </span>
+                </div>
+              </div>
+              <p className="mt-4 text-[15px] font-semibold text-success-text">
+                Customer paid — $450
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. From overdue to paid, automatically */}
+      <section className="max-w-6xl mx-auto px-6 py-8">
+        <div className="rounded-3xl bg-band px-6 py-14 sm:px-12">
+          <h2 className={`${TYPE.h2} text-center`}>
+            From overdue to paid, automatically.
+          </h2>
+          <p className={`mt-4 text-center max-w-2xl mx-auto ${TYPE.bodyLg}`}>
+            Collections Copilot detects overdue invoices, sends the right
+            follow-ups, and stops the moment the customer pays.
+          </p>
+          <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            {[
+              {
+                n: "1",
+                title: "Invoice overdue",
+                desc: "Detected automatically from your Stripe account.",
+              },
+              {
+                n: "2",
+                title: "Follow-ups sent",
+                desc: "Personalized, escalating reminder emails.",
+              },
+              {
+                n: "3",
+                title: "Customer pays",
+                desc: "Money goes straight to your Stripe account.",
+              },
+              {
+                n: "4",
+                title: "Sequence stops",
+                desc: "No chasing. No awkward follow-up emails.",
+              },
+            ].map((s) => (
+              <div key={s.n} className="text-center sm:text-left">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand font-display text-[15px] font-semibold text-white">
+                  {s.n}
+                </span>
+                <p className="mt-3 text-[15px] font-semibold text-ink">
+                  {s.title}
+                </p>
+                <p className="mt-1 text-[13.5px] text-muted leading-relaxed">
+                  {s.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 4. Dashboard + trust ladder */}
+      <section className="max-w-6xl mx-auto px-6 py-16">
+        <div className="grid grid-cols-1 lg:grid-cols-[55fr_45fr] gap-12 items-center">
+          {/* Left: product-screenshot-style card */}
+          <div className="overflow-hidden rounded-[14px] border border-hairline bg-white shadow-sm">
+            <div className="border-b border-hairline bg-band px-5 py-3">
+              <p className="text-[15px] font-semibold text-ink">
+                Overdue invoices
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13.5px]">
+                <thead>
+                  <tr className="border-b border-hairline text-left">
+                    <th
+                      scope="col"
+                      className="px-5 py-3 font-medium text-muted"
+                    >
+                      Customer
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3 font-medium text-muted"
+                    >
+                      Amount
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3 font-medium text-muted"
+                    >
+                      Status
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-5 py-3 text-right font-medium text-muted"
+                    >
+                      Copilot
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-hairline">
+                  {[
+                    { name: "Acme Design Co.", amount: "$450", late: "14 days late" },
+                    { name: "Brightworks Studio", amount: "$230", late: "9 days late" },
+                    { name: "Northwind Traders", amount: "$1,180", late: "6 days late" },
+                    { name: "Harbor & Finch", amount: "$75", late: "3 days late" },
+                  ].map((row) => (
+                    <tr key={row.name}>
+                      <td className="px-5 py-3 font-medium text-ink whitespace-nowrap">
+                        {row.name}
+                      </td>
+                      <td className="px-3 py-3 font-display font-semibold text-ink whitespace-nowrap">
+                        {row.amount}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <span className="inline-block rounded-full bg-warn-bg px-2.5 py-0.5 text-[13px] font-medium text-warn-text">
+                          {row.late}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <span
+                          className="inline-flex h-6 w-11 items-center rounded-full bg-brand px-0.5"
+                          role="switch"
+                          aria-checked="true"
+                          aria-label={`Copilot on for ${row.name}`}
+                        >
+                          <span className="ml-auto h-5 w-5 rounded-full bg-white" />
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Right: trust ladder */}
+          <div>
+            <h2 className={TYPE.h2}>You stay in control.</h2>
+            <p className={`mt-4 ${TYPE.bodyLg}`}>
+              Choose how much control to hand over, with a trust ladder you move
+              up as you get comfortable — and can dial back anytime.
+            </p>
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="rounded-[14px] border border-hairline bg-white p-5 shadow-sm">
+                <p className="text-[15px] font-semibold text-ink">Draft Mode</p>
+                <p className="mt-1.5 text-[13px] text-muted leading-relaxed">
+                  Review every email before it sends.
+                </p>
+              </div>
+              <div className="rounded-[14px] border-2 border-brand bg-white p-5 shadow-sm">
+                <span className="inline-block rounded-full bg-brand px-2.5 py-0.5 text-xs font-medium text-white">
+                  Most common
+                </span>
+                <p className="mt-2 text-[15px] font-semibold text-ink">
+                  Semi-Auto
+                </p>
+                <p className="mt-1.5 text-[13px] text-muted leading-relaxed">
+                  Friendly reminders send automatically. You approve escalation.
+                </p>
+              </div>
+              <div className="rounded-[14px] border border-hairline bg-white p-5 shadow-sm">
+                <p className="text-[15px] font-semibold text-ink">Full Auto</p>
+                <p className="mt-1.5 text-[13px] text-muted leading-relaxed">
+                  Handles the entire sequence for you.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. Trust strip */}
+      <section className="max-w-6xl mx-auto px-6 py-8">
+        <div className="rounded-3xl bg-band px-6 py-14 sm:px-12">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+            <div>
+              <h2 className={TYPE.h2}>
+                Built for Stripe. Read-only by design.
+              </h2>
+              <p className={`mt-4 ${TYPE.bodyLg}`}>
+                Collections Copilot connects directly to your Stripe account
+                with read-only access. It can&apos;t edit invoices, charge
+                customers, or change payment methods.
+              </p>
+              <a
+                href="/trust"
+                className="mt-4 inline-block text-[15px] font-medium text-brand-deep hover:underline"
+              >
+                See exactly what data we access →
+              </a>
+            </div>
+            <div className="space-y-5">
+              {[
+                {
+                  title: "Stripe connection",
+                  desc: "No separate payment system — works with your existing invoices.",
+                  icon: (
+                    <path
+                      d="M9 15.5 15.5 9m0 0H11m4.5 0V13.5M5 8.5 11.5 2M11.5 2H7m4.5 0v4.5"
+                      stroke="#5B4FE0"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ),
+                },
+                {
+                  title: "Message control",
+                  desc: "Review and customize every sequence before it sends.",
+                  icon: (
+                    <path
+                      d="M3 5.5A1.5 1.5 0 0 1 4.5 4h9A1.5 1.5 0 0 1 15 5.5v5a1.5 1.5 0 0 1-1.5 1.5H8l-3.6 2.9a.4.4 0 0 1-.65-.3V5.5Z"
+                      stroke="#5B4FE0"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ),
+                },
+                {
+                  title: "Read-only access",
+                  desc: "Customers still pay through your existing Stripe checkout.",
+                  icon: (
+                    <path
+                      d="M9 2.8 4.2 4.6v4c0 3.2 2 5.7 4.8 6.6 2.8-.9 4.8-3.4 4.8-6.6v-4L9 2.8Zm2.6 5.4-2.2 2.2-.9-.9"
+                      stroke="#5B4FE0"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ),
+                },
+              ].map((row) => (
+                <div key={row.title} className="flex items-start gap-4">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white border border-hairline">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 18 18"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      {row.icon}
+                    </svg>
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-ink">{row.title}</p>
+                    <p className="mt-0.5 text-[13px] text-muted leading-relaxed">
+                      {row.desc}
                     </p>
                   </div>
                 </div>
-                <div className="px-5 py-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
-                    Subject
-                  </p>
-                  <p className="text-sm font-semibold text-gray-900">
-                    Quick nudge — invoice #1042
-                  </p>
-                  <p className="mt-2 text-sm text-gray-700 leading-relaxed">
-                    “Hey Sarah, just a heads-up that invoice #1042 passed its due
-                    date — no rush if it slipped your mind.”
-                  </p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
-      {/* Trust — you're always in control */}
-      <section className={`max-w-4xl mx-auto px-6 ${PY_MAIN}`}>
-        <h2 className={`${TYPE.h2Center} mb-4`}>You're always in control</h2>
-        <p className="text-center text-gray-700 max-w-2xl mx-auto text-lg leading-relaxed">
-          Read-only Stripe access. We can't edit invoices, charge customers, or
-          change payment methods.
+      {/* 6. Pricing */}
+      <section id="pricing" className="max-w-6xl mx-auto px-6 py-16">
+        <h2 className={TYPE.h2Center}>Simple, transparent pricing</h2>
+        <p className={`mt-4 text-center ${TYPE.bodyLg}`}>
+          Start free. Upgrade when you&apos;re ready. No hidden fees.
         </p>
-        <p className="mt-4 text-center text-sm text-gray-600 max-w-3xl mx-auto leading-relaxed">
-          Draft Mode — review every email before it sends. Semi-Auto — let
-          friendly reminders send automatically, approve escalation. Full Auto —
-          let Collections Copilot handle the entire sequence.
-        </p>
-      </section>
+        <div className="mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
+          {/* Free */}
+          <div className="flex flex-col rounded-[14px] border border-hairline bg-white p-7 shadow-sm">
+            <h3 className="text-base font-semibold text-ink">
+              Free — Draft Mode
+            </h3>
+            <p className="mt-3 font-display text-[30px] font-semibold text-ink leading-none">
+              $0
+            </p>
+            <p className="mt-1.5 text-[13px] text-muted">
+              Free forever, no card required.
+            </p>
+            <ul className="mt-5 space-y-2.5 text-[13.5px] text-ink">
+              {[
+                "Unlimited AI-drafted reminders",
+                "Connect your real Stripe invoices",
+                "Review every email before sending",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <Check />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <a
+              href={INSTALL_URL}
+              className={`${BTN_SECONDARY} mt-6 w-full !px-4 !py-2.5 !text-[15px]`}
+            >
+              Try it free
+            </a>
+          </div>
 
-      {/* Pricing */}
-      <section id="pricing" className={`max-w-4xl mx-auto px-6 ${PY_MAIN}`}>
-        <h2 className={`${TYPE.h2Center} mb-4`}>Simple pricing</h2>
-        <p className="text-center text-gray-600 max-w-3xl mx-auto mb-10 text-sm leading-relaxed">
-          Every plan starts with a free 30-day trial — full access, no card
-          required. After that, Draft Mode stays free forever with unlimited drafts — subscribe
-          to unlock sending and Standard/Pro features.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {[
-            {
-              name: "Free — Draft Mode",
-              price: "Free forever, no card required",
-              period: "",
-              body: "Your first month after install is completely free — full access, no card required. After that, Draft Mode stays free forever: connect your Stripe account and see AI-drafted reminders for your real overdue invoices — unlimited, no cap. Draft any reminder free; subscribe when you want to unlock sending (and Semi-Auto/Full Auto escalation, plus 50-invoice tracking).",
-              features: [],
-              cta: "Try it free",
-              highlight: true,
-              free: true,
-            },
-            {
-              name: "Standard",
-              price: "$7",
-              period: "/month",
-              priceSub: "$50/year (save $34)",
-              trialBadge: "First month free — full access, no card required",
-              tier: "standard",
-              body: "Unlock sending with Trust Mode and run personalized reminder sequences for your overdue invoices.",
-              features: [
-                "Up to 50 overdue invoices tracked",
+          {/* Standard — most popular */}
+          <div className="flex flex-col rounded-[14px] border-2 border-brand bg-white p-7 shadow-sm">
+            <span className="inline-block w-fit rounded-full bg-brand px-2.5 py-0.5 text-xs font-medium text-white">
+              Most popular
+            </span>
+            <h3 className="mt-2.5 text-base font-semibold text-ink">Standard</h3>
+            <p className="mt-3 font-display text-[30px] font-semibold text-ink leading-none">
+              $7<span className="font-sans text-[15px] font-normal text-muted">/mo</span>
+            </p>
+            <p className="mt-1.5 text-[13px] text-muted">
+              or $50/year — save $34.
+            </p>
+            <ul className="mt-5 space-y-2.5 text-[13.5px] text-ink">
+              {[
+                "Up to 50 invoices tracked",
                 "3-stage escalation ladder",
                 "Custom sender branding",
                 "Weekly recovery reports",
-                "Trust Mode selector + sending",
-              ],
-              highlight: true,
-              free: false,
-            },
-            {
-              name: "Pro",
-              price: "$15",
-              period: "/month",
-              priceSub: "$100/year (save $80)",
-              trialBadge: "First month free — full access, no card required",
-              tier: "pro",
-              body: "Unlock sending at scale with fully autonomous collections and advanced controls.",
-              features: [
-                "Everything in Standard",
-                "Open & click tracking — see which reminders get read",
-                "Unlimited overdue invoices",
-                "Custom escalation timing",
-                "Late-fee automation",
-                "Priority support — same-business-day first response (typically within 24 hours, weekdays)",
-              ],
-              highlight: true,
-              free: false,
-            },
-          ].map((plan) => (
-            <div
-              key={plan.name}
-              className={`flex flex-col ${CARD_BASE} p-8 ${
-                plan.highlight
-                  ? "border border-indigo-300 ring-2 ring-indigo-600"
-                  : BORDER_DEFAULT
-              }`}
-            >
-              <h3 className={TYPE.h3}>{plan.name}</h3>
-              <p className={`mt-4 ${plan.free ? "text-lg font-semibold" : ""}`}>
-                <span
-                  className={
-                    plan.free
-                      ? "text-xl font-bold text-gray-900"
-                      : "text-4xl font-bold text-gray-900"
-                  }
-                >
-                  {plan.price}
-                </span>
-                <span className="text-gray-500">{plan.period}</span>
-              </p>
-              {plan.priceSub && (
-                <p className="mt-1 text-sm text-gray-500">{plan.priceSub}</p>
-              )}
-              {plan.trialBadge && (
-                <span className="mt-3 inline-block w-fit rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 ring-1 ring-green-200">
-                  {plan.trialBadge}
-                </span>
-              )}
-              <p className="mt-4 min-h-12 text-sm text-gray-600 leading-relaxed">
-                {plan.body}
-              </p>
-              <ul className="mt-6 space-y-3">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
-                    <Check />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              {plan.name === "Pro" && (
-                <p className="mt-4 text-xs text-gray-400 leading-relaxed">
-                  Late fee legality and limits vary by state/country — you're
-                  responsible for confirming your late fee terms comply with
-                  applicable law before enabling this feature.
-                </p>
-              )}
-              {plan.free ? (
-                <a
-                  href={INSTALL_URL}
-                  className={`mt-auto block w-full ${BTN_SECONDARY}`}
-                >
-                  {plan.cta}
-                </a>
-              ) : (
-                <a
-                  href={INSTALL_URL}
-                  className={`mt-auto block w-full ${
-                    plan.highlight ? BTN_PRIMARY : BTN_SECONDARY
-                  }`}
-                >
-                  Install from the Stripe App Marketplace
-                </a>
-              )}
-            </div>
-          ))}
-        </div>
-        <p className="mt-8 text-sm text-gray-500 text-center">
-          Install from the Stripe App Marketplace — subscribe inside the app after
-          connecting. Every tier is free for your first 30 days, no card required.
-          Then $7/mo or $50/yr Standard · $15/mo or $100/yr Pro.
-        </p>
-      </section>
-
-      {/* Compare plans — Standard vs Pro, one glance */}
-      <section className={`max-w-4xl mx-auto px-6 ${PY_MAIN}`}>
-        <h2 className={TYPE.h2Center}>Compare plans</h2>
-        <p className="text-center text-gray-600 max-w-2xl mx-auto mt-3 text-sm leading-relaxed">
-          Everything in Draft Mode is free forever. The table below shows what
-          each paid plan unlocks.
-        </p>
-        <div className="mt-8 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-300">
-                <th scope="col" className="text-left py-3 pr-4 font-semibold text-gray-900">Feature</th>
-                <th scope="col" className="text-center py-3 px-2 font-semibold text-gray-700">Standard</th>
-                <th scope="col" className="text-center py-3 pl-2 font-semibold text-indigo-700">Pro</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { feature: "Overdue invoices tracked", std: "Up to 50", pro: "Unlimited" },
-                { feature: "Open & click tracking — see which reminders get read", std: "—", pro: "✓ Included" },
-                { feature: "3-stage escalation ladder", std: "✓", pro: "✓" },
-                { feature: "Custom sender branding", std: "✓", pro: "✓" },
-                { feature: "Custom escalation timing", std: "—", pro: "✓" },
-                { feature: "Late-fee automation", std: "—", pro: "✓" },
-                { feature: "Priority support (same-business-day first response)", std: "—", pro: "✓" },
-              ].map((row) => (
-                <tr key={row.feature} className="border-b border-gray-100">
-                  <td className="py-3 pr-4 text-gray-700">{row.feature}</td>
-                  <td className="text-center py-3 px-2 text-gray-600">{row.std}</td>
-                  <td className="text-center py-3 pl-2 font-medium text-indigo-700">{row.pro}</td>
-                </tr>
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <Check />
+                  {f}
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="mt-4 text-xs text-gray-500 text-center">
-          Open &amp; click tracking shows whether each reminder was opened or
-          clicked, per send, on your Sent Reminders page.
-        </p>
-      </section>
+            </ul>
+            <a
+              href={INSTALL_URL}
+              className={`${BTN_PRIMARY} mt-6 w-full !px-4 !py-2.5 !text-[15px]`}
+            >
+              Get started
+            </a>
+          </div>
 
-      <SiteCTA />
+          {/* Pro */}
+          <div className="flex flex-col rounded-[14px] border border-hairline bg-white p-7 shadow-sm">
+            <h3 className="text-base font-semibold text-ink">Pro</h3>
+            <p className="mt-3 font-display text-[30px] font-semibold text-ink leading-none">
+              $15<span className="font-sans text-[15px] font-normal text-muted">/mo</span>
+            </p>
+            <p className="mt-1.5 text-[13px] text-muted">
+              or $100/year — save $80.
+            </p>
+            <ul className="mt-5 space-y-2.5 text-[13.5px] text-ink">
+              {[
+                "Everything in Standard",
+                "Unlimited invoices tracked",
+                "Open and click tracking",
+                "Late-fee automation",
+              ].map((f) => (
+                <li key={f} className="flex items-start gap-2">
+                  <Check />
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <a
+              href={INSTALL_URL}
+              className={`${BTN_SECONDARY} mt-6 w-full !px-4 !py-2.5 !text-[15px]`}
+            >
+              Get started
+            </a>
+            <p className="mt-4 text-xs text-muted leading-relaxed">
+              Late fee legality and limits vary by state/country — you&apos;re
+              responsible for confirming your late fee terms comply with
+              applicable law before enabling this feature.
+            </p>
+          </div>
+
+          {/* Calculator */}
+          <CalculatorCard />
+        </div>
+      </section>
 
       <SiteFooter businessName={businessName} />
+    </div>
+  );
+}
+
+function CalculatorCard() {
+  const [avg, setAvg] = useState(450);
+  const [count, setCount] = useState(6);
+  const total = (Number.isFinite(avg) ? avg : 0) * (Number.isFinite(count) ? count : 0);
+  const formatted = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(total);
+  return (
+    <div className="flex flex-col rounded-[14px] bg-band p-7">
+      <h3 className="text-base font-semibold text-ink">
+        How much are overdue invoices costing you?
+      </h3>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <label className="block">
+          <span className="block text-[13px] font-medium text-muted">
+            Avg. overdue invoice
+          </span>
+          <input
+            type="number"
+            min={0}
+            value={Number.isFinite(avg) ? avg : ""}
+            onChange={(e) =>
+              setAvg(e.target.value === "" ? NaN : Number(e.target.value))
+            }
+            className="mt-1.5 w-full rounded-lg border border-hairline bg-white px-3 py-2 text-[15px] text-ink focus:border-brand focus:outline-none"
+          />
+        </label>
+        <label className="block">
+          <span className="block text-[13px] font-medium text-muted">
+            Invoices overdue
+          </span>
+          <input
+            type="number"
+            min={0}
+            value={Number.isFinite(count) ? count : ""}
+            onChange={(e) =>
+              setCount(e.target.value === "" ? NaN : Number(e.target.value))
+            }
+            className="mt-1.5 w-full rounded-lg border border-hairline bg-white px-3 py-2 text-[15px] text-ink focus:border-brand focus:outline-none"
+          />
+        </label>
+      </div>
+      <p className="mt-4 font-display text-xl font-semibold text-brand-deep">
+        {formatted} potentially unpaid
+      </p>
+      <p className="mt-2 text-[13px] text-muted leading-relaxed">
+        Standard costs $7/month. Recover one invoice and it&apos;s already paid
+        for itself.
+      </p>
     </div>
   );
 }
