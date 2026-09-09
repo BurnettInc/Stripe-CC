@@ -139,16 +139,19 @@ function Home() {
             <h3 className={TYPE.h3}>Stripe</h3>
             <ul className="mt-4 space-y-3">
               {[
-                "Sends scheduled payment reminders",
-                "Basic reminder timing",
-                "Generic payment reminder",
-                "You manage what happens next",
-                "No sender branding customization",
-                "No open & click tracking",
-                "No late-fee automation",
+                { text: "Sends scheduled payment reminders" },
+                { text: "Basic reminder timing" },
+                { text: "Generic payment reminder" },
+                { text: "You manage what happens next" },
+                { text: "— No sender branding customization", muted: true },
+                { text: "— No open & click tracking", muted: true },
+                { text: "— No late-fee automation", muted: true },
               ].map((item) => (
-                <li key={item} className="text-sm text-gray-600">
-                  {item}
+                <li
+                  key={item.text}
+                  className={`text-sm ${item.muted ? "text-gray-400" : "text-gray-600"}`}
+                >
+                  {item.text}
                 </li>
               ))}
             </ul>
