@@ -5,8 +5,8 @@ export function SiteFooter({ businessName = "" }: { businessName?: string }) {
   return (
     <footer className="bg-footer text-white">
       <div className="max-w-6xl mx-auto px-6 py-12">
-        <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-6">
-          <a href="/" className="flex items-center gap-3">
+        <div className="grid grid-cols-1 items-center gap-y-6 md:grid-cols-[1fr_auto_1fr]">
+          <a href="/" className="flex items-center gap-3 justify-self-start">
             <img
               src="/collectionscopilot-logo.png"
               alt="Collections Copilot logo"
@@ -16,10 +16,10 @@ export function SiteFooter({ businessName = "" }: { businessName?: string }) {
               {wordmark}
             </span>
           </a>
-          <p className="font-display text-xl font-semibold text-white">
+          <p className="font-display text-sm font-medium tracking-wide text-white/70 justify-self-start md:justify-self-center">
             Less chasing. More cash.
           </p>
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-footer-muted">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-footer-muted justify-self-start md:justify-self-end">
             <a href="/how-it-works" className="transition-colors hover:text-white">
               How it works
             </a>

@@ -64,7 +64,7 @@ function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-[55fr_45fr] gap-12 items-center">
           <div className="text-left">
             <div className="mb-6 flex flex-wrap gap-x-5 gap-y-2">
-              <TrustBadge label="Built for Stripe" />
+              <TrustBadge label="Stripe-native." />
               <TrustBadge label="No credit card required" />
               <TrustBadge label="Cancel anytime" />
             </div>
