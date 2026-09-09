@@ -73,10 +73,10 @@ function Trust() {
                   <li className="flex items-start gap-3 text-sm">
                     <span className="text-gray-700">
                       <span className="font-semibold text-gray-900">
-                        External access — data sharing.
+                        External access — none.
                       </span>{" "}
-                      We connect to our own backend to prepare and send your reminders;
-                      no third parties.
+                      We connect to our own backend to prepare and send your
+                      reminders. Your data is never shared with third parties.
                     </span>
                   </li>
                 </ul>
