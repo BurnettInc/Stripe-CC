@@ -168,11 +168,32 @@ function Home() {
             <p className="mt-5 text-xs font-semibold uppercase tracking-wide text-indigo-600">
               CollectionsCopilot only
             </p>
+            <p className="mt-3 text-sm font-semibold text-gray-900">
+              Included in every paid plan
+            </p>
             <ul className="mt-2 space-y-3">
               {[
                 "Pauses when the customer replies",
                 "Stops when payment arrives",
                 "Draft → Semi-Auto → Full Auto trust ladder",
+                "Custom sender branding",
+                "Weekly recovery reports",
+                "Read-only Stripe access — never edits invoices or charges customers",
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2 text-sm text-gray-800">
+                  <Check />
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-5 text-sm font-semibold text-gray-900">
+              Unlocked with Pro
+            </p>
+            <ul className="mt-2 space-y-3">
+              {[
+                "Open & click tracking — see which reminders get read",
+                "Custom escalation timing",
+                "Late-fee automation",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2 text-sm text-gray-800">
                   <Check />
