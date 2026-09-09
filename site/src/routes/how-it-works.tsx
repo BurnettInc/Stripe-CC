@@ -4,7 +4,6 @@ import { SiteFooter } from "../components/SiteFooter";
 import { SiteCTA } from "../components/SiteCTA";
 import {
   CARD,
-  CALLOUT_INDIGO,
   PY_MAIN,
   PY_RELATED,
   STATUS_AUTO,
@@ -16,6 +15,21 @@ import {
 export const Route = createFileRoute("/how-it-works")({
   component: HowItWorks,
 });
+
+/* Small arrow separator for connected flows: horizontal on desktop,
+ * vertical on mobile. Decorative only. */
+function FlowArrow() {
+  return (
+    <>
+      <span aria-hidden="true" className="hidden shrink-0 self-center text-xl text-muted md:inline">
+        →
+      </span>
+      <span aria-hidden="true" className="shrink-0 self-center text-xl text-muted md:hidden">
+        ↓
+      </span>
+    </>
+  );
+}
 
 function HowItWorks() {
   return (
@@ -32,6 +46,40 @@ function HowItWorks() {
         </p>
       </section>
 
+      {/* Sequence strip: the escalation timeline at a glance */}
+      <section className={`max-w-5xl mx-auto px-6 ${PY_RELATED}`}>
+        <div className="flex flex-col items-stretch justify-center gap-2 md:flex-row md:items-stretch">
+          <div className="rounded-[14px] border border-hairline bg-warn-bg px-5 py-4 text-center shadow-sm md:flex-1">
+            <p className="text-sm font-semibold text-ink">$450 invoice overdue</p>
+            <p className="mt-1 text-[13px] text-muted">Copilot notices, instantly</p>
+          </div>
+          <FlowArrow />
+          <div className={`px-5 py-4 text-center md:flex-1 ${CARD}`}>
+            <p className="text-sm font-semibold text-ink">Day 1: friendly reminder</p>
+            <p className="mt-1 text-[13px] text-muted">A gentle nudge, in your voice</p>
+          </div>
+          <FlowArrow />
+          <div className={`px-5 py-4 text-center md:flex-1 ${CARD}`}>
+            <p className="text-sm font-semibold text-ink">Day 7: follow-up</p>
+            <p className="mt-1 text-[13px] text-muted">Firmer, still polite</p>
+          </div>
+          <FlowArrow />
+          <div className={`px-5 py-4 text-center md:flex-1 ${CARD}`}>
+            <p className="text-sm font-semibold text-ink">Day 21: final notice</p>
+            <p className="mt-1 text-[13px] text-muted">Your last word before you step in</p>
+          </div>
+          <FlowArrow />
+          <div className="rounded-[14px] border border-hairline bg-success-bg px-5 py-4 text-center shadow-sm md:flex-1">
+            <p className="text-sm font-semibold text-success-text">
+              <span aria-hidden="true">✓ </span>Customer paid — sequence stops
+            </p>
+            <p className="mt-1 text-[13px] text-success-text">
+              Automatically, mid-sequence
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Full 3-stage escalation detail */}
       <section className={`max-w-5xl mx-auto px-6 ${PY_RELATED}`}>
         <h2 className={TYPE.h2Center}>Every unpaid invoice escalates in three stages</h2>
@@ -39,9 +87,9 @@ function HowItWorks() {
           Two or three gentle, personalized emails — drafted and sent automatically
           on a schedule you control. They read like you, because they're from you.
         </p>
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="mt-8 flex flex-col items-stretch gap-2 md:flex-row">
           {/* Stage 1 — sent automatically */}
-          <div className={`overflow-hidden ${CARD}`}>
+          <div className={`overflow-hidden md:flex-1 ${CARD}`}>
             <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-4">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
                 A
@@ -50,7 +98,7 @@ function HowItWorks() {
                 <p className="truncate text-sm font-semibold text-gray-900">
                   Alex at ACME Services
                 </p>
-                <p className={`text-xs ${STATUS_AUTO}`}>Sent automatically · Day 1–6</p>
+                <p className={`text-xs ${STATUS_AUTO}`}>AUTO-SENT · Day 1–6</p>
               </div>
             </div>
             <div className="px-5 py-4">
@@ -66,8 +114,9 @@ function HowItWorks() {
               </p>
             </div>
           </div>
+          <FlowArrow />
           {/* Stage 2 — waits for approval */}
-          <div className={`overflow-hidden ${CARD}`}>
+          <div className={`overflow-hidden md:flex-1 ${CARD}`}>
             <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-4">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
                 A
@@ -77,7 +126,7 @@ function HowItWorks() {
                   Alex at ACME Services
                 </p>
                 <p className={`text-xs ${STATUS_WAIT}`}>
-                  Waits for your approval · Day 7–20
+                  APPROVAL REQUIRED · Day 7–20
                 </p>
               </div>
             </div>
@@ -94,8 +143,9 @@ function HowItWorks() {
               </p>
             </div>
           </div>
+          <FlowArrow />
           {/* Stage 3 — waits for approval */}
-          <div className={`overflow-hidden ${CARD}`}>
+          <div className={`overflow-hidden md:flex-1 ${CARD}`}>
             <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-4">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">
                 A
@@ -105,7 +155,7 @@ function HowItWorks() {
                   Alex at ACME Services
                 </p>
                 <p className={`text-xs ${STATUS_WAIT}`}>
-                  Waits for your approval · Day 21+
+                  APPROVAL REQUIRED · Day 21+
                 </p>
               </div>
             </div>
@@ -123,6 +173,9 @@ function HowItWorks() {
             </div>
           </div>
         </div>
+        <p className={`mt-6 text-center text-base font-medium ${STATUS_AUTO}`}>
+          💰 Customer pays — sequence stops automatically
+        </p>
       </section>
 
       {/* Mode comparison + payment stop */}
@@ -137,8 +190,9 @@ function HowItWorks() {
           <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
             {[
               {
-                mode: "Draft",
-                tagline: "You approve everything",
+                mode: "Draft Mode",
+                cue: "You approve",
+                tagline: "Nothing sends without you",
                 behavior: [
                   { when: "Day 1–6", action: "Drafted & queued for your approval", auto: false },
                   { when: "Day 7–20", action: "Drafted & queued for your approval", auto: false },
@@ -148,6 +202,7 @@ function HowItWorks() {
               },
               {
                 mode: "Semi-Auto",
+                cue: "Shared control",
                 tagline: "Friendly reminders send themselves",
                 behavior: [
                   { when: "Day 1–6", action: "Auto-sends", auto: true },
@@ -158,6 +213,7 @@ function HowItWorks() {
               },
               {
                 mode: "Copilot Mode",
+                cue: "Copilot handles it",
                 tagline: "Fully hands-off",
                 behavior: [
                   { when: "Day 1–6", action: "Auto-sends", auto: true },
@@ -168,7 +224,10 @@ function HowItWorks() {
               },
             ].map((mode) => (
               <div key={mode.mode} className={`flex flex-col ${CARD} p-6`}>
-                <h3 className={TYPE.h3}>{mode.mode === "Copilot Mode" ? mode.mode : `${mode.mode} Mode`}</h3>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                  {mode.cue}
+                </p>
+                <h3 className={`mt-1 ${TYPE.h3}`}>{mode.mode}</h3>
                 <p className="mt-1 text-xs font-medium text-gray-500">{mode.tagline}</p>
                 <ul className="mt-4 space-y-2">
                   {mode.behavior.map((b) => (
@@ -193,15 +252,47 @@ function HowItWorks() {
             ))}
           </div>
 
-          {/* Payment stop guarantee */}
-          <div className={`${CALLOUT_INDIGO} text-center mb-6`}>
-            <p className="text-base font-semibold text-indigo-900">
-              The moment a payment is detected, the entire sequence stops — no
-              exceptions.
+          {/* Payment-stop closer */}
+          <div className="rounded-[14px] border border-hairline bg-success-bg p-8 sm:p-12 text-center mb-6">
+            <p className="font-display text-[28px] sm:text-[36px] font-semibold tracking-[-0.01em] text-ink">
+              <span aria-hidden="true" className="text-success-text">✓ </span>
+              Customer paid? We&rsquo;re done.
             </p>
-            <p className="mt-1 text-sm text-indigo-700">
+            <p className="mt-3 text-base text-muted max-w-xl mx-auto leading-relaxed">
               Before every send, the pipeline re-checks the invoice. Paid? That
-              customer's sequence is done.
+              customer&rsquo;s sequence is done — no exceptions, no awkward
+              follow-ups.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Stripe flow: Copilot never moves money */}
+      <section className={`max-w-5xl mx-auto px-6 ${PY_MAIN}`}>
+        <h2 className={TYPE.h2Center}>Copilot never moves money. Stripe does.</h2>
+        <p className={`text-center text-gray-600 max-w-xl mx-auto ${TYPE.bodyLg}`}>
+          Copilot only reads invoice data and sends reminders — it never touches
+          funds. Payment always settles in Stripe, exactly as it does today.
+        </p>
+        <div className="mt-8 flex flex-col items-stretch gap-2 md:flex-row md:items-stretch">
+          <div className={`px-5 py-4 text-center md:flex-1 ${CARD}`}>
+            <p className="text-sm font-semibold text-ink">Your Stripe account</p>
+            <p className="mt-1 text-[13px] text-muted">
+              Invoice data in — Copilot reads what&rsquo;s overdue
+            </p>
+          </div>
+          <FlowArrow />
+          <div className={`px-5 py-4 text-center md:flex-1 ${CARD}`}>
+            <p className="text-sm font-semibold text-ink">Collections Copilot</p>
+            <p className="mt-1 text-[13px] text-muted">
+              Reminders out — personalized emails to your customer
+            </p>
+          </div>
+          <FlowArrow />
+          <div className={`px-5 py-4 text-center md:flex-1 ${CARD}`}>
+            <p className="text-sm font-semibold text-ink">Your customer</p>
+            <p className="mt-1 text-[13px] text-muted">
+              Pays via Stripe — funds settle straight to you
             </p>
           </div>
         </div>
