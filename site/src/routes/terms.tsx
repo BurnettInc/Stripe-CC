@@ -40,7 +40,7 @@ function Terms() {
         <ul className="list-disc pl-6 text-gray-700 space-y-1">
           <li><strong>Draft</strong> — emails are written but not sent until you approve them</li>
           <li><strong>Semi-Auto</strong> — early, friendly reminders send automatically; later stages wait for your approval</li>
-          <li><strong>Copilot mode</strong> — the entire sequence runs without manual intervention</li>
+          <li><strong>Copilot Mode</strong> — the entire sequence runs without manual intervention</li>
         </ul>
         <p className="text-gray-700 leading-relaxed">
           You can switch Trust Modes at any time, including per-invoice overrides.
@@ -51,7 +51,7 @@ function Terms() {
           The Service offers a free tier that lets you view AI-drafted reminders for up
           to five real overdue invoices. On the free tier, emails are sent only when
           you approve them, or automatically for Stage-1 reminders if you select
-          Semi-Auto (Copilot mode is a Pro feature). To unlock more sending, you must
+          Semi-Auto (Copilot Mode is a Pro feature). To unlock more sending, you must
           subscribe to a paid plan (Standard at $7/month or Pro at $15/month).
           Subscriptions are billed monthly in advance via Stripe and renew
           automatically until cancelled. You can cancel at any time — cancellation
@@ -78,7 +78,7 @@ function Terms() {
           result in payment, that the Service will be uninterrupted or error-free, or
           that every overdue invoice will be detected. We are not liable for late or
           missed payments, or for any consequences of emails sent through the Service.
-          Use the Service at your own discretion — particularly in Copilot mode,
+          Use the Service at your own discretion — particularly in Copilot Mode,
           where emails are sent without your review.
         </p>
 

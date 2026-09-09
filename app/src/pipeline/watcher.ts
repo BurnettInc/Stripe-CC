@@ -225,7 +225,7 @@ export async function createTaskForOverdueInvoice(
       ]);
       console.log(`[watcher] auto-drafted task ${taskId} for invoice ${invoice.stripe_invoice_id} (stage ${stage}, ${review.approved ? "reviewed-ok" : "review-issues:" + review.issues.length})`);
 
-      // ── Trust Mode auto-send (Copilot mode / Semi-Auto stage 1) ──
+      // ── Trust Mode auto-send (Copilot Mode / Semi-Auto stage 1) ──
       // Executes the send server-side, applying the same gates /process
       // does:
       //   1. Reviewer approval — never send an unapproved draft.

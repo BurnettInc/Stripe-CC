@@ -119,7 +119,7 @@ export interface SendOptions {
 
 /**
  * Notify the merchant when a Stage 2 or Stage 3 reminder actually sends
- * (homepage Copilot mode promise: "You're notified when something happens —
+ * (homepage Copilot Mode promise: "You're notified when something happens —
  * sequence escalated"). Stage 1 sends are deliberately silent (too noisy).
  * No-op for null tasks (weekly summaries, merchant notifications themselves —
  * no recursion) and failed sends: callers only invoke this after a confirmed

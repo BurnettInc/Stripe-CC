@@ -608,7 +608,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
 
       // Pause/disconnect gate: while the merchant has collections paused OR
       // their Stripe account is disconnected, every AUTOMATIC send is skipped
-      // (Semi-Auto stage 1 and Copilot mode). The task stays in place (status
+      // (Semi-Auto stage 1 and Copilot Mode). The task stays in place (status
       // 'reviewed', not cancelled) so it resumes when unpaused/reconnected.
       // Manual actions (/approve, /summary/send) are NOT blocked by pause or
       // disconnection — a merchant can still fire a final reminder by hand.
@@ -638,7 +638,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
         );
       }
 
-      // Copilot mode (or Semi stage 1) with an active subscription: send.
+      // Copilot Mode (or Semi stage 1) with an active subscription: send.
       // Free merchants never reach this point (the SENDING gate above
       // stopped them) — the draft stays 'reviewed' for approval + 402.
       pipelineLog.push("Step 3: Sending email...");

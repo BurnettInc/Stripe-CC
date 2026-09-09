@@ -8,7 +8,7 @@
  *
  *   captured ──processReplyAI──▶ classified + drafted
  *                                  │
- *                                  ├─ question + confidence≥0.8 + Copilot mode
+ *                                  ├─ question + confidence≥0.8 + Copilot Mode
  *                                  │      → auto-send reply → reply_status
  *                                  │        'auto_sent' + handled_at, owner
  *                                  │        gets a "Sent automatically." copy
@@ -118,7 +118,7 @@ function effectiveTrustMode(db: Database, invoice: Invoice): string {
  *   2. opt_out → opt-out handling (customer's explicit request wins even if
  *      the invoice later paid — honoring it is harmless and unambiguous).
  *   3. anything that isn't a confident question → hold.
- *   4. question + high confidence + Copilot mode + not-stopped invoice → auto-send.
+ *   4. question + high confidence + Copilot Mode + not-stopped invoice → auto-send.
  */
 export function decideReplySendPolicy(
   classification: ReplyClassification,
@@ -143,14 +143,14 @@ export function decideReplySendPolicy(
     return { action: "hold", reason: "low classification confidence — held for owner approval" };
   }
   if (trustMode !== "full") {
-    return { action: "hold", reason: `trust mode '${trustMode}' — auto-send requires Copilot mode` };
+    return { action: "hold", reason: `trust mode '${trustMode}' — auto-send requires Copilot Mode` };
   }
   // Stopped-invoice guard: never auto-send a reply when the invoice has since
   // been paid / disputed / refunded, or the customer already opted out.
   if (invoice && (invoice.status === "paid" || invoice.dispute_id || invoice.refund_id || invoice.reply_opt_out_at)) {
     return { action: "hold", reason: "invoice stopped (paid/disputed/refunded/opt-out) — held for owner approval" };
   }
-  return { action: "auto_send", reason: "question + high confidence + Copilot mode" };
+  return { action: "auto_send", reason: "question + high confidence + Copilot Mode" };
 }
 
 // ── Template fallback (no OPENAI_API_KEY, or the model misbehaves) ──
@@ -394,7 +394,7 @@ async function sendOwnerAutoSendCopy(
 
   const fromLabel = reply.from_name ? `${reply.from_name} <${reply.from_email}>` : reply.from_email;
   const body =
-    `${invoice.customer_name} replied to invoice #${invoice.stripe_invoice_id}, and the AI drafted and sent the response below automatically (Copilot mode). ` +
+    `${invoice.customer_name} replied to invoice #${invoice.stripe_invoice_id}, and the AI drafted and sent the response below automatically (Copilot Mode). ` +
     `Sent automatically — no action needed unless you want to follow up.\n\n` +
     `— — —\n` +
     `Original customer reply\n` +

@@ -557,12 +557,14 @@
       background: #fff;
       line-height: 1.5;
     }
-    .status-banner.banner-ok { background: #F0FDF4; border-color: #86EFAC; }
+    .status-banner.banner-ok { background: #F6F6FB; border-color: var(--border); }
     .status-banner.banner-warn { background: #FFFBEB; border-color: #FCD34D; }
     .status-banner strong { font-size: 1rem; color: var(--text); }
+    .status-banner.banner-ok strong { color: #6E7191; }
     .status-banner p { margin: 4px 0 0; color: var(--body); font-size: 0.85rem; }
+    .status-banner.banner-ok p { color: #6E7191; }
     .status-banner-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
-    .status-banner-dot.ok { background: #16A34A; }
+    .status-banner-dot.ok { background: #0B6B4F; }
     .status-banner-dot.warn { background: #D97706; }
     .status-banner-actions { display: flex; gap: 10px; flex-wrap: wrap; }
     .status-banner-btn {
@@ -596,12 +598,12 @@
       margin-bottom: 24px;
       padding: 12px 18px;
       border-radius: var(--radius);
-      border: 1px solid #86EFAC;
-      background: #F0FDF4;
+      border: 1px solid var(--border);
+      background: #F6F6FB;
       line-height: 1.5;
     }
-    .trial-banner strong { font-size: 0.95rem; color: var(--text); }
-    .trial-banner p { margin: 3px 0 0; color: var(--body); font-size: 0.85rem; }
+    .trial-banner strong { font-size: 0.95rem; color: #6E7191; }
+    .trial-banner p { margin: 3px 0 0; color: #6E7191; font-size: 0.85rem; }
     .trial-banner-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
     .badge-live { background: #DCFCE7; color: #15803D; }
@@ -881,8 +883,8 @@
          /stats so a brand-new unauthenticated visitor keeps the connect-banner
          above as the entry point. Once authed it becomes the clear source of
          truth — "Not connected to Stripe" + Connect CTA, "Connected to Stripe —
-         subscription required" + Subscribe Standard/Pro CTAs, or "Active —
-         Connected to Stripe" with a Test/Live badge from the connection's
+         subscription required" + Subscribe Standard/Pro CTAs, or
+         "Connected to Stripe · Live." with a Test/Live badge from the connection's
          mode. -->
     <div class="status-banner" id="status-banner">
       <div style="display:flex;align-items:center;gap:10px;">
@@ -974,7 +976,7 @@
         <label class="trust-pill selected" data-mode="draft">
           <input type="radio" name="trust_mode" value="draft" checked>
           <div class="pill-icon">✏️</div>
-          <div class="pill-label">Draft Only</div>
+          <div class="pill-label">Draft Mode</div>
           <span class="pill-badge badge-draft">Safe</span>
           <div class="pill-desc">AI writes emails. You review and send manually. Full control.</div>
         </label>
@@ -988,7 +990,7 @@
         <label class="trust-pill" data-mode="full">
           <input type="radio" name="trust_mode" value="full">
           <div class="pill-icon">🤖</div>
-          <div class="pill-label">Copilot mode</div>
+          <div class="pill-label">Copilot Mode</div>
           <span class="pill-badge badge-full">Autonomous</span>
           <div class="pill-desc">End-to-end: drafts, reviews, and sends automatically.</div>
         </label>
@@ -1147,7 +1149,7 @@
       <div id="inbox-full-auto" style="display:none;">
         <div class="status-bar">
           <span class="status-dot"></span>
-          <span>Copilot mode is running — no approvals needed.</span>
+          <span>Copilot Mode is running — no approvals needed.</span>
         </div>
       </div>
       <div id="inbox-empty" style="display:none;color:var(--muted);font-size:0.9rem;padding:8px 0;">
@@ -1216,7 +1218,7 @@
               <li>✓ Unlimited overdue invoices</li>
               <li>✓ 3-stage escalation ladder</li>
               <li>✓ AI-drafted reminder emails</li>
-              <li>✓ Copilot mode</li>
+              <li>✓ Copilot Mode</li>
               <li>✓ Priority support</li>
             </ul>
             <button onclick="subscribe('pro')" id="btn-pro">
@@ -1311,7 +1313,7 @@
     //   • connected, no    → warn "Connected to Stripe — subscription
     //     active plan        required" + Subscribe Standard/Pro CTAs (the
     //                       reviewer's exact wording)
-    //   • connected+active → ok "Active — Connected to Stripe" + Test/Live
+    //   • connected+active → ok "Connected to Stripe · Live." + Test/Live
     //                       badge when the connection's mode is known
     //                        (stripe_livemode from the marketplace-install
     //                        token pair; null = web-connect, badge omitted)
@@ -1359,7 +1361,7 @@
         var badge = '';
         if (s.stripe_livemode === true || s.stripe_livemode === 1) badge = ' <span class="pill-badge badge-live">Live</span>';
         else if (s.stripe_livemode === false || s.stripe_livemode === 0) badge = ' <span class="pill-badge badge-test">Test</span>';
-        title.innerHTML = 'Active — Connected to Stripe' + badge;
+        title.innerHTML = 'Connected to Stripe · Live.' + badge;
         sub.textContent = s.plan === 'pro'
           ? 'Collections Copilot is watching your invoices — Pro features are unlocked.'
           : 'Collections Copilot is watching your invoices for overdue payments.';
@@ -1751,12 +1753,12 @@
               var fdh = document.getElementById('stat-free-drafts-hint');
               if (fdh) fdh.textContent = 'Developer preview';
             }
-            // Gate Copilot mode behind Pro
+            // Gate Copilot Mode behind Pro
             if (fullAutoPill) {
               if (!isPro) {
                 fullAutoPill.style.opacity = '0.45';
                 fullAutoPill.style.pointerEvents = 'none';
-                fullAutoPill.title = 'Copilot mode requires a Pro subscription';
+                fullAutoPill.title = 'Copilot Mode requires a Pro subscription';
               } else {
                 fullAutoPill.style.opacity = '1';
                 fullAutoPill.style.pointerEvents = 'auto';

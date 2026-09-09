@@ -60,7 +60,7 @@ const trustModeOptions: Array<{ value: TrustModeValue; label: string }> = [
   { value: 'global', label: 'Use global default' },
   { value: 'draft', label: 'Draft' },
   { value: 'semi', label: 'Semi-Auto' },
-  { value: 'full', label: 'Copilot mode' },
+  { value: 'full', label: 'Copilot Mode' },
 ];
 
 function formatDate(value?: string | number | null): string {

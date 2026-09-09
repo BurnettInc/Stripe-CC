@@ -452,7 +452,7 @@ export interface AdvancePassResult {
  * Advance = create the NEXT task at the higher stage via the shared watcher
  * factory (createReminderTask cancels the prior open task; the auto-draft +
  * Trust Mode auto-send rules apply — Semi-Auto stage 2+ lands 'reviewed' for
- * approval, Copilot mode sends). An invoice whose latest task is cancelled (or
+ * approval, Copilot Mode sends). An invoice whose latest task is cancelled (or
  * paused) is a stopped sequence and is NEVER resurrected; an overdue invoice
  * with no task at all is left to the sync pass (which owns creation).
  */

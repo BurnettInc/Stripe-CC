@@ -935,7 +935,7 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           } catch (err: unknown) {
             console.error(`[billing] owner cancellation notification error: ${err instanceof Error ? err.message : String(err)}`);
           }
-          // Copilot mode is Pro-only: demote trust_mode if this merchant lost Pro.
+          // Copilot Mode is Pro-only: demote trust_mode if this merchant lost Pro.
           enforceTierTrustMode(db, existing.merchant_id);
           // Data-rights (PROMISES_AUDIT #42): cancelling starts the 30-day
           // deletion clock — the privacy page promises data is deleted within
@@ -974,7 +974,7 @@ async function handleBillingWebhook(db: Database, req: Request): Promise<Respons
           updateSubscriptionStatus(db, sub.id, status, tier, interval);
           recordSubscriptionEvent(db, { merchant_id: existing.merchant_id, stripe_subscription_id: sub.id, event: "updated", tier, status });
           console.log(`[billing] Subscription ${sub.id} updated: status=${status} tier=${tier || "unchanged"}`);
-          // Copilot mode is Pro-only: demote trust_mode if this merchant lost Pro
+          // Copilot Mode is Pro-only: demote trust_mode if this merchant lost Pro
           // (downgrade to Standard, lapse to past_due, etc.).
           enforceTierTrustMode(db, existing.merchant_id);
           // Data-rights: a subscription returning to active (reactivation,
