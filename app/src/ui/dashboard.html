@@ -988,7 +988,7 @@
         <label class="trust-pill" data-mode="full">
           <input type="radio" name="trust_mode" value="full">
           <div class="pill-icon">🤖</div>
-          <div class="pill-label">Full Auto</div>
+          <div class="pill-label">Copilot mode</div>
           <span class="pill-badge badge-full">Autonomous</span>
           <div class="pill-desc">End-to-end: drafts, reviews, and sends automatically.</div>
         </label>
@@ -1147,7 +1147,7 @@
       <div id="inbox-full-auto" style="display:none;">
         <div class="status-bar">
           <span class="status-dot"></span>
-          <span>Full Auto is running — no approvals needed.</span>
+          <span>Copilot mode is running — no approvals needed.</span>
         </div>
       </div>
       <div id="inbox-empty" style="display:none;color:var(--muted);font-size:0.9rem;padding:8px 0;">
@@ -1216,7 +1216,7 @@
               <li>✓ Unlimited overdue invoices</li>
               <li>✓ 3-stage escalation ladder</li>
               <li>✓ AI-drafted reminder emails</li>
-              <li>✓ Full Auto mode</li>
+              <li>✓ Copilot mode</li>
               <li>✓ Priority support</li>
             </ul>
             <button onclick="subscribe('pro')" id="btn-pro">
@@ -1751,12 +1751,12 @@
               var fdh = document.getElementById('stat-free-drafts-hint');
               if (fdh) fdh.textContent = 'Developer preview';
             }
-            // Gate Full Auto behind Pro
+            // Gate Copilot mode behind Pro
             if (fullAutoPill) {
               if (!isPro) {
                 fullAutoPill.style.opacity = '0.45';
                 fullAutoPill.style.pointerEvents = 'none';
-                fullAutoPill.title = 'Full Auto requires a Pro subscription';
+                fullAutoPill.title = 'Copilot mode requires a Pro subscription';
               } else {
                 fullAutoPill.style.opacity = '1';
                 fullAutoPill.style.pointerEvents = 'auto';

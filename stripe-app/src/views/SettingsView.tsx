@@ -19,7 +19,7 @@ interface ConnectionResponse { connected: boolean; account_name?: string }
 const modes: Array<{ value: TrustMode; label: string; description: string }> = [
   { value: 'draft', label: 'Draft', description: 'You approve every email before it is sent.' },
   { value: 'semi', label: 'Semi-Auto', description: 'Stage 1 reminders send automatically; later stages need approval.' },
-  { value: 'full', label: 'Full Auto', description: 'Fully hands-off follow-ups across every escalation stage.' },
+  { value: 'full', label: 'Copilot mode', description: 'Fully hands-off follow-ups across every escalation stage.' },
 ];
 
 const planNames: Record<Tier, string> = { standard: 'Standard', pro: 'Pro' };

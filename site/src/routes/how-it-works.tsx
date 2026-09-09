@@ -157,7 +157,7 @@ function HowItWorks() {
                 note: "Stage 1 friendly reminders run on their own. Stages 2–3 still wait for your sign-off.",
               },
               {
-                mode: "Full Auto",
+                mode: "Copilot mode",
                 tagline: "Fully hands-off",
                 behavior: [
                   { when: "Day 1–6", action: "Auto-sends", auto: true },
@@ -168,7 +168,7 @@ function HowItWorks() {
               },
             ].map((mode) => (
               <div key={mode.mode} className={`flex flex-col ${CARD} p-6`}>
-                <h3 className={TYPE.h3}>{mode.mode} Mode</h3>
+                <h3 className={TYPE.h3}>{mode.mode === "Copilot mode" ? mode.mode : `${mode.mode} Mode`}</h3>
                 <p className="mt-1 text-xs font-medium text-gray-500">{mode.tagline}</p>
                 <ul className="mt-4 space-y-2">
                   {mode.behavior.map((b) => (

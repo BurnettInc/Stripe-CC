@@ -205,7 +205,7 @@ const DEMO_MODE_SNIPPET = `
       var lines = {
         draft: 'Draft Only: every reminder is drafted and waits for your approval — nothing sends without you.',
         semi: 'Semi-Auto: Stage 1 friendly nudges send themselves; Stages 2 and 3 still wait for your approval.',
-        full: 'Full Auto: the whole sequence drafts, reviews, and sends on its own. You are notified, never asked.'
+        full: 'Copilot mode: the whole sequence drafts, reviews, and sends on its own. You are notified, never asked.'
       };
       el.textContent = lines[m] || lines.draft;
     }
