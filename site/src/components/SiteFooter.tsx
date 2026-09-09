@@ -29,6 +29,18 @@ export function SiteFooter({ businessName = "" }: { businessName?: string }) {
           Support
         </a>
       </div>
+      <a
+        href="https://peerpush.com/p/collectionscopilot"
+        target="_blank"
+        rel="noopener"
+        className="inline-block mb-3"
+      >
+        <img
+          src="https://peerpush.com/p/collectionscopilot/badge.png"
+          alt="Collections Copilot on PeerPush"
+          style={{ width: 230 }}
+        />
+      </a>
       <p>{businessName || "Collections Copilot"}</p>
     </footer>
   );
