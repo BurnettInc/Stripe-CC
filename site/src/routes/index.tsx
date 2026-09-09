@@ -66,7 +66,7 @@ function Home() {
               Get paid on overdue Stripe invoices — without chasing anyone.
             </h1>
             <p className={`mt-6 max-w-xl ${TYPE.bodyLg}`}>
-              CollectionsCopilot automatically follows up with customers who
+              Collections Copilot automatically follows up with customers who
               haven't paid, using personalized email sequences that escalate
               gently when invoices remain unpaid. Start in Draft Mode — approve
               every email yourself, then turn on automation when you're ready.
@@ -123,13 +123,13 @@ function Home() {
         </div>
       </section>
 
-      {/* Stripe vs CollectionsCopilot — the follow-up gap */}
+      {/* Stripe vs Collections Copilot — the follow-up gap */}
       <section className={`max-w-6xl mx-auto px-6 ${PY_RELATED}`}>
         <h2 className={TYPE.h2}>
-          Stripe sends reminders. CollectionsCopilot manages the follow-up.
+          Stripe sends reminders. Collections Copilot manages the follow-up.
         </h2>
         <p className={`mt-4 max-w-3xl ${TYPE.bodyLg}`}>
-          Stripe can remind customers about unpaid invoices. CollectionsCopilot
+          Stripe can remind customers about unpaid invoices. Collections Copilot
           takes over when a reminder isn't enough — following up again,
           escalating appropriately, and stopping automatically when payment is
           detected.
@@ -157,7 +157,7 @@ function Home() {
             </ul>
           </div>
           <div className={`${CARD}`}>
-            <h3 className={TYPE.h3}>CollectionsCopilot</h3>
+            <h3 className={TYPE.h3}>Collections Copilot</h3>
             <ul className="mt-4 space-y-3">
               {[
                 "Manages a complete follow-up sequence",
@@ -172,7 +172,7 @@ function Home() {
               ))}
             </ul>
             <p className="mt-5 text-xs font-semibold uppercase tracking-wide text-indigo-600">
-              CollectionsCopilot only
+              Collections Copilot only
             </p>
             <p className="mt-3 text-sm font-semibold text-gray-900">
               Included in every paid plan
@@ -307,7 +307,7 @@ function Home() {
         <p className="mt-4 text-center text-sm text-gray-600 max-w-3xl mx-auto leading-relaxed">
           Draft Mode — review every email before it sends. Semi-Auto — let
           friendly reminders send automatically, approve escalation. Full Auto —
-          let CollectionsCopilot handle the entire sequence.
+          let Collections Copilot handle the entire sequence.
         </p>
       </section>
 
