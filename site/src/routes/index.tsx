@@ -342,7 +342,7 @@ function Home() {
               <div className="flex justify-between text-[13.5px]">
                 <span className="text-muted">Draft Mode</span>
                 <span className="font-semibold text-brand-deep">Semi-Auto</span>
-                <span className="text-muted">Full Auto</span>
+                <span className="text-muted">Copilot mode</span>
               </div>
               <div className="mt-4 rounded-[14px] border border-hairline bg-white p-5 shadow-sm">
                 <p className="text-[15px] font-semibold text-ink">Semi-Auto</p>
