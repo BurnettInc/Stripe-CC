@@ -1,8 +1,51 @@
 @import "tailwindcss";
 
+/* Self-hosted fonts: General Sans 600 (headings/numbers) + Inter 400/500 (body) */
+@font-face {
+  font-family: "General Sans";
+  src: url("/fonts/general-sans-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --color-ink: #131417;
+  --color-muted: #62626b;
+  --color-hairline: #e7e5e0;
+  --color-band: #f5f4fb;
+  --color-brand: #5b4fe0;
+  --color-brand-deep: #423aa8;
+  --color-success-text: #1c6b4e;
+  --color-success-bg: #eaf4ef;
+  --color-warn-text: #b5601b;
+  --color-warn-bg: #fcf1e5;
+  --color-footer: #14151a;
+  --color-footer-muted: #a5a4ac;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "General Sans", "Söhne", "Neue Montreal", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
 @layer base {
   html,
   body {
-    @apply bg-white text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+    @apply bg-white font-sans text-ink antialiased;
   }
 }
