@@ -63,23 +63,24 @@ function Home() {
               </div>
             </div>
             <h1 className={TYPE.hero}>
-              You didn't forget to follow up. You've just been avoiding it.
+              Get paid on overdue Stripe invoices — without chasing anyone.
             </h1>
             <p className={`mt-6 max-w-xl ${TYPE.bodyLg}`}>
-              Collections Copilot chases down your overdue Stripe invoices for you
-              — no new tool, no new login, no data to export. Start read-only.
-              Decide how much you want to hand off, whenever you're ready.
+              CollectionsCopilot automatically follows up with customers who
+              haven't paid, using personalized email sequences that escalate
+              gently when invoices remain unpaid. Start in Draft Mode — approve
+              every email yourself, then turn on automation when you're ready.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-4">
               <a href={INSTALL_URL} className={BTN_PRIMARY}>
-                Install from the Stripe App Marketplace
+                Connect Stripe — See My Overdue Invoices
               </a>
               <a href="/how-it-works" className={BTN_SECONDARY}>
                 How it works
               </a>
             </div>
             <p className="mt-3 text-sm text-gray-500">
-              Stripe access is read-only — nothing ever sends without your approval.
+              Start in Draft Mode. No credit card required.
             </p>
           </div>
 
@@ -118,6 +119,67 @@ function Home() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Stripe vs CollectionsCopilot — the follow-up gap */}
+      <section className={`max-w-6xl mx-auto px-6 ${PY_RELATED}`}>
+        <h2 className={TYPE.h2}>
+          Stripe sends reminders. CollectionsCopilot manages the follow-up.
+        </h2>
+        <p className={`mt-4 max-w-3xl ${TYPE.bodyLg}`}>
+          Stripe can remind customers about unpaid invoices. CollectionsCopilot
+          takes over when a reminder isn't enough — following up again,
+          escalating appropriately, and stopping automatically when payment is
+          detected.
+        </p>
+        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className={`${CARD}`}>
+            <h3 className={TYPE.h3}>Stripe</h3>
+            <ul className="mt-4 space-y-3">
+              {[
+                "Sends scheduled payment reminders",
+                "Basic reminder timing",
+                "Generic payment reminder",
+                "You manage what happens next",
+              ].map((item) => (
+                <li key={item} className="text-sm text-gray-600">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className={`${CARD}`}>
+            <h3 className={TYPE.h3}>CollectionsCopilot</h3>
+            <ul className="mt-4 space-y-3">
+              {[
+                "Manages a complete follow-up sequence",
+                "Escalating follow-ups",
+                "Personalized messages",
+                "Automatically continues until paid or the situation changes",
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2 text-sm text-gray-800">
+                  <Check />
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-5 text-xs font-semibold uppercase tracking-wide text-indigo-600">
+              CollectionsCopilot only
+            </p>
+            <ul className="mt-2 space-y-3">
+              {[
+                "Pauses when the customer replies",
+                "Stops when payment arrives",
+                "Draft → Semi-Auto → Full Auto trust ladder",
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-2 text-sm text-gray-800">
+                  <Check />
+                  {item}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>
@@ -206,6 +268,20 @@ function Home() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Trust — you're always in control */}
+      <section className={`max-w-4xl mx-auto px-6 ${PY_MAIN}`}>
+        <h2 className={`${TYPE.h2Center} mb-4`}>You're always in control</h2>
+        <p className="text-center text-gray-700 max-w-2xl mx-auto text-lg leading-relaxed">
+          Read-only Stripe access. We can't edit invoices, charge customers, or
+          change payment methods.
+        </p>
+        <p className="mt-4 text-center text-sm text-gray-600 max-w-3xl mx-auto leading-relaxed">
+          Draft Mode — review every email before it sends. Semi-Auto — let
+          friendly reminders send automatically, approve escalation. Full Auto —
+          let CollectionsCopilot handle the entire sequence.
+        </p>
       </section>
 
       {/* Pricing */}
