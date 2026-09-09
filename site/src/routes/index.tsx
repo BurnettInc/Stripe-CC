@@ -134,81 +134,87 @@ function Home() {
           escalating appropriately, and stopping automatically when payment is
           detected.
         </p>
-        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
-          <div className={`${CARD}`}>
-            <h3 className={TYPE.h3}>Stripe</h3>
-            <ul className="mt-4 space-y-3">
-              {[
-                { text: "Sends scheduled payment reminders" },
-                { text: "Basic reminder timing" },
-                { text: "Generic payment reminder" },
-                { text: "You manage what happens next" },
-                { text: "— No sender branding customization", muted: true },
-                { text: "— No open & click tracking", muted: true },
-                { text: "— No late-fee automation", muted: true },
-              ].map((item) => (
-                <li
-                  key={item.text}
-                  className={`text-sm ${item.muted ? "text-gray-400" : "text-gray-600"}`}
+        <div className="mt-8 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-300">
+                <th
+                  scope="col"
+                  className="text-left py-3 pr-4 font-semibold text-gray-900"
                 >
-                  {item.text}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className={`${CARD}`}>
-            <h3 className={TYPE.h3}>Collections Copilot</h3>
-            <ul className="mt-4 space-y-3">
+                  Capability
+                </th>
+                <th
+                  scope="col"
+                  className="text-center py-3 px-2 font-semibold text-gray-700"
+                >
+                  Stripe
+                </th>
+                <th
+                  scope="col"
+                  className="text-center py-3 pl-2 pr-4 font-semibold text-indigo-700 bg-indigo-50"
+                >
+                  Collections Copilot
+                </th>
+              </tr>
+            </thead>
+            <tbody>
               {[
-                "Manages a complete follow-up sequence",
-                "Escalating follow-ups",
-                "Personalized messages",
-                "Automatically continues until paid or the situation changes",
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2 text-sm text-gray-800">
-                  <Check />
-                  {item}
-                </li>
+                { capability: "Scheduled payment reminders", stripe: "✓" },
+                {
+                  capability: "Full follow-up sequence, escalating in tone",
+                  stripe: "manual",
+                },
+                {
+                  capability: "Personalized messages, not a generic template",
+                  stripe: null,
+                },
+                {
+                  capability: "Pauses automatically when the customer replies",
+                  stripe: null,
+                },
+                {
+                  capability: "Stops the moment payment is detected",
+                  stripe: "you manage this",
+                },
+                { capability: "Custom sender branding", stripe: null },
+                { capability: "Weekly recovery reports", stripe: null },
+                { capability: "Open & click tracking", stripe: null, pro: true },
+                { capability: "Custom escalation timing", stripe: null, pro: true },
+                { capability: "Late-fee automation", stripe: null, pro: true },
+              ].map((row) => (
+                <tr key={row.capability} className="border-b border-gray-100">
+                  <td className="py-3 pr-4 text-gray-700">{row.capability}</td>
+                  <td className="text-center py-3 px-2 whitespace-nowrap">
+                    {row.stripe === "✓" ? (
+                      <span className="font-medium text-gray-700">✓</span>
+                    ) : row.stripe === null ? (
+                      <span className="text-gray-400">—</span>
+                    ) : (
+                      <span className="italic text-gray-500">
+                        &quot;{row.stripe}&quot;
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-center py-3 pl-2 pr-4 whitespace-nowrap bg-indigo-50">
+                    <span className="font-medium text-indigo-600">✓</span>
+                    {row.pro && (
+                      <span className="ml-1.5 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
+                        PRO
+                      </span>
+                    )}
+                  </td>
+                </tr>
               ))}
-            </ul>
-            <p className="mt-5 text-xs font-semibold uppercase tracking-wide text-indigo-600">
-              Collections Copilot only
-            </p>
-            <p className="mt-3 text-sm font-semibold text-gray-900">
-              Included in every paid plan
-            </p>
-            <ul className="mt-2 space-y-3">
-              {[
-                "Pauses when the customer replies",
-                "Stops when payment arrives",
-                "Draft → Semi-Auto → Full Auto trust ladder",
-                "Custom sender branding",
-                "Weekly recovery reports",
-                "Read-only Stripe access — never edits invoices or charges customers",
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2 text-sm text-gray-800">
-                  <Check />
-                  {item}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-5 text-sm font-semibold text-gray-900">
-              Unlocked with Pro
-            </p>
-            <ul className="mt-2 space-y-3">
-              {[
-                "Open & click tracking — see which reminders get read",
-                "Custom escalation timing",
-                "Late-fee automation",
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2 text-sm text-gray-800">
-                  <Check />
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </div>
+            </tbody>
+          </table>
         </div>
+        <p className="mt-4 max-w-3xl text-sm text-gray-500 leading-relaxed">
+          Start in Draft Mode, then move up the trust ladder — Semi-Auto, then
+          Full Auto — as you get comfortable approving emails. Collections
+          Copilot uses read-only Stripe access: it can never edit invoices or
+          charge your customers.
+        </p>
       </section>
 
       {/* Sample — one representative drafted email (full 3-stage detail lives on /how-it-works) */}
