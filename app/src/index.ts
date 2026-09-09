@@ -411,7 +411,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
 
       // GET /reminders — server-rendered history of sent reminder emails.
-      // Drilled into from the dashboard "Sent Reminders" stat card. Every row
+      // Drilled into from the dashboard "Reminders" stat card. Every row
       // is a send_logs 'success' entry; test-mode stub sends are labeled with
       // a muted "Test send" pill next to the customer name (and carry a
       // row-test marker class) so a stub can never be mistaken for a real

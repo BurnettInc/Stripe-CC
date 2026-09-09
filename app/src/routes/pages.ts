@@ -337,7 +337,7 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
   let rows = "";
   if (logs.length === 0) {
     rows =
-      `<div class="empty"><strong>No sent reminders yet</strong>` +
+      `<div class="empty"><strong>No reminders yet</strong>` +
       "When reminders are sent, they'll show up here with their delivery details." +
       "</div>";
   } else {
@@ -381,7 +381,7 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
     ? "The Engagement column shows whether a recipient opened or clicked each reminder (via Resend open/click tracking). "
     : "";
   return renderPage(
-    "Sent reminders",
+    "Reminders",
     "Reminder emails sent to your customers, newest first. " + engagementSubtitle +
       "Test sends are labeled “Test send”. Open any row to see the full email exactly as sent.",
     "",

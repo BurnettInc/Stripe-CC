@@ -116,7 +116,13 @@
       background: var(--surface);
       border-right: 1px solid var(--border);
       padding: 24px 14px;
-      position: sticky; top: 0; height: 100vh;
+      /* Pinned sidebar: sticky only holds when the item is shorter than its
+         flex container (default stretch made the aside exactly as tall as
+         .cc-shell, so there was no room to stick and the logo scrolled out).
+         align-self keeps the aside at its own height; max-height + internal
+         scroll keep logo + nav reachable on short viewports. */
+      position: sticky; top: 0; align-self: flex-start;
+      height: 100vh; max-height: 100vh; overflow-y: auto;
       display: flex; flex-direction: column; gap: 4px;
     }
     .cc-sidebar .cc-logo { font-weight: 800; font-size: 1rem; color: var(--text); padding: 0 10px 18px; letter-spacing: -0.01em; }
@@ -153,16 +159,6 @@
     .cc-hero h2 { font-size: 1.75rem; font-weight: 800; color: var(--text); letter-spacing: -0.02em; margin: 0; }
     .cc-hero h2 .cc-amount { color: var(--brand); }
     .cc-hero p { margin: 6px 0 0; color: var(--brand-dark); font-size: 0.9rem; font-weight: 600; }
-    /* ── 4-grid pipeline panel ── */
-    .cc-pipeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-    .cc-pipe-step {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 16px 14px; text-align: center;
-    }
-    .cc-pipe-step .cc-pipe-n { font-size: 0.7rem; font-weight: 800; color: var(--brand); text-transform: uppercase; letter-spacing: 0.06em; }
-    .cc-pipe-step .cc-pipe-t { font-size: 0.9rem; font-weight: 700; color: var(--text); margin-top: 4px; }
-    .cc-pipe-step .cc-pipe-d { font-size: 0.75rem; color: var(--muted); margin-top: 4px; line-height: 1.45; }
-    .cc-pipe-step .cc-pipe-c { font-size: 1.4rem; font-weight: 800; color: var(--brand); margin-top: 6px; }
     /* ── Overdue table (semantic chips: amber = needs attention, red = 10+ days) ── */
     .cc-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
     table.cc-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
@@ -242,6 +238,17 @@
     .server-status.offline .dot {
       background: var(--danger);
       box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18);
+    }
+    /* Stripe disconnected: amber/warn treatment (green = paid/success ONLY).
+       Shown whenever /stats reports the Stripe connection lost, matching the
+       reconnect banner — never "Healthy" while disconnected. */
+    .server-status.disconnected {
+      background: var(--amber-bg);
+      color: var(--amber-text);
+    }
+    .server-status.disconnected .dot {
+      background: var(--amber-text);
+      box-shadow: 0 0 0 2px rgba(138, 90, 0, 0.18);
     }
 
     /* ── Stats grid ── */
@@ -800,7 +807,7 @@
       color: var(--warning); font-size: 0.82rem;
     }
 
-    /* ── Merchant settings card (sender branding / escalation timing / late fee) ── */
+    /* ── Merchant settings card (sender identity / escalation timing / late fee) ── */
     .settings-label {
       display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted);
       margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.05em;
@@ -913,7 +920,6 @@
       .cc-sidebar .cc-logo { padding: 0 10px 0 0; white-space: nowrap; }
       .cc-nav { flex-direction: row; }
       .cc-nav a { white-space: nowrap; }
-      .cc-pipeline { grid-template-columns: repeat(2, 1fr); }
       .trust-pills, .tier-cards { flex-direction: column; }
       .trust-pill { min-width: 0; }
       .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -933,7 +939,7 @@
         <a href="/past-due">Invoices</a>
         <a href="/reminders">Sequences</a>
         <a href="/dashboard#inbox-section">Messages</a>
-        <a href="/dashboard#settings-card">Settings</a>
+        <a href="/dashboard#settings-card">Copilot Controls</a>
       </nav>
     </aside>
     <div class="cc-main">
@@ -1012,12 +1018,6 @@
     </div>
     <!-- 4-grid pipeline panel (Detect -> Draft -> Send -> Follow up). Counts
          render from /stats + /tasks; static stage copy otherwise. -->
-    <div class="cc-pipeline" id="cc-pipeline" style="margin-bottom:20px;">
-      <div class="cc-pipe-step"><div class="cc-pipe-n">Step 1</div><div class="cc-pipe-t">Detect</div><div class="cc-pipe-d">Stripe webhooks flag overdue invoices.</div><div class="cc-pipe-c" id="cc-pipe-detect">&mdash;</div></div>
-      <div class="cc-pipe-step"><div class="cc-pipe-n">Step 2</div><div class="cc-pipe-t">Draft</div><div class="cc-pipe-d">AI drafts a polite reminder.</div><div class="cc-pipe-c" id="cc-pipe-draft">&mdash;</div></div>
-      <div class="cc-pipe-step"><div class="cc-pipe-n">Step 3</div><div class="cc-pipe-t">Send</div><div class="cc-pipe-d">Sent on your trust mode.</div><div class="cc-pipe-c" id="cc-pipe-send">&mdash;</div></div>
-      <div class="cc-pipe-step"><div class="cc-pipe-n">Step 4</div><div class="cc-pipe-t">Follow up</div><div class="cc-pipe-d">Escalates until paid.</div><div class="cc-pipe-c" id="cc-pipe-follow">&mdash;</div></div>
-    </div>
         <!-- Free-trial banner (home screen only). Hidden by default; shown ONLY
          while the merchant is inside its 30-day full-access free trial.
          renderTrialBanner() in loadSubscription() flips display based on
@@ -1046,7 +1046,7 @@
       <div class="stat-card linkable">
         <a class="stat-link" href="/reminders" title="View sent-reminder history">
           <div class="stat-value" id="stat-reminders">—</div>
-          <div class="stat-label">Reminders Sent</div>
+          <div class="stat-label">Reminders</div>
           <div class="stat-sub" id="stat-emails">—</div>
           <span class="stat-sub-hint">View history &rarr;</span>
         </a>
@@ -1133,17 +1133,17 @@
       </div>
     </div>
 
-    <!-- Merchant Settings — sender branding (Standard+), escalation timing + late fee (Pro) -->
+    <!-- Merchant Settings — sender identity (Standard+), escalation timing + late fee (Pro) -->
     <div class="card" id="settings-card">
-      <h2>⚙️ Settings</h2>
+      <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;vertical-align:-3px;"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg> Copilot Controls</h2>
       <p class="subtitle">
-        Sender branding, escalation timing, and late-fee automation for your reminder emails.
+        Sender identity, escalation timing, and late-fee automation for your reminder emails.
       </p>
 
-      <!-- Custom sender branding — any active paid plan (Standard+) -->
+      <!-- Custom sender identity — any active paid plan (Standard+) -->
       <div style="margin-top:16px;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <strong style="font-size:0.95rem;">Sender branding</strong>
+          <strong style="font-size:0.95rem;">Sender identity</strong>
           <span class="pill-badge badge-standard" id="branding-badge" style="margin-top:0;">Standard</span>
         </div>
         <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 2px;">
@@ -1156,7 +1156,7 @@
         </div>
         <div class="settings-locked" id="branding-locked" style="display:none;">
           <span class="pill-badge badge-standard" style="margin-top:0;">Standard</span>
-          Sender branding is included with Standard and Pro. Upgrade to customize.
+          Sender identity is included with Standard and Pro. Upgrade to customize.
         </div>
       </div>
 
@@ -1425,21 +1425,42 @@
       return true;
     }
     // ── Health check ──
-    async function checkHealth() {
+    // The badge answers TWO different questions, in priority order:
+    //   1. Is the backend reachable? (/health fetch fails → "Offline", red.)
+    //   2. Is Stripe connected? (LAST_STATS from /stats — the SAME data that
+    //      drives the reconnect banner: stripeConnected false →
+    //      "Disconnected", amber warn. Green is paid/success ONLY, so a lost
+    //      Stripe connection must never show "Healthy".)
+    // loadStats() re-renders after every /stats payload so the badge follows
+    // connection changes without waiting for the 30s checkHealth tick.
+    function renderServerStatus(s) {
       var statusEl = document.getElementById('server-status');
       var statusText = document.getElementById('server-status-text');
+      if (!statusEl || !statusText) return;
+      statusEl.classList.remove('offline', 'disconnected');
+      if (s && s.stripeConnected === false) {
+        statusEl.classList.add('disconnected');
+        statusText.textContent = 'Disconnected';
+      } else {
+        statusText.textContent = 'Healthy';
+      }
+    }
+    function markServerOffline() {
+      var statusEl = document.getElementById('server-status');
+      var statusText = document.getElementById('server-status-text');
+      if (!statusEl || !statusText) return;
+      statusEl.classList.remove('disconnected');
+      statusEl.classList.add('offline');
+      statusText.textContent = 'Offline';
+    }
+    async function checkHealth() {
       try {
         var res = await fetch('/health');
-        if (res.ok) {
-          var data = await res.json();
-          statusEl.classList.remove('offline');
-          statusText.textContent = 'Healthy';
-        } else {
-          throw new Error('unhealthy');
-        }
+        if (!res.ok) throw new Error('unhealthy');
+        await res.json();
+        renderServerStatus(LAST_STATS);
       } catch (e) {
-        statusEl.classList.add('offline');
-        statusText.textContent = 'Offline';
+        markServerOffline();
       }
     }
 
@@ -1593,7 +1614,7 @@
           renderStatusBanner(s);
           renderConnPill(s);
           renderHero(s);
-          renderPipelineCounts();
+          renderServerStatus(s);
           // Standard 50-invoice cap banner — shown only while over the limit
           // (active Standard with >= 50 overdue invoices; the watcher blocks
           // new tracking until the count drops back under 50).
@@ -2128,6 +2149,13 @@
 
     // ── Task inbox ──
     var inboxTasks = [];
+    // -- Overdue panel (owner 9/9 item 2): overdueInvoices holds EVERY
+    // overdue invoice (GET /overdue/summary, same set as /past-due and
+    // the /stats hero count). inboxTasks holds only sequences with an
+    // open draft/review task (GET /tasks) - an overdue invoice with no
+    // open task (sent, paused, none yet) is invisible to /tasks, which
+    // is exactly the reported bug.
+    var overdueInvoices = [];
     var editingTaskId = null;
     var busyTasks = {};
     var currentTrustMode = 'draft';
@@ -2225,8 +2253,6 @@
         }
         inboxTasks = await res.json();
         renderInbox();
-        renderOverdueTable();
-        renderPipelineCounts();
         renderHero(LAST_STATS);
       } catch (e) {
         listEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load tasks — check your connection.</p>';
@@ -2234,6 +2260,24 @@
       }
     }
 
+    // Overdue-invoice panel loader (owner 9/9 item 2): the full overdue set
+    // from GET /overdue/summary - same endpoint and same base query
+    // (invoices.status='overdue') behind /past-due's default view and the
+    // /stats overdueInvoices hero count. Runs alongside loadInbox (not inside
+    // it) so the panel stays correct even when the approval inbox is empty;
+    // silent on failure so a panel error can never clobber the inbox UI.
+    async function loadOverduePanel() {
+      try {
+        var res = await fetch('/overdue/summary');
+        if (handoffIf401(res)) return;
+        if (!res.ok) return;
+        var data = await res.json();
+        overdueInvoices = (data && data.invoices) || [];
+        renderOverdueTable();
+      } catch (e) {
+        console.error('Failed to load overdue panel:', e);
+      }
+    }
     function renderInbox() {
       var fullAutoEl = document.getElementById('inbox-full-auto');
       var emptyEl = document.getElementById('inbox-empty');
@@ -2248,7 +2292,6 @@
         emptyEl.style.display = 'none';
         fullAutoEl.style.display = 'block';
         renderOverdueTable();
-        renderPipelineCounts();
         renderHero(LAST_STATS);
         return;
       }
@@ -2263,18 +2306,16 @@
         emptyEl.style.display = 'block';
         listEl.innerHTML = '';
         renderOverdueTable();
-        renderPipelineCounts();
         renderHero(LAST_STATS);
         return;
       }
       emptyEl.style.display = 'none';
       listEl.innerHTML = visible.map(renderTaskCard).join('');
       renderOverdueTable();
-      renderPipelineCounts();
       renderHero(LAST_STATS);
     }
 
-    // ── Owner 9/9 layout: hero risk card, pipeline counts, top-bar pill ──
+    // ── Owner 9/9 layout: hero risk card + top-bar pill ──
     // Rendered from the same /stats + /tasks payloads as everything else —
     // no new endpoints. Amounts reuse formatMoney; counts reuse inboxTasks.
     function renderConnPill(s) {
@@ -2301,30 +2342,22 @@
         ? awaiting + (awaiting === 1 ? ' draft' : ' drafts') + ' awaiting approval'
         : (n > 0 ? n + (n === 1 ? ' invoice needs' : ' invoices need') + ' attention' : 'Nothing overdue — nice work.');
     }
-    function renderPipelineCounts() {
-      var set = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
-      var drafted = inboxTasks.length;
-      var sent = (LAST_STATS && LAST_STATS.remindersSent) || 0;
-      var overdue = (LAST_STATS && LAST_STATS.overdueInvoices) || 0;
-      set('cc-pipe-detect', overdue);
-      set('cc-pipe-draft', drafted);
-      set('cc-pipe-send', sent);
-      set('cc-pipe-follow', overdue);
-    }
-    // ── Overdue table: one row per inbox sequence (same /tasks payload as
-    // the approval cards). Semantic chips ONLY: amber = needs attention,
+    // ── Overdue table: one row per OVERDUE INVOICE (GET /overdue/summary,
+    // the same invoice set /past-due lists, NOT the /tasks inbox). Semantic chips ONLY: amber = needs attention,
     // red = 10+ days overdue, green = paid/success ONLY. The Copilot column
     // is the existing per-invoice trust-mode override
     // (PUT /invoices/:id/trust-mode, values draft/semi/full/null=Auto).
     function overdueStatusChip(t) {
       if (t && (t.invoice_status === 'paid' || t.status === 'paid')) return '<span class="cc-chip green">Paid</span>';
+      if (t && (t.status === 'paused' || t.pause_reason)) return '<span class="cc-chip amber">Paused - needs attention</span>';
       var d = (t && t.days_overdue != null) ? t.days_overdue : null;
       if (d != null && d >= 10) return '<span class="cc-chip red">' + d + (d === 1 ? ' day' : ' days') + ' overdue</span>';
       if (t && (t.reply_paused_at || t.reply_status || t.status === 'reply_paused' || t.dispute_id)) return '<span class="cc-chip amber">Needs attention</span>';
       return '<span class="cc-chip amber">Needs attention</span>';
     }
     function copilotCellFor(t) {
-      var inv = t.invoice_id;
+      // /overdue/summary rows key the invoice as .id; /tasks rows as .invoice_id.
+      var inv = (t.invoice_id != null) ? t.invoice_id : t.id;
       var cur = t.trust_mode_override || '';
       var sel = function(v) { return cur === v ? ' selected' : ''; };
       return '<select data-copilot-invoice="' + inv + '" onchange="setCopilotOverride(' + inv + ', this.value)"' +
@@ -2339,15 +2372,15 @@
     function renderOverdueTable() {
       var tb = document.getElementById('overdue-tbody');
       if (!tb) return;
-      if (!inboxTasks || inboxTasks.length === 0) {
+      if (!overdueInvoices || overdueInvoices.length === 0) {
         tb.innerHTML = '<tr><td colspan="6" style="color:var(--muted);">No overdue invoices right now.</td></tr>';
         return;
       }
-      tb.innerHTML = inboxTasks.map(function(t) {
+      tb.innerHTML = overdueInvoices.map(function(t) {
         var days = (t.days_overdue != null) ? t.days_overdue + (t.days_overdue === 1 ? ' day' : ' days') : '—';
         return '<tr>' +
           '<td>' + esc(t.customer_name || 'Unknown customer') + '</td>' +
-          '<td>' + formatMoney(t.amount_cents, t.currency) + '</td>' +
+          '<td>' + formatMoney(t.amount_due != null ? t.amount_due : t.amount_cents, t.currency) + '</td>' +
           '<td>' + days + '</td>' +
           '<td><span class="cc-chip neutral">Stage ' + (t.stage || '—') + '</span></td>' +
           '<td>' + overdueStatusChip(t) + '</td>' +
@@ -2365,6 +2398,9 @@
         if (res.ok) {
           for (var i = 0; i < inboxTasks.length; i++) {
             if (inboxTasks[i].invoice_id === invoiceId) { inboxTasks[i].trust_mode_override = value === '' ? null : value; break; }
+          }
+          for (var j = 0; j < overdueInvoices.length; j++) {
+            if (overdueInvoices[j].id === invoiceId || overdueInvoices[j].invoice_id === invoiceId) { overdueInvoices[j].trust_mode_override = value === '' ? null : value; break; }
           }
           renderOverdueTable();
           updateTimestamp();
@@ -2693,6 +2729,7 @@
     loadSubscription();
     loadSettings();
     loadInbox();
+    loadOverduePanel();
     loadStats();
     checkHealth();
     updateTimestamp();
@@ -2701,6 +2738,7 @@
     setInterval(checkHealth, 30000);
     setInterval(loadStats, 60000);
     setInterval(loadInbox, 60000);
+    setInterval(loadOverduePanel, 60000);
     setInterval(updateTimestamp, 10000);
   </script>
     </div><!-- /.cc-main -->

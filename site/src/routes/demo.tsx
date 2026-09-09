@@ -113,6 +113,12 @@ const DEMO_MODE_SNIPPET = `
       return json(demoState.settings);
     }
     if (u === '/tasks' && method === 'GET') return json(demoState.tasks);
+    // Overdue-invoice panel source (owner 9/9 item 2): the dashboard's
+    // #overdue-tbody renders from GET /overdue/summary, same as /past-due.
+    // Derive the same invoice-shaped rows from the seed tasks so the demo
+    // panel lists every overdue invoice even though the seeds carry no
+    // separate invoice table.
+    if (u === '/overdue/summary' && method === 'GET') return json({ counts: { total: demoState.tasks.length, active: demoState.tasks.length, paused: 0, awaiting_approval: 0 }, invoices: demoState.tasks.map(function (t) { return { id: t.id, customer_name: t.customer_name, amount_due: t.amount_cents, currency: t.currency, days_overdue: t.days_overdue, stage: t.stage, status: 'active', pause_reason: null }; }), recent_reminders: [] });
     if (approve) {
       var id = Number(approve[1]);
       demoState.tasks = demoState.tasks.filter(function (t) { return t.id !== id; });
