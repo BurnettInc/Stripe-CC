@@ -73,20 +73,21 @@ function RootDocument({ children }: { children: ReactNode }) {
               "(function(){try{var p=location.pathname;if(localStorage.getItem('cc_skip')==='1')return;if(p==='/support'||p==='/privacy'||p==='/terms'||p==='/admin'||p.indexOf('/support/')===0||p.indexOf('/privacy/')===0||p.indexOf('/terms/')===0||p.indexOf('/admin/')===0)return;var k='cc_vid',v=localStorage.getItem(k);if(!v){v=(crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)}));localStorage.setItem(k,v)}var q=new URLSearchParams(location.search),p2={visitor_id:v,page:p,referrer:document.referrer.slice(0,500),utm_source:q.get('utm_source')||'',utm_medium:q.get('utm_medium')||'',utm_campaign:q.get('utm_campaign')||'',utm_content:q.get('utm_content')||'',ua:navigator.userAgent,ts:new Date().toISOString()},b=new Blob([JSON.stringify(p2)],{type:'application/json'});if(navigator.sendBeacon){navigator.sendBeacon('/api/track',b)}else{var x=new XMLHttpRequest();x.open('POST','/api/track',true);x.send(b)}}catch(e){}})();",
           }}
         />
-        {/* Install CTA visitor attribution (owner 8/25, follow-up to the
-            admin-dashboard visitor→merchant tracing): append the SAME per-browser
-            visitor_id from localStorage `cc_vid` (the tracking snippet above) as
-            ?cc_vid=<id> on every "Connect Stripe" / "Install from the marketplace"
-            CTA that points at the install endpoint, so the visitor is attributed
-            when they become a merchant. Rewrites ALL matching anchors (the
-            landing page has several CTAs wired to INSTALL_URL) — a no-op when no
-            visitor_id exists or no matching anchor is found. The install flow
-            carries the value through to the merchant row (referrer-based tracing —
-            no UTM link changes, per the owner decision). */}
+        {/* Install-link attribution (owner 9/9: Stripe-hosted install link —
+            first hop marketplace.stripe.com): every marketing CTA points at the
+            Stripe-hosted install link with a CC_VID state placeholder. This
+            script fills the placeholder with the per-browser visitor_id from
+            localStorage `cc_vid` (set by the tracking snippet above): plain
+            CTAs get state=<vid>; demo CTAs (href carries src=demo inside the
+            state value) get state=cc_vid=<vid>&src=demo (URL-encoded as the
+            whole state value). When no cc_vid exists the href is left as-is
+            (Stripe still installs; attribution just absent). Matching is on
+            the install-link URL only — the /oauth/install/start direct path
+            is never touched. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{var v=localStorage.getItem('cc_vid');if(!v)return;var base='https://stripe-cc-production.up.railway.app/oauth/install';function fix(){document.querySelectorAll('a[href]').forEach(function(a){var h=a.getAttribute('href')||'';if(h.indexOf(base)===0){var u=new URL(h);if(!u.searchParams.has('cc_vid')){u.searchParams.set('cc_vid',v);a.setAttribute('href',u.toString())}}})}if(document.readyState!=='loading'){fix()}else{document.addEventListener('DOMContentLoaded',fix)}}catch(e){}})();",
+              "(function(){try{var v=localStorage.getItem('cc_vid')||'';var m='marketplace.stripe.com/apps/install/link/';var d='__cc_done__';function st(a,isDemo){var cur=a.getAttribute('href')||'';var u;try{u=new URL(cur)}catch(e){return}var sv=u.searchParams.get('state')||'';var nv;if(isDemo){nv=v?('cc_vid='+v+'&src=demo'):'src=demo'}else{if(!v)return;nv=v}if(sv===nv)return;u.searchParams.set('state',nv);a.setAttribute('href',u.toString())}function fix(){var els=document.querySelectorAll('a[href]');for(var i=0;i<els.length;i++){var a=els[i];if(a[d])continue;var h=a.getAttribute('href')||'';if(h.indexOf(m)<0)continue;var isDemo=h.indexOf('src'+String.fromCharCode(37)+'3Ddemo')>=0||h.indexOf('src=demo')>=0;a[d]=1;st(a,isDemo)}}fix();if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',fix)}else{fix();var o=null;try{o=new MutationObserver(function(){fix()})}catch(e){}if(o){o.observe(document.documentElement,{childList:true,subtree:true});setTimeout(function(){try{o.disconnect()}catch(e){}},5000)}}}catch(e){}})();",
           }}
         />
         {/* Verified-visit beacon (admin rework 2b): the head beacon above fires

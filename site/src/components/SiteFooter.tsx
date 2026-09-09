@@ -1,4 +1,5 @@
-const INSTALL_URL = "https://stripe-cc-production.up.railway.app/oauth/install";
+const INSTALL_URL =
+  "https://marketplace.stripe.com/apps/install/link/com.stripecollectionscopilot.app?redirect_uri=https%3A%2F%2Fstripe-cc-production.up.railway.app%2Foauth%2Fcallback&state=CC_VID";
 
 export function SiteFooter({ businessName = "" }: { businessName?: string }) {
   const wordmark = businessName || "Collections Copilot";

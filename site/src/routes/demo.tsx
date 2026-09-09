@@ -33,8 +33,13 @@ import dashboardHtml from "../../../app/src/ui/dashboard.html?raw";
  *  All customer/invoice/email data below the header is fictional.
  * ------------------------------------------------------------------ */
 
-const INSTALL_URL = "https://stripe-cc-production.up.railway.app/oauth/install";
-const SIGNUP_URL = `${INSTALL_URL}?utm_source=demo`;
+// Demo attribution rides INSIDE state (the install link has no free query
+// slot): the client attribution script replaces the CC_VID placeholder with
+// `cc_vid=<vid>&src=demo` (URL-encoded as the whole state value), or `src=demo`
+// when no cc_vid exists. The backend parses state as URLSearchParams and
+// falls back to treating the whole state as the raw cc_vid.
+const SIGNUP_URL =
+  "https://marketplace.stripe.com/apps/install/link/com.stripecollectionscopilot.app?redirect_uri=https%3A%2F%2Fstripe-cc-production.up.railway.app%2Foauth%2Fcallback&state=src%3Ddemo";
 
 const RAW_DASHBOARD = dashboardHtml;
 
