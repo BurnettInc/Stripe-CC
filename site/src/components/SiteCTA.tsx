@@ -1,6 +1,7 @@
 import { BTN_PRIMARY, PY_CTA } from "./ui";
 
-const INSTALL_URL = "https://stripe-cc-production.up.railway.app/oauth/install";
+const INSTALL_URL =
+  "https://marketplace.stripe.com/apps/install/link/com.stripecollectionscopilot.app?redirect_uri=https%3A%2F%2Fstripe-cc-production.up.railway.app%2Foauth%2Fcallback&state=CC_VID";
 
 /* Shared closing CTA band — identical across how-it-works, trust, and FAQ
  * pages so those pages share one recipe. Retokenized to the new palette;

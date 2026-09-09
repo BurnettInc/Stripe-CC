@@ -91,6 +91,7 @@ import { ensureDefaultMerchant, isMerchantDisconnected, upsertInvoice } from "..
 import { encryptValue, decryptValue, getEncryptionKey, getStripeConnectionFor } from "../middleware/auth";
 import { saveStripeConnection } from "../middleware/auth";
 import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
+import { recordFunnelEvent } from "../funnel";
 import { accountFromCookie } from "./accounts";
 
 // ── Constants ──
@@ -241,6 +242,60 @@ export function consumeInstallState(
     account_id: row.account_id ?? null,
     visitor_id: row.visitor_id || "",
   };
+}
+
+// ── Install-link attribution state (owner 9/9: Stripe-hosted install link) ──
+// Marketing CTAs point at the Stripe-hosted install link
+// (marketplace.stripe.com/apps/install/link/…) with the landing visitor_id
+// (cc_vid) carried as the `state` param — plain `state=<cc_vid>`, or
+// `state=cc_vid=<vid>&src=demo` (URL-encoded as the whole state value) from
+// demo pages. NO oauth_install_states row exists for these: Stripe echoes the
+// state back on /oauth/callback and the callback treats it as an attribution
+// token, NOT a CSRF proof (the one-time code + developer-key exchange is the
+// real security gate — an attacker cannot mint a valid code).
+//
+// Fail-closed rules: direct-path row states ALWAYS contain a ":"-separated
+// link-type marker ("<48-hex>:test|live" — see createInstallState), so any
+// no-row state that still matches the row format is REJECTED (it looks like a
+// forged/expired/consumed CSRF token, never attribution). Attribution states
+// are additionally restricted to a strict allowlist — best-effort
+// URLSearchParams parse for `cc_vid` (+ optional `src`), else the whole state
+// is the raw cc_vid. Anything outside the allowlist is rejected.
+const INSTALL_LINK_STATE_MAX = 200;
+const INSTALL_LINK_STATE_RE = /^[A-Za-z0-9=_&.;~%+-]+$/;
+const INSTALL_LINK_ROW_MARKER_RE = /^[0-9a-fA-F]{16,}:(test|live|:)/;
+export function parseInstallLinkState(state: string): { cc_vid: string; src: string } | null {
+  if (!state || state.length > INSTALL_LINK_STATE_MAX) return null;
+  if (!INSTALL_LINK_STATE_RE.test(state)) return null;
+  // Fail closed: looks like a direct-path CSRF row state but has no row.
+  if (state.includes(":") || INSTALL_LINK_ROW_MARKER_RE.test(state)) return null;
+  let ccVid = "";
+  let src = "";
+  try {
+    const params = new URLSearchParams(state);
+    const cc = params.get("cc_vid");
+    const so = params.get("src");
+    let recognized = false;
+    if (cc !== null) {
+      recognized = true;
+      ccVid = sanitizeVisitorId(cc);
+    }
+    if (so !== null) {
+      recognized = true;
+      // `src` is funnel-source only (logged, never a new column): keep it to
+      // the same strict charset as visitor ids.
+      src = /^[A-Za-z0-9_-]{1,32}$/.test(so) ? so : "";
+    }
+    if (recognized) return { cc_vid: ccVid, src };
+  } catch {
+    return null;
+  }
+  // No key=value pairs the parser recognized → treat the whole state as the
+  // raw cc_vid (the common `state=<uuid>` marketing-CTA case). Sanitize
+  // exactly like the direct path so the merchant row joins page_visits.
+  ccVid = sanitizeVisitorId(state);
+  if (!ccVid) return null;
+  return { cc_vid: ccVid, src: "" };
 }
 
 // ── Authorize URL ──
@@ -1390,16 +1445,38 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
     );
   }
 
+  // ── State resolution: direct-path row FIRST (behavior unchanged) ──
+  // Row exists → consume + validate link type/mode exactly as before. No row
+  // → this may be a Stripe-hosted install-link attribution token
+  // (state=<cc_vid>[&src=…], no CSRF row by design — see
+  // parseInstallLinkState). Fail closed on anything that looks like it should
+  // have had a row. The one-time code + developer-key exchange below is the
+  // real security gate: an attacker cannot mint a valid code.
   const consumed = consumeInstallState(db, state);
-  if (!consumed) {
-    console.warn(`[oauth-app] callback: state NOT FOUND / consumed / expired (state prefix ${state.slice(0, 12)}…) — refusing to exchange (fail-closed).`);
-    return new Response(appOAuthErrorPage("This installation link is invalid or has expired. Please start the installation again."), {
-      status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
+  let linkType: LinkType;
+  let installAccountId: number | null;
+  let installVisitorId: string;
+  if (consumed) {
+    ({ link_type: linkType, account_id: installAccountId, visitor_id: installVisitorId } = consumed);
+    console.log(`[oauth-app] callback: state OK (link=${linkType}, account=${installAccountId ?? "legacy"}, visitor=${installVisitorId ? "present" : "none"}) — exchanging code (prefix ${code.slice(0, 12)}…)`);
+  } else {
+    const attribution = parseInstallLinkState(state);
+    if (!attribution) {
+      console.warn(`[oauth-app] callback: state NOT FOUND / consumed / expired (state prefix ${state.slice(0, 12)}…) — refusing to exchange (fail-closed).`);
+      return new Response(appOAuthErrorPage("This installation link is invalid or has expired. Please start the installation again."), {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+    // Install-link installs are marketplace Live-mode installs (the
+    // Stripe-hosted link is the published listing's surface).
+    linkType = "live";
+    installAccountId = null;
+    installVisitorId = attribution.cc_vid;
+    console.log(
+      `[oauth-app] callback: install-link attribution state (visitor=${installVisitorId ? "present" : "none"}${attribution.src ? `, src=${attribution.src}` : ""}) — exchanging code (prefix ${code.slice(0, 12)}…)`
+    );
   }
-  const { link_type: linkType, account_id: installAccountId, visitor_id: installVisitorId } = consumed;
-  console.log(`[oauth-app] callback: state OK (link=${linkType}, account=${installAccountId ?? "legacy"}, visitor=${installVisitorId ? "present" : "none"}) — exchanging code (prefix ${code.slice(0, 12)}…)`);
 
   const exchanged = await exchangeCodeForTokens(code, linkType);
   if (!exchanged.ok) {
@@ -1499,6 +1576,12 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
     "INSERT INTO sessions (token, merchant_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))",
     [sessionToken, merchantId]
   );
+  // Funnel: an install reaching merchant creation completed OAuth. The
+  // visitor_id rides along (direct-path row or install-link attribution
+  // state) so the admin funnel can join the event to its landing visit.
+  // `src` (e.g. demo) is funnel-source only: no funnel_events column carries
+  // it, so it is logged for diagnosability and the cc_vid join is kept.
+  recordFunnelEvent(db, merchantId, "oauth_completed", installVisitorId);
   console.log(`[oauth-app] install complete: ${tokens.stripe_user_id} (merchant ${merchantId}, link=${linkType}, livemode=${tokens.livemode})`);
 
   return new Response(null, {
