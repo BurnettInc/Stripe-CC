@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { readFile } from "node:fs/promises";
@@ -316,41 +316,7 @@ function Home() {
               Choose how much control to hand over, with a trust ladder you move
               up as you get comfortable — and can dial back anytime.
             </p>
-            <div className="mt-6">
-              <div className="relative h-12">
-                <span
-                  aria-hidden="true"
-                  className="absolute left-6 right-6 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-hairline"
-                />
-                <span
-                  aria-hidden="true"
-                  className="absolute left-6 right-1/2 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-brand"
-                />
-                <span
-                  aria-hidden="true"
-                  className="absolute left-6 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-hairline bg-white"
-                />
-                <span
-                  aria-hidden="true"
-                  className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-4 ring-brand/20"
-                />
-                <span
-                  aria-hidden="true"
-                  className="absolute right-6 top-1/2 h-4 w-4 translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-hairline bg-white"
-                />
-              </div>
-              <div className="flex justify-between text-[13.5px]">
-                <span className="text-muted">Draft Mode</span>
-                <span className="font-semibold text-brand-deep">Semi-Auto</span>
-                <span className="text-muted">Copilot mode</span>
-              </div>
-              <div className="mt-4 rounded-[14px] border border-hairline bg-white p-5 shadow-sm">
-                <p className="text-[15px] font-semibold text-ink">Semi-Auto</p>
-                <p className="mt-1.5 text-[13px] text-muted leading-relaxed">
-                  Friendly reminders send automatically. You approve escalation.
-                </p>
-              </div>
-            </div>
+            <TrustLadder />
           </div>
         </div>
       </section>
@@ -612,6 +578,123 @@ function CalculatorCard() {
         Standard costs $7/month. Recover one invoice and it&apos;s already paid
         for itself.
       </p>
+    </div>
+  );
+}
+
+const TRUST_MODES = [
+  {
+    id: "draft",
+    label: "Draft Mode",
+    title: "Draft Mode",
+    body: "AI writes reminders. You review and send manually.",
+  },
+  {
+    id: "semi",
+    label: "Semi-Auto",
+    title: "Semi-Auto",
+    body: "Friendly reminders send automatically. You approve escalation.",
+  },
+  {
+    id: "copilot",
+    label: "Copilot Mode",
+    title: "Copilot Mode",
+    body: "End-to-end: drafts, sends, and follow-ups handled automatically until paid.",
+  },
+] as const;
+
+type TrustModeId = (typeof TRUST_MODES)[number]["id"];
+
+function TrustLadder() {
+  const [active, setActive] = useState<TrustModeId>("semi");
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+  const current = TRUST_MODES.find((m) => m.id === active)!;
+
+  const dotLeft = (id: TrustModeId) =>
+    id === "draft" ? "1.5rem" : id === "semi" ? "50%" : "calc(100% - 1.5rem)";
+
+  const selectFromPointer = (clientX: number) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const idx = Math.round(ratio * (TRUST_MODES.length - 1));
+    setActive(TRUST_MODES[idx].id);
+  };
+
+  return (
+    <div className="mt-6">
+      <div
+        ref={trackRef}
+        role="slider"
+        aria-label="Trust mode"
+        aria-valuemin={0}
+        aria-valuemax={TRUST_MODES.length - 1}
+        aria-valuenow={TRUST_MODES.findIndex((m) => m.id === active)}
+        className="relative h-12 cursor-pointer touch-none select-none"
+        onPointerDown={(e) => {
+          dragging.current = true;
+          trackRef.current?.setPointerCapture?.(e.pointerId);
+          selectFromPointer(e.clientX);
+        }}
+        onPointerMove={(e) => {
+          if (dragging.current) selectFromPointer(e.clientX);
+        }}
+        onPointerUp={() => {
+          dragging.current = false;
+        }}
+        onPointerCancel={() => {
+          dragging.current = false;
+        }}
+      >
+        <span
+          aria-hidden="true"
+          className="absolute left-6 right-6 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-hairline"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-brand transition-all duration-150"
+          style={{
+            left: "1.5rem",
+            right:
+              active === "draft" ? "calc(100% - 1.5rem)" : active === "semi" ? "50%" : "1.5rem",
+          }}
+        />
+        {TRUST_MODES.map((m) => (
+          <span
+            key={m.id}
+            aria-hidden="true"
+            className={`absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-150 ${
+              active === m.id
+                ? "h-5 w-5 bg-brand ring-4 ring-brand/20"
+                : "h-4 w-4 border-2 border-hairline bg-white"
+            }`}
+            style={{ left: dotLeft(m.id) }}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-[13.5px]">
+        {TRUST_MODES.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => setActive(m.id)}
+            aria-pressed={active === m.id}
+            className={
+              active === m.id
+                ? "font-semibold text-brand-deep"
+                : "text-muted hover:text-ink"
+            }
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-4 rounded-[14px] border border-hairline bg-white p-5 shadow-sm">
+        <p className="text-[15px] font-semibold text-ink">{current.title}</p>
+        <p className="mt-1.5 text-[13px] text-muted leading-relaxed">{current.body}</p>
+      </div>
     </div>
   );
 }
