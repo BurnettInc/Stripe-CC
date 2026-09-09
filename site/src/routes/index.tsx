@@ -143,6 +143,9 @@ function Home() {
                 "Basic reminder timing",
                 "Generic payment reminder",
                 "You manage what happens next",
+                "No sender branding customization",
+                "No open & click tracking",
+                "No late-fee automation",
               ].map((item) => (
                 <li key={item} className="text-sm text-gray-600">
                   {item}
