@@ -31,10 +31,10 @@ export const Route = createFileRoute("/")({
 
 function TrustBadge({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[13.5px] text-muted">
+    <span className="inline-flex items-center gap-1.5 text-[15px] font-medium text-ink">
       <svg
-        width="14"
-        height="14"
+        width="16"
+        height="16"
         viewBox="0 0 14 14"
         fill="none"
         aria-hidden="true"
@@ -96,35 +96,53 @@ function Home() {
               <p className="mt-2 text-[13px] text-muted">
                 Acme Design Co. — Invoice #1048 · 14 days late
               </p>
-              <div className="mt-5 divide-y divide-hairline border-t border-hairline">
-                <div className="flex items-center justify-between gap-3 py-3">
-                  <p className="text-[13.5px] text-ink">
-                    Day 1 — Friendly reminder sent
-                  </p>
-                  <span className="shrink-0 text-[13px] text-muted">
-                    (Delivered)
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3 py-3">
-                  <p className="text-[13.5px] text-ink">
-                    Day 4 — Second follow-up sent
-                  </p>
-                  <span className="shrink-0 text-[13px] text-muted">
-                    (Delivered)
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3 py-3">
-                  <p className="text-[13.5px] text-ink">
-                    Day 7 — Customer paid
-                  </p>
-                  <span className="shrink-0 text-[13px] font-medium text-success-text">
-                    (Paid)
-                  </span>
+              <div className="mt-5 border-t border-hairline pt-4">
+                <div className="relative pl-6">
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-[5px] top-2 bottom-2 w-px bg-hairline"
+                  />
+                  <div className="relative flex items-center justify-between gap-3 py-2">
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1/2 h-[11px] w-[11px] -translate-y-1/2 rounded-full border border-hairline bg-white"
+                      style={{ left: "-24px" }}
+                    />
+                    <p className="text-[13.5px] text-ink">
+                      Day 1 — Friendly reminder sent
+                    </p>
+                    <span className="shrink-0 text-[13px] text-muted">
+                      (Delivered)
+                    </span>
+                  </div>
+                  <div className="relative flex items-center justify-between gap-3 py-2">
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1/2 h-[11px] w-[11px] -translate-y-1/2 rounded-full border border-hairline bg-white"
+                      style={{ left: "-24px" }}
+                    />
+                    <p className="text-[13.5px] text-ink">
+                      Day 4 — Second follow-up sent
+                    </p>
+                    <span className="shrink-0 text-[13px] text-muted">
+                      (Delivered)
+                    </span>
+                  </div>
+                  <div className="relative flex items-center justify-between gap-3 py-2">
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1/2 h-[13px] w-[13px] -translate-y-1/2 rounded-full bg-success-text ring-4 ring-success-bg"
+                      style={{ left: "-25px" }}
+                    />
+                    <p className="font-display text-[17px] font-semibold text-success-text">
+                      Customer paid — $450
+                    </p>
+                    <span className="shrink-0 text-[13px] font-medium text-success-text">
+                      (Paid)
+                    </span>
+                  </div>
                 </div>
               </div>
-              <p className="mt-4 text-[15px] font-semibold text-success-text">
-                Customer paid — $450
-              </p>
             </div>
           </div>
         </div>
@@ -140,7 +158,12 @@ function Home() {
             Collections Copilot detects overdue invoices, sends the right
             follow-ups, and stops the moment the customer pays.
           </p>
-          <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="relative mt-10">
+            <span
+              aria-hidden="true"
+              className="absolute left-4 right-4 top-4 hidden h-px bg-hairline lg:block"
+            />
+            <div className="relative grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
             {[
               {
                 n: "1",
@@ -159,14 +182,35 @@ function Home() {
               },
               {
                 n: "4",
-                title: "Sequence stops",
+                title: "Paid — $450",
                 desc: "No chasing. No awkward follow-up emails.",
+                paid: true,
               },
             ].map((s) => (
               <div key={s.n} className="text-center sm:text-left">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand font-display text-[15px] font-semibold text-white">
-                  {s.n}
-                </span>
+                {s.paid ? (
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-success-bg ring-2 ring-success-text">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M3 8.5 6.5 12 13 4.5"
+                        stroke="#1C6B4E"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                ) : (
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand font-display text-[15px] font-semibold text-white">
+                    {s.n}
+                  </span>
+                )}
                 <p className="mt-3 text-[15px] font-semibold text-ink">
                   {s.title}
                 </p>
@@ -175,6 +219,7 @@ function Home() {
                 </p>
               </div>
             ))}
+            </div>
           </div>
         </div>
       </section>
@@ -187,6 +232,15 @@ function Home() {
             <div className="border-b border-hairline bg-band px-5 py-3">
               <p className="text-[15px] font-semibold text-ink">
                 Overdue invoices
+              </p>
+            </div>
+            <div className="border-b border-hairline px-5 py-4">
+              <p className="text-[13px] text-muted">Currently overdue</p>
+              <p className="mt-1 font-display text-[28px] font-semibold leading-none text-warn-text">
+                $1,935
+              </p>
+              <p className="mt-1.5 text-[13px] text-muted">
+                4 invoices need attention
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -262,28 +316,38 @@ function Home() {
               Choose how much control to hand over, with a trust ladder you move
               up as you get comfortable — and can dial back anytime.
             </p>
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="rounded-[14px] border border-hairline bg-white p-5 shadow-sm">
-                <p className="text-[15px] font-semibold text-ink">Draft Mode</p>
-                <p className="mt-1.5 text-[13px] text-muted leading-relaxed">
-                  Review every email before it sends.
-                </p>
+            <div className="mt-6">
+              <div className="relative h-12">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-6 right-6 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-hairline"
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute left-6 right-1/2 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-brand"
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute left-6 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-hairline bg-white"
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-4 ring-brand/20"
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute right-6 top-1/2 h-4 w-4 translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-hairline bg-white"
+                />
               </div>
-              <div className="rounded-[14px] border-2 border-brand bg-white p-5 shadow-sm">
-                <span className="inline-block rounded-full bg-brand px-2.5 py-0.5 text-xs font-medium text-white">
-                  Most common
-                </span>
-                <p className="mt-2 text-[15px] font-semibold text-ink">
-                  Semi-Auto
-                </p>
+              <div className="flex justify-between text-[13.5px]">
+                <span className="text-muted">Draft Mode</span>
+                <span className="font-semibold text-brand-deep">Semi-Auto</span>
+                <span className="text-muted">Full Auto</span>
+              </div>
+              <div className="mt-4 rounded-[14px] border border-hairline bg-white p-5 shadow-sm">
+                <p className="text-[15px] font-semibold text-ink">Semi-Auto</p>
                 <p className="mt-1.5 text-[13px] text-muted leading-relaxed">
                   Friendly reminders send automatically. You approve escalation.
-                </p>
-              </div>
-              <div className="rounded-[14px] border border-hairline bg-white p-5 shadow-sm">
-                <p className="text-[15px] font-semibold text-ink">Full Auto</p>
-                <p className="mt-1.5 text-[13px] text-muted leading-relaxed">
-                  Handles the entire sequence for you.
                 </p>
               </div>
             </div>
@@ -416,12 +480,9 @@ function Home() {
             </a>
           </div>
 
-          {/* Standard — most popular */}
-          <div className="flex flex-col rounded-[14px] border-2 border-brand bg-white p-7 shadow-sm">
-            <span className="inline-block w-fit rounded-full bg-brand px-2.5 py-0.5 text-xs font-medium text-white">
-              Most popular
-            </span>
-            <h3 className="mt-2.5 text-base font-semibold text-ink">Standard</h3>
+          {/* Standard */}
+          <div className="flex flex-col rounded-[14px] border border-hairline bg-white p-7 shadow-sm">
+            <h3 className="text-base font-semibold text-ink">Standard</h3>
             <p className="mt-3 font-display text-[30px] font-semibold text-ink leading-none">
               $7<span className="font-sans text-[15px] font-normal text-muted">/mo</span>
             </p>
@@ -443,20 +504,26 @@ function Home() {
             </ul>
             <a
               href={INSTALL_URL}
-              className={`${BTN_PRIMARY} mt-6 w-full !px-4 !py-2.5 !text-[15px]`}
+              className={`${BTN_SECONDARY} mt-6 w-full !px-4 !py-2.5 !text-[15px]`}
             >
               Get started
             </a>
           </div>
 
-          {/* Pro */}
-          <div className="flex flex-col rounded-[14px] border border-hairline bg-white p-7 shadow-sm">
-            <h3 className="text-base font-semibold text-ink">Pro</h3>
+          {/* Pro — most popular */}
+          <div className="flex flex-col rounded-[14px] border-2 border-brand bg-white p-7 pb-8 shadow-sm">
+            <span className="inline-block w-fit rounded-full bg-brand px-2.5 py-0.5 text-xs font-medium text-white">
+              Most popular
+            </span>
+            <h3 className="mt-2.5 text-base font-semibold text-ink">Pro</h3>
             <p className="mt-3 font-display text-[30px] font-semibold text-ink leading-none">
               $15<span className="font-sans text-[15px] font-normal text-muted">/mo</span>
             </p>
             <p className="mt-1.5 text-[13px] text-muted">
               or $100/year — save $80.
+            </p>
+            <p className="mt-1.5 text-[13px] text-muted">
+              Every feature unlocked.
             </p>
             <ul className="mt-5 space-y-2.5 text-[13.5px] text-ink">
               {[
@@ -473,11 +540,11 @@ function Home() {
             </ul>
             <a
               href={INSTALL_URL}
-              className={`${BTN_SECONDARY} mt-6 w-full !px-4 !py-2.5 !text-[15px]`}
+              className={`${BTN_PRIMARY} mt-6 w-full !px-4 !py-2.5 !text-[15px]`}
             >
               Get started
             </a>
-            <p className="mt-4 text-xs text-muted leading-relaxed">
+            <p className="mt-5 mb-0 text-[11px] leading-snug text-muted/80">
               Late fee legality and limits vary by state/country — you&apos;re
               responsible for confirming your late fee terms comply with
               applicable law before enabling this feature.
@@ -514,8 +581,8 @@ function CalculatorCard() {
             Avg. overdue invoice
           </span>
           <input
-            type="number"
-            min={0}
+            type="text"
+            inputMode="numeric"
             value={Number.isFinite(avg) ? avg : ""}
             onChange={(e) =>
               setAvg(e.target.value === "" ? NaN : Number(e.target.value))
@@ -528,8 +595,8 @@ function CalculatorCard() {
             Invoices overdue
           </span>
           <input
-            type="number"
-            min={0}
+            type="text"
+            inputMode="numeric"
             value={Number.isFinite(count) ? count : ""}
             onChange={(e) =>
               setCount(e.target.value === "" ? NaN : Number(e.target.value))
