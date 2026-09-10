@@ -1,6 +1,6 @@
 {
   "name": "stripe-collections-copilot",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "AI collections assistant for solo Stripe users",
   "type": "module",
   "scripts": {
