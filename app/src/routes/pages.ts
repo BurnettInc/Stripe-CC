@@ -68,9 +68,15 @@ function daysOverdue(dueDate: string | null | undefined): number | null {
   return Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24));
 }
 
-function renderPage(title: string, subtitle: string, summary: string, content: string): Response {
+function renderPage(title: string, subtitle: string, summary: string, content: string, navActive: "" | "invoices" | "messages" = ""): Response {
+  let t = template;
+  // App-shell nav active state (owner 9/11): the shared list-page template
+  // carries {{NAV_ACTIVE_INVOICES}} / {{NAV_ACTIVE_MESSAGES}} markers on the
+  // Invoices and Messages links; the handler pins the route's active item.
+  t = t.replace("{{NAV_ACTIVE_INVOICES}}", navActive === "invoices" ? ' class="active"' : "");
+  t = t.replace("{{NAV_ACTIVE_MESSAGES}}", navActive === "messages" ? ' class="active"' : "");
   return new Response(
-    template
+    t
       .replaceAll("{{TITLE}}", esc(title))
       .replaceAll("{{SUBTITLE}}", esc(subtitle))
       .replaceAll("{{SUMMARY}}", summary)
@@ -174,7 +180,7 @@ export function handlePastDuePage(db: Database, merchantId: number, statusParam:
   ).all(merchantId) as Array<{
     id: number; stripe_invoice_id: string; customer_name: string; customer_email: string;
     amount_cents: number; currency: string; due_date: string; status: string; created_at: string;
-    stage_override: number | null;
+    stage_override: number | null; manually_paused_at: string | null;
   }>;
 
   // Merchant ladder timing for the automatic days-overdue stage (same default
@@ -184,26 +190,48 @@ export function handlePastDuePage(db: Database, merchantId: number, statusParam:
     const days = daysOverdue(dueDate);
     return days === null ? null : getEscalationStage(days, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
   };
-  // A per-row Stage control: Auto (automatic progression) or a manual 1|2|3
-  // override. The effective stage shown is the override when set, else the
-  // auto stage. A "manually set" pill marks any overridden row at a glance.
-  const stageControl = (inv: { id: number; stage_override: number | null; due_date: string }, autoStage: number | null) => {
+  // A per-row Stage control: Auto (automatic progression), Pause, or a manual
+  // override. FORWARD-ONLY (owner 9/11): the dropdown only offers stages at or
+  // above the invoice's natural days-overdue stage — a 24-day-overdue invoice
+  // (natural stage 3) can never be demoted to "Stage 1: friendly reminder".
+  //   - natural 1   → Auto, Pause, Stage 1, 2, 3
+  //   - natural 2   → Auto, Pause, Stage 2, 3
+  //   - natural 3   → Auto, Pause, Stage 3
+  //   - no due date → Auto + Pause only (nothing to anchor forward-only)
+  // A legacy override pinned BELOW the natural stage (set before this rule)
+  // is still rendered SELECTED so the select never lies about current state —
+  // the merchant can only move forward, clear to Auto, or pause; writes stay
+  // below natural are rejected server-side (routes/invoices.ts).
+  const stageControl = (inv: { id: number; stage_override: number | null; due_date: string; manually_paused_at: string | null }, autoStage: number | null) => {
     const override = inv.stage_override;
+    const paused = !!inv.manually_paused_at;
     const effective = override ?? autoStage;
-    const options = [null, 1, 2, 3].map((o) => {
-      const val = o === null ? "" : String(o);
-      const label = o === null ? "Auto" : `Stage ${o}`;
-      const sel = override === o ? " selected" : "";
-      return `<option value="${val}"${sel}>${label}</option>`;
-    }).join("");
-    const saved = override !== null ? `data-saved="${override}"` : "";
+    const opts: Array<{ val: string; label: string }> = [
+      { val: "", label: "Auto" },
+      { val: "pause", label: "Pause" },
+    ];
+    if (autoStage !== null) {
+      for (let s = autoStage; s <= 3; s++) opts.push({ val: String(s), label: `Stage ${s}` });
+    }
+    // Legacy below-natural pin: keep it offered (and selected) for display.
+    if (override !== null && !opts.some((o) => o.val === String(override))) {
+      opts.push({ val: String(override), label: `Stage ${override}` });
+    }
+    const selectedVal = paused ? "pause" : override !== null ? String(override) : "";
+    const options = opts.map((o) =>
+      `<option value="${o.val}"${o.val === selectedVal ? " selected" : ""}>${o.label}</option>`
+    ).join("");
+    const saved = selectedVal !== "" ? `data-saved="${selectedVal}"` : "";
     return (
       `<td data-sort="${effective ?? ""}">` +
         `<div class="stage-cell">` +
           (effective ? `<span class="chip chip-stage st${effective}">Stage ${effective}</span>` : '<span class="cell-muted">—</span>') +
           `<select class="stage-override" data-invoice-id="${inv.id}" aria-label="Override escalation stage" ${saved}>${options}</select>` +
         `</div>` +
-        (override !== null ? `<div class="cell-muted" style="font-size:0.7rem;margin-top:4px;"><span class="pill pill-manual">manually set</span></div>` : "") +
+        (override !== null || paused ? `<div class="cell-muted" style="font-size:0.7rem;margin-top:4px;">` +
+          (override !== null ? `<span class="pill pill-manual">manually set</span>` : "") +
+          (paused ? `<span class="pill pill-paused">Paused</span>` : "") +
+          `</div>` : "") +
       `</td>`
     );
   };
@@ -239,7 +267,7 @@ export function handlePastDuePage(db: Database, merchantId: number, statusParam:
       <tbody>${rows}</tbody></table></div>`;
   }
 
-  return renderPage(view.title, view.subtitle, summary, rows);
+  return renderPage(view.title, view.subtitle, summary, rows, "invoices");
 }
 
 // ── GET /reminders — sent-reminder history ──
@@ -393,6 +421,7 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
     "Reminder emails sent to your customers, newest first. " + engagementSubtitle +
       "Test sends are labeled “Test send”. Open any row to see the full email exactly as sent.",
     "",
-    remindersRowsHtml(db, merchantId)
+    remindersRowsHtml(db, merchantId),
+    "messages"
   );
 }

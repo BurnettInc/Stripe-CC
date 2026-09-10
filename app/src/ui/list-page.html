@@ -67,38 +67,65 @@
       line-height: 1.6;
       min-height: 100vh;
     }
-    .container {
-      max-width: none; /* fill available width - all columns visible, no horizontal squeeze (owner 9/10) */
-      margin: 0 auto;
-      padding: 32px 24px 56px;
+    /* ── App shell (owner 9/11 — same shell as dashboard/messages/copilot-controls):
+       fixed sidebar + top bar + full-width content. The sidebar IS the
+       navigation, so the old standalone header and return link are gone. ── */
+    .cc-shell { display: flex; min-height: 100vh; }
+    .cc-sidebar {
+      width: 216px; flex: 0 0 216px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 14px;
+      /* Pinned sidebar: sticky only holds when the item is shorter than its
+         flex container; align-self + max-height + internal scroll keep logo
+         and nav reachable on short viewports. */
+      position: sticky; top: 0; align-self: flex-start;
+      height: 100vh; max-height: 100vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 4px;
     }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 20px;
-      padding-bottom: 24px;
-      border-bottom: 1px solid var(--border);
+    .cc-sidebar .cc-logo { font-weight: 800; font-size: 1rem; color: var(--text); padding: 0 10px 18px; letter-spacing: -0.01em; }
+    .cc-sidebar .cc-logo span { color: var(--brand); }
+    .cc-nav { display: flex; flex-direction: column; gap: 2px; }
+    .cc-nav a {
+      display: block; padding: 9px 12px; border-radius: var(--radius-sm);
+      color: var(--muted); font-size: 0.88rem; font-weight: 600; text-decoration: none;
     }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .brand svg { height: 32px; width: auto; display: block; flex-shrink: 0; }
+    .cc-nav a:hover { background: var(--bg); color: var(--text); }
+    .cc-nav a.active { background: var(--purple-soft); color: var(--brand-dark); }
+    .cc-main { flex: 1; min-width: 0; }
+    .cc-topbar {
+      display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+      padding: 14px 24px; border-bottom: 1px solid var(--border);
+      background: var(--surface); position: sticky; top: 0; z-index: 5;
+    }
+    .cc-account-name {
+      font-size: 0.82rem; font-weight: 600; color: var(--muted);
+      max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* Connection-pill dot states (semantic: green = connected/success ONLY,
+       amber = needs attention, red = disconnected). */
+    .cc-pill .cc-dot.ok   { background: var(--green-text); }
+    .cc-pill .cc-dot.warn { background: var(--amber-text); }
+    .cc-pill .cc-dot.bad  { background: var(--red-text); }
+    .cc-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 9999px;
+      font-size: 0.78rem; font-weight: 600;
+      background: var(--bg); color: var(--muted); white-space: nowrap;
+      border: 1px solid var(--border);
+    }
+    .cc-pill .cc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-text); flex-shrink: 0; }
+    .cc-page { width: 100%; max-width: none; padding: 28px 32px 72px; }
+    .header-left { margin-bottom: 20px; }
     .header-left h1 {
       font-size: 1.4rem;
       font-weight: 700;
       letter-spacing: -0.025em;
       color: var(--primary);
       line-height: 1.2;
-      margin: 0;
+      margin: 0 0 4px;
     }
-    .header-left p { color: var(--body); font-size: 0.85rem; margin-top: 4px; }
-    .back-link {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 0.85rem; font-weight: 600; color: var(--primary);
-      text-decoration: none; padding: 6px 0;
-    }
-    .back-link:hover { color: var(--primary-hover); text-decoration: underline; }
+    .header-left p { color: var(--body); font-size: 0.85rem; margin: 0; }
 
     /* ── Summary chips (also filter tabs — <a> elements) ── */
     .summary-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; }
@@ -173,6 +200,7 @@
     }
     .pill-muted { background: var(--bg); color: var(--muted); }
     .pill-manual { background: var(--primary-light); color: var(--primary-hover); border-color: var(--primary-lighter); }
+    .pill-paused { background: var(--warning-light); color: var(--warning); border-color: var(--warning-light); }
 
     /* ── Email viewer on /reminders (expandable full sent content) ── */
     .cell-toggle { width: 1%; white-space: nowrap; }
@@ -228,23 +256,36 @@
     .footer-note { text-align: center; margin-top: 24px; font-size: 0.75rem; color: var(--muted); }
 
     @media (max-width: 720px) {
-      header { flex-direction: column; align-items: flex-start; }
-      .container { padding: 24px 16px 40px; }
+      .cc-shell { flex-direction: column; }
+      .cc-sidebar { width: 100%; flex: none; height: auto; position: static; flex-direction: row; align-items: center; padding: 12px; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); }
+      .cc-sidebar .cc-logo { padding: 0 10px 0 0; white-space: nowrap; }
+      .cc-nav { flex-direction: row; }
+      .cc-nav a { white-space: nowrap; }
+      .cc-page { padding: 20px 16px 48px; }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <div class="header-left">
-        <div class="brand">
-          <img src="data:image/png;base64,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" alt="Collections Copilot" style="height:32px;width:auto"/>
-          <h1>{{TITLE}}</h1>
-        </div>
-        <p>{{SUBTITLE}}</p>
+  <div class="cc-shell">
+    <aside class="cc-sidebar" aria-label="Dashboard navigation">
+      <div class="cc-logo">Collections <span>Copilot</span></div>
+      <nav class="cc-nav">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/past-due"{{NAV_ACTIVE_INVOICES}}>Invoices</a>
+        <a href="/messages"{{NAV_ACTIVE_MESSAGES}}>Messages</a>
+        <a href="/copilot-controls">Copilot Controls</a>
+      </nav>
+    </aside>
+    <div class="cc-main">
+      <div class="cc-topbar">
+        <span class="cc-account-name" id="cc-account-name"></span>
+        <span class="cc-pill" id="cc-conn-pill"><span class="cc-dot"></span><span id="cc-conn-pill-text">Checking connection&hellip;</span></span>
       </div>
-      <a class="back-link" href="/dashboard">&larr; Back to dashboard</a>
-    </header>
+      <div class="cc-page">
+        <div class="header-left">
+          <h1>{{TITLE}}</h1>
+          <p>{{SUBTITLE}}</p>
+        </div>
 
     <div class="summary-row">{{SUMMARY}}</div>
 
@@ -252,8 +293,10 @@
       {{CONTENT}}
     </div>
 
-    <div class="footer-note">Collections Copilot</div>
-  </div>
+        <div class="footer-note">Collections Copilot</div>
+      </div><!-- /.cc-page -->
+    </div><!-- /.cc-main -->
+  </div><!-- /.cc-shell -->
   <script>
     // Client-side table sorting for the list pages. Sortable headers are
     // marked with data-sort-key; each row cell carries its raw sort value in
@@ -334,6 +377,37 @@
       // re-applies to the re-ordered rows.
     })();
 
+    // ── Top bar: account name (/settings) + connection pill (/stats) — same
+    // sources as the dashboard. The pill starts neutral ("Checking connection…")
+    // and only speaks after a real payload (green = connected, amber = not
+    // connected, red = disconnected).
+    (function () {
+      "use strict";
+      function byId(id) { return document.getElementById(id); }
+      var nameEl = byId("cc-account-name");
+      if (nameEl) {
+        fetch("/settings").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+          if (d && nameEl && !nameEl.textContent) nameEl.textContent = d.sender_name || d.email || "";
+        }).catch(function () {});
+      }
+      var pill = byId("cc-conn-pill");
+      var txt = byId("cc-conn-pill-text");
+      if (pill && txt) {
+        fetch("/stats").then(function (r) { return r.ok ? r.json() : null; }).then(function (s) {
+          if (!s || !txt) return;
+          var dot = pill.querySelector(".cc-dot");
+          if (!s.stripeConnected) {
+            txt.textContent = s.stripeDisconnected ? "Stripe disconnected \u2014 reconnect" : "Not connected to Stripe";
+            if (dot) dot.className = "cc-dot " + (s.stripeDisconnected ? "bad" : "warn");
+            return;
+          }
+          var mode = (s.stripe_livemode === false || s.stripe_livemode === 0) ? "Test" : "Live";
+          txt.textContent = "Connected to Stripe \u00b7 " + mode;
+          if (dot) dot.className = "cc-dot ok";
+        }).catch(function () {});
+      }
+    })();
+
     // Email viewer on /reminders: clicking "View email" toggles the hidden
     // detail panel (full subject / From / Reply-To / body with CAN-SPAM
     // footer) inside the same row, so the detail travels with the row during
@@ -357,27 +431,65 @@
     // Stage override control on /past-due: changing the per-row select saves
     // the manual override (or clears it to Auto) via the auth'd endpoint, then
     // reloads so the row reflects the new effective stage + manual indicator.
+    // Forward-only (owner 9/11): the server only renders Auto/Pause/stages at
+    // or above the invoice's natural stage, so this handler can never request a
+    // friendlier stage than where the invoice naturally sits — and the
+    // endpoint re-validates anyway (defense in depth).
+    // Values: "" = Auto, "pause" = Pause, "1"|"2"|"3" = manual override.
+    // Pause: POST /tasks/pause; Auto/stage on a paused invoice first POSTs
+    // /tasks/resume, then PUT /invoices/:id/stage.
     (function () {
       "use strict";
+      function fail(sel, prev) {
+        sel.value = prev;
+        alert("Could not update the escalation stage.");
+      }
       document.addEventListener("change", function (e) {
         var sel = e.target && e.target.closest ? e.target.closest(".stage-override") : null;
         if (!sel) return;
         var id = sel.getAttribute("data-invoice-id");
         if (!id) return;
-        var stage = sel.value; // "" = Auto, "1"|"2"|"3" = manual override
+        var stage = sel.value; // "" = Auto, "pause" = Pause, "1"|"2"|"3" = manual
         var prev = sel.getAttribute("data-saved") || "";
         if (stage === prev) return; // no-op re-select
-        fetch("/invoices/" + id + "/stage", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stage: stage === "" ? null : Number(stage) }),
-        }).then(function (res) {
-          if (res.ok) { window.location.reload(); }
-          else { sel.value = prev; alert("Could not update the escalation stage."); }
-        }).catch(function () {
-          sel.value = prev;
-          alert("Could not update the escalation stage.");
-        });
+        if (stage === "pause") {
+          fetch("/tasks/pause", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ invoice_id: Number(id) }),
+          }).then(function (res) {
+            if (res.ok) { window.location.reload(); }
+            else { fail(sel, prev); }
+          }).catch(function () { fail(sel, prev); });
+          return;
+        }
+        var save = function () {
+          return fetch("/invoices/" + id + "/stage", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stage: stage === "" ? null : Number(stage) }),
+          });
+        };
+        var saveThen = function () {
+          save().then(function (res) {
+            if (res.ok) { window.location.reload(); }
+            else { fail(sel, prev); }
+          }).catch(function () { fail(sel, prev); });
+        };
+        if (prev === "pause") {
+          // Currently paused: resume first so the Auto/stage write lands on an
+          // unpaused sequence (resume re-opens a draft task when overdue).
+          fetch("/tasks/resume", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ invoice_id: Number(id) }),
+          }).then(function (res) {
+            if (res.ok) { saveThen(); }
+            else { fail(sel, prev); }
+          }).catch(function () { fail(sel, prev); });
+        } else {
+          saveThen();
+        }
       });
     })();
   </script>
