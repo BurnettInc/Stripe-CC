@@ -173,16 +173,20 @@ export function billingSignInRequiredPage(): Response {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in required — Collections Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F3F4F6; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.1); padding: 36px 40px; max-width: 440px; width: 100%; box-sizing: border-box; text-align: center; }
-    .logo { font-size: 20px; font-weight: 700; color: #1F2937; margin-bottom: 10px; }
-    .logo span { color: #635BFF; }
-    h1 { font-size: 20px; margin: 0 0 12px; color: #111827; }
-    p { font-size: 14px; line-height: 1.6; color: #4B5563; margin: 0 0 18px; }
-    a.btn { display: inline-block; background: #635BFF; color: #fff; text-decoration: none; font-weight: 600; padding: 11px 22px; border-radius: 8px; font-size: 14px; margin: 0 4px 8px; }
-    a.alt { display: inline-block; color: #635BFF; text-decoration: none; font-weight: 600; padding: 11px 22px; border-radius: 8px; font-size: 14px; margin: 0 4px 8px; }
-    .small { color: #9CA3AF; font-size: 12px; margin-top: 14px; }
+    body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F6F6FB; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border: 1px solid #E7E7F2; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); padding: 36px 40px; max-width: 440px; width: 100%; box-sizing: border-box; text-align: center; }
+    .logo { font-size: 20px; font-weight: 700; color: #16162B; margin-bottom: 10px; }
+    .logo span { color: #5B4FE9; }
+    h1 { font-size: 20px; margin: 0 0 12px; color: #16162B; }
+    p { font-size: 14px; line-height: 1.6; color: #6E7191; margin: 0 0 18px; }
+    a.btn { display: inline-block; background: #5B4FE9; color: #fff; text-decoration: none; font-weight: 600; padding: 11px 22px; border-radius: 8px; font-size: 14px; margin: 0 4px 8px; }
+    a.btn:hover { background: #463CC4; }
+    a.alt { display: inline-block; color: #5B4FE9; text-decoration: none; font-weight: 600; padding: 11px 22px; border-radius: 8px; font-size: 14px; margin: 0 4px 8px; }
+    .small { color: #A0A0BC; font-size: 12px; margin-top: 14px; }
   </style>
 </head>
 <body>
@@ -192,7 +196,7 @@ export function billingSignInRequiredPage(): Response {
     <p>Plans and billing are tied to your Collections Copilot account, so you need to be signed in to subscribe or manage your plan. If you haven't connected your Stripe account yet, the dashboard will walk you through it — it only takes a minute.</p>
     <a class="btn" href="/oauth/install">Install &amp; connect Stripe</a><br>
     <a class="alt" href="/dashboard">Open the dashboard</a>
-    <p class="small">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6B7280;">support@getcollectionscopilot.com</a></p>
+    <p class="small">Questions? Email <a href="mailto:support@getcollectionscopilot.com" style="color:#6E7191;">support@getcollectionscopilot.com</a></p>
   </div>
 </body>
 </html>`;
@@ -558,13 +562,17 @@ function noActiveSubscriptionResponse(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>No active subscription — Collections Copilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f8fa; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.12); padding: 40px 48px; max-width: 460px; margin: 24px; text-align: center; }
-    h1 { font-size: 20px; margin: 0 0 12px; color: #1a1a2e; }
-    p { font-size: 15px; line-height: 1.6; color: #4a4a68; margin: 0 0 20px; }
-    a.button { display: inline-block; background: #635bff; color: #fff; text-decoration: none; font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 0 4px 8px; }
-    a.secondary { display: inline-block; color: #635bff; text-decoration: none; font-weight: 500; padding: 10px 18px; }
+    body { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #F6F6FB; margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .card { background: #fff; border: 1px solid #E7E7F2; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); padding: 40px 48px; max-width: 460px; margin: 24px; text-align: center; }
+    h1 { font-size: 20px; margin: 0 0 12px; color: #16162B; }
+    p { font-size: 15px; line-height: 1.6; color: #6E7191; margin: 0 0 20px; }
+    a.button { display: inline-block; background: #5B4FE9; color: #fff; text-decoration: none; font-weight: 600; padding: 10px 18px; border-radius: 8px; margin: 0 4px 8px; }
+    a.button:hover { background: #463CC4; }
+    a.secondary { display: inline-block; color: #5B4FE9; text-decoration: none; font-weight: 500; padding: 10px 18px; }
   </style>
 </head>
 <body>
