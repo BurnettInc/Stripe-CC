@@ -2,7 +2,7 @@ import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscrib
 import { corsHeadersFor } from "./middleware/cors";
 import { handleWebhook } from "./routes/webhook";
 import { handleResendWebhook } from "./routes/resend-webhook";
-import { handlePastDuePage, remindersRowsHtml } from "./routes/pages";
+import { handlePastDuePage, handleRemindersPage, remindersRowsHtml } from "./routes/pages";
 import { handleTasks } from "./routes/tasks";
 import { handleInboundReply } from "./routes/inbound";
 import { handleReplies } from "./routes/replies";
@@ -454,15 +454,19 @@ async function handleRequest(req: Request): Promise<Response> {
         return handlePastDuePage(db, auth.merchant_id, status);
       }
 
-      // GET /reminders — now redirects to the consolidated Messages page's
-      // Sent tab (/messages#sent). The old standalone page had no app shell
-      // and only a "Back to dashboard" link; its data path lives on via
-      // remindersRowsHtml (used by /reminders/rows and handleRemindersPage).
+      // GET /reminders — the sent-reminder history as a full page. Served with
+      // the SAME app shell as /messages (owner 9/11 shell fix): sidebar +
+      // topbar + the shared list-page template, with Messages active in the
+      // nav. Its data path is remindersRowsHtml — the exact fragment
+      // /reminders/rows returns for the /messages Sent tab, so both views can
+      // never drift. The old pre-#214 standalone page lacked the shell; the
+      // 302-to-/messages#sent consolidation (PR #214) remains for /messages
+      // visitors, but the standalone URL now renders a proper shelled page
+      // instead of a bare document.
       if (path === "/reminders" && req.method === "GET") {
-        return new Response(null, {
-          status: 302,
-          headers: { Location: "/messages#sent" },
-        });
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        return handleRemindersPage(db, auth.merchant_id);
       }
 
       // POST /webhook — Stripe webhook events

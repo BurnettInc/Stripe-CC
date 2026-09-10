@@ -74,16 +74,46 @@ export async function handleInvoices(db: Database, req: Request, rawPath: string
       return new Response(JSON.stringify({ error: "stage must be Auto (0/null), Stage 1, 2, or 3" }), { status: 400, headers: jsonHeaders });
     }
 
+    // Natural days-overdue stage — computed BEFORE any write so the
+    // forward-only guard and the effective stage share ONE value. Mirrors the
+    // /past-due page's autoStageFor (merchant timing ladder; null when the
+    // invoice has no usable due date).
+    const dueDate = String(invoice.due_date ?? "");
+    const timing = db.query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?").get(merchantId) as { stage1_days: number; stage2_days: number } | null;
+    const dueTs = dueDate ? new Date(dueDate).getTime() : NaN;
+    const daysOverdue = isNaN(dueTs)
+      ? null
+      : Math.max(0, Math.floor((Date.now() - dueTs) / (1000 * 60 * 60 * 24)));
+    const natural = daysOverdue === null
+      ? null
+      : getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+
+    // FORWARD-ONLY guard (owner 9/11): a manual stage may never be LOWER than
+    // the invoice's natural days-overdue stage — a 24-day-overdue invoice
+    // (natural stage 3) must not be demoted to "Stage 1: friendly reminder".
+    // Auto (null/0/"") is always allowed. Legacy below-natural overrides
+    // already stored (pinned before this rule) stay readable/displayed — only
+    // NEW writes are validated here; the UI renders them selected but cannot
+    // move them lower.
+    if (override !== null && natural !== null && override < natural) {
+      return new Response(JSON.stringify({
+        error: `Stage ${override} is behind this invoice's natural stage (Stage ${natural}) — select Auto, Pause, or a later stage.`,
+      }), { status: 400, headers: jsonHeaders });
+    }
+    // No due date → nothing to anchor forward-only: only Auto/Pause are valid.
+    if (override !== null && natural === null) {
+      return new Response(JSON.stringify({
+        error: "This invoice has no due date — select Auto or Pause (no manual stage).",
+      }), { status: 400, headers: jsonHeaders });
+    }
+
     db.run("UPDATE invoices SET stage_override=? WHERE id=?", [override, id]);
 
     // Recompute the invoice's new effective stage: the override wins when set,
-    // otherwise the automatic days-overdue stage (merchant timing ladder).
-    const dueDate = String(invoice.due_date ?? "");
-    const timing = db.query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?").get(merchantId) as { stage1_days: number; stage2_days: number } | null;
-    const daysOverdue = dueDate
-      ? Math.max(0, Math.floor((Date.now() - new Date(dueDate).getTime()) / (1000 * 60 * 60 * 24)))
-      : 0;
-    const effective = override ?? getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+    // otherwise the automatic days-overdue stage (merchant timing ladder). The
+    // `?? 1` fallback keeps the no-due-date + Auto case at stage 1 (the
+    // reconciliation below always writes a 1|2|3 task stage).
+    const effective = override ?? natural ?? 1;
 
     // Reconcile the invoice's open (not yet sent/cancelled) task so the very
     // next reminder carries the new effective stage + matching draft content.

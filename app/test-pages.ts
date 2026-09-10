@@ -101,8 +101,43 @@ function rows(html: string): string[] {
   return Array.from(html.matchAll(/<div class="cell-strong">([^<]*)</g)).map((m) => m[1].trim());
 }
 
+/** The full <tr>...</tr> markup for an invoice's row (by internal DB id).
+ *  Anchors on the row's select first (data-invoice-id) and walks back to the
+ *  nearest <tr> — naive non-greedy "<tr>.*?</tr>" regexes span earlier rows,
+ *  which made selectOptions() read the WRONG row's dropdown. */
+function rowFor(html: string, invoiceId: number): string {
+  const idx = html.indexOf(`data-invoice-id="${invoiceId}"`);
+  if (idx < 0) return "";
+  const start = html.lastIndexOf("<tr>", idx);
+  const end = html.indexOf("</tr>", idx);
+  if (start < 0 || end < 0) return "";
+  return html.slice(start, end + 5);
+}
+
+/** The inner HTML of a row's stage-override <select> (all option tags). */
+function selectOptions(row: string): string {
+  const m = row.match(/<select class="stage-override"[^>]*>([\s\S]*?)<\/select>/);
+  return m ? m[1] : "";
+}
+
+/** True when the option `<option value="VAL"[ selected]>LABEL</option>` exists.
+ *  selected=false accepts the option in EITHER state (presence only — the
+ *  selected row's Auto option carries " selected"); selected=true requires
+ *  the exact selected markup. */
+function hasOpt(options: string, val: string, label: string, selected = false): boolean {
+  const sel = `<option value="${val}" selected>${label}</option>`;
+  if (selected) return options.includes(sel);
+  return options.includes(`<option value="${val}">${label}</option>`) || options.includes(sel);
+}
+
 async function main(): Promise<void> {
   seed();
+  // Internal DB ids for the seeded invoices (used by the stage-control and
+  // pause endpoint checks below).
+  const ovdAId = (db().query("SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_a'").get() as { id: number }).id;
+  const ovdBId = (db().query("SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_b'").get() as { id: number }).id;
+  const ovdEId = (db().query("SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_e'").get() as { id: number }).id;
+  const paidCId = (db().query("SELECT id FROM invoices WHERE stripe_invoice_id='pgs_paid_c'").get() as { id: number }).id;
   const base = await get("/past-due");
   const all = await get("/past-due?status=all");
   const paid = await get("/past-due?status=paid");
@@ -118,6 +153,11 @@ async function main(): Promise<void> {
   check("past-due renders all five filter tabs", chipLabels(base).length === 5, labels);
   check("past-due chip counts are whole-dataset", labels.includes("All invoices · 5") && labels.includes("Paid · 2") && labels.includes("Refunded · 1") && labels.includes("Disputed · 1"), labels);
   check("past-due default has sortable headers + data-sort cells", (base.match(/data-sort-key=/g) || []).length === 5 && (base.match(/data-sort="/g) || []).length >= 5, `keys=${(base.match(/data-sort-key=/g) || []).length}`);
+
+  // ── App shell (owner 9/11): sidebar + topbar on both list pages ──
+  check("past-due renders the app shell (sidebar + nav + topbar)", base.includes('class="cc-shell"') && base.includes('class="cc-sidebar"') && base.includes('class="cc-nav"') && base.includes('class="cc-topbar"') && base.includes('id="cc-account-name"') && base.includes('id="cc-conn-pill"'), "");
+  check("past-due has no .back-link (sidebar is the navigation)", !base.includes("back-link") && !base.includes("Back to dashboard"), "");
+  check("past-due nav is the four shell links with Invoices active", (base.match(/<a href="\/dashboard">Dashboard<\/a>/g) || []).length === 1 && base.includes('href="/past-due" class="active">Invoices') && base.includes('href="/messages">Messages') && base.includes('href="/copilot-controls">Copilot Controls'), "");
 
   check("?status=all shows every invoice", rows(all).length === 5 && selectedChip(all) === "All invoices · 5", rows(all).join(","));
   check("?status=paid shows only paid", rows(paid).join(",") === "Refunded Delta,Paid Gamma" && selectedChip(paid) === "Paid · 2", rows(paid).join(","));
@@ -143,6 +183,11 @@ async function main(): Promise<void> {
   check("reminders ?type=bogus is a no-op (single view)", rows(remBogus).join(",") === rows(remAll).join(","), rows(remBogus).join(","));
   check("reminders has sortable headers + data-sort cells", (remAll.match(/data-sort-key=/g) || []).length === 5 && (remAll.match(/data-sort="/g) || []).length >= 10, `keys=${(remAll.match(/data-sort-key=/g) || []).length}`);
 
+  // ── App shell on /reminders (owner 9/11): sidebar + topbar, Messages active ──
+  check("reminders renders the app shell (sidebar + topbar)", remAll.includes('class="cc-shell"') && remAll.includes('class="cc-sidebar"') && remAll.includes('class="cc-topbar"') && remAll.includes('id="cc-account-name"') && remAll.includes('id="cc-conn-pill"'), "");
+  check("reminders has no .back-link", !remAll.includes("back-link") && !remAll.includes("Back to dashboard"), "");
+  check("reminders nav marks Messages active", remAll.includes('href="/messages" class="active">Messages') && !remAll.includes('href="/past-due" class="active"') && !remAll.includes('href="/dashboard" class="active"'), "");
+
   // Auth must still be enforced on the new query-param variants.
   const unauth = await fetch(BASE + "/past-due?status=all", { headers: { Cookie: "session=nope" } });
   check("query-param routes still require session auth", unauth.status === 401, `status=${unauth.status}`);
@@ -153,8 +198,6 @@ async function main(): Promise<void> {
   // Each row has a "View email" toggle; the hidden detail panel holds the
   // EXACT sent content (persisted draft_subject/draft_body + reconstructed
   // From/Reply-To/CAN-SPAM footer — never regenerated).
-  const ovdAId = (db().query("SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_a'").get() as { id: number }).id;
-  const ovdBId = (db().query("SELECT id FROM invoices WHERE stripe_invoice_id='pgs_ovd_b'").get() as { id: number }).id;
 
   check("reminders renders a View email toggle per row", (remAll.match(/class="email-toggle"/g) || []).length >= 2, `toggles=${(remAll.match(/class="email-toggle"/g) || []).length}`);
   check("reminders detail panel present per row (hidden by default)", (remAll.match(/class="email-body" id="emailbody-/g) || []).length >= 2, `panels=${(remAll.match(/class="email-body" id="emailbody-/g) || []).length}`);
@@ -174,11 +217,21 @@ async function main(): Promise<void> {
   // Auto-is-the-default: every row renders a Stage select defaulting to Auto,
   // and no "manually set" pill appears until an override is set.
   check("past-due renders a stage-override control per row (Auto default)", (base.match(/class="stage-override"/g) || []).length === 3, `n=${(base.match(/class="stage-override"/g) || []).length}`);
-  check("past-due stage controls offer Auto/1/2/3", /<option value=""[^>]*>Auto<\/option>/.test(base) && base.includes('<option value="1">Stage 1</option>') && base.includes('<option value="2">Stage 2</option>') && base.includes('<option value="3">Stage 3</option>'), "");
+  check("past-due stage controls offer Auto + Pause on every row", (base.match(/<option value=""[^>]*>Auto<\/option>/g) || []).length === 3 && (base.match(/<option value="pause">Pause<\/option>/g) || []).length === 3, `auto=${(base.match(/<option value=""[^>]*>Auto<\/option>/g) || []).length} pause=${(base.match(/<option value="pause">Pause<\/option>/g) || []).length}`);
   check("past-due no manual indicator until an override is set", (base.match(/class="pill pill-manual"/g) || []).length === 0, `n=${(base.match(/class="pill pill-manual"/g) || []).length}`);
   // Effective stage is auto from days-overdue: pgs_ovd_a is 10d → Stage 2,
   // pgs_ovd_b is 3d → Stage 1, pgs_ovd_e is 45d → Stage 3.
   check("past-due shows auto effective stage chip per row", base.includes('chip-stage st2">Stage 2') && base.includes('chip-stage st1">Stage 1') && base.includes('chip-stage st3">Stage 3'), "");
+
+  // ── FORWARD-ONLY options (owner 9/11) — per-row by natural stage ──
+  // pgs_ovd_e is 45d → natural 3: Auto/Pause/Stage 3 ONLY. pgs_ovd_a is 10d →
+  // natural 2: Auto/Pause/Stages 2+3. pgs_ovd_b is 3d → natural 1: all stages.
+  const optsE = selectOptions(rowFor(base, ovdEId)); // natural 3 (45d overdue)
+  const optsA = selectOptions(rowFor(base, ovdAId)); // natural 2 (10d overdue)
+  const optsB = selectOptions(rowFor(base, ovdBId)); // natural 1 (3d overdue)
+  check("natural-3 invoice (45d) offers Auto/Pause/Stage 3 only", hasOpt(optsE, "", "Auto") && hasOpt(optsE, "pause", "Pause") && hasOpt(optsE, "3", "Stage 3") && !hasOpt(optsE, "1", "Stage 1") && !hasOpt(optsE, "2", "Stage 2"), optsE.replace(/\s+/g, " "));
+  check("natural-2 invoice (10d) offers Auto/Pause/Stages 2+3, no Stage 1", hasOpt(optsA, "", "Auto") && hasOpt(optsA, "pause", "Pause") && hasOpt(optsA, "2", "Stage 2") && hasOpt(optsA, "3", "Stage 3") && !hasOpt(optsA, "1", "Stage 1"), optsA.replace(/\s+/g, " "));
+  check("natural-1 invoice (3d) offers Auto/Pause/Stages 1+2+3", hasOpt(optsB, "", "Auto") && hasOpt(optsB, "pause", "Pause") && hasOpt(optsB, "1", "Stage 1") && hasOpt(optsB, "2", "Stage 2") && hasOpt(optsB, "3", "Stage 3"), optsB.replace(/\s+/g, " "));
 
   // Set an override on pgs_ovd_a (10 days overdue → auto Stage 2) to Stage 3.
   const setRes = await fetch(BASE + `/invoices/${ovdAId}/stage`, {
@@ -228,6 +281,80 @@ async function main(): Promise<void> {
     method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: 9 }),
   });
   check("stage override rejects invalid stage", badStage.status === 400, `status=${badStage.status}`);
+
+  // ── FORWARD-ONLY guard (owner 9/11) — the API enforces, not just the UI ──
+  // pgs_ovd_e (45d) has natural stage 3: stage 2 must be rejected, stage 3
+  // (== natural) and Auto must pass.
+  const belowNatural = await fetch(BASE + `/invoices/${ovdEId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: 2 }),
+  });
+  const belowNaturalBody = await belowNatural.json();
+  check("PUT stage below natural rejected 400 with clear error", belowNatural.status === 400 && typeof belowNaturalBody.error === "string" && belowNaturalBody.error.includes("behind this invoice's natural stage") && belowNaturalBody.error.includes("Stage 3"), JSON.stringify(belowNaturalBody));
+  const eqNatural = await fetch(BASE + `/invoices/${ovdEId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: 3 }),
+  });
+  check("PUT stage == natural allowed (200)", eqNatural.status === 200, `status=${eqNatural.status}`);
+  const autoE = await fetch(BASE + `/invoices/${ovdEId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: null }),
+  });
+  check("PUT Auto (null) always allowed (200)", autoE.status === 200, `status=${autoE.status}`);
+  // pgs_ovd_a (10d) has natural stage 2: stage 1 is behind and must 400.
+  const belowA = await fetch(BASE + `/invoices/${ovdAId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: 1 }),
+  });
+  check("PUT natural-2 invoice at stage 1 rejected 400", belowA.status === 400, `status=${belowA.status}`);
+
+  // Legacy below-natural pin (set before this rule existed): still rendered
+  // SELECTED so the select doesn't lie about current state, still offers
+  // Auto/Pause/natural..3 — but a re-write below natural is rejected.
+  db().run("UPDATE invoices SET stage_override=1 WHERE id=?", [ovdAId]);
+  const legacyHtml = await get("/past-due");
+  const legacyOpts = selectOptions(rowFor(legacyHtml, ovdAId));
+  check("legacy below-natural override stays rendered selected", hasOpt(legacyOpts, "1", "Stage 1", true) && hasOpt(legacyOpts, "", "Auto") && hasOpt(legacyOpts, "pause", "Pause") && hasOpt(legacyOpts, "2", "Stage 2") && hasOpt(legacyOpts, "3", "Stage 3"), legacyOpts.replace(/\s+/g, " "));
+  const legacyWrite = await fetch(BASE + `/invoices/${ovdAId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: 1 }),
+  });
+  check("legacy pin cannot be re-written below natural (400)", legacyWrite.status === 400, `status=${legacyWrite.status}`);
+  db().run("UPDATE invoices SET stage_override=NULL WHERE id=?", [ovdAId]);
+
+  // ── Pause integration (owner 9/11) — reuses the existing /tasks endpoints ──
+  // Pausing pgs_ovd_b (3d, natural 1) renders "Pause" selected + a Paused
+  // pill; resume clears both; a stage write works again afterwards.
+  const pauseRes = await fetch(BASE + "/tasks/pause", {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ invoice_id: ovdBId }),
+  });
+  check("POST /tasks/pause returns 200 paused", pauseRes.status === 200, `status=${pauseRes.status}`);
+  const pausedHtml = await get("/past-due");
+  const pausedOpts = selectOptions(rowFor(pausedHtml, ovdBId));
+  check("paused invoice renders Pause selected", hasOpt(pausedOpts, "pause", "Pause", true) && !hasOpt(pausedOpts, "", "Auto", true), pausedOpts.replace(/\s+/g, " "));
+  check("paused invoice shows the Paused pill", rowFor(pausedHtml, ovdBId).includes('class="pill pill-paused">Paused'), "");
+  const resumeRes = await fetch(BASE + "/tasks/resume", {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ invoice_id: ovdBId }),
+  });
+  check("POST /tasks/resume returns 200", resumeRes.status === 200, `status=${resumeRes.status}`);
+  const resumedHtml = await get("/past-due");
+  const resumedRow = rowFor(resumedHtml, ovdBId);
+  check("resumed invoice no longer paused (Auto selected, no Paused pill)", selectOptions(resumedRow).includes('<option value="" selected>Auto</option>') && !resumedRow.includes('class="pill pill-paused"'), "");
+  const stageAfterResume = await fetch(BASE + `/invoices/${ovdBId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: 1 }),
+  });
+  check("stage write after resume works (natural 1 → 200)", stageAfterResume.status === 200, `status=${stageAfterResume.status}`);
+
+  // ── No due date → Auto + Pause only (nothing to anchor forward-only) ──
+  // pgs_paid_c (Paid Gamma) drops its due date; the All view row then renders
+  // no manual stages and the endpoint rejects any non-null stage.
+  db().run("UPDATE invoices SET due_date='' WHERE id=?", [paidCId]);
+  const noDue = await fetch(BASE + `/invoices/${paidCId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: 2 }),
+  });
+  check("PUT stage on no-due-date invoice rejected 400", noDue.status === 400, `status=${noDue.status}`);
+  const noDueAuto = await fetch(BASE + `/invoices/${paidCId}/stage`, {
+    method: "PUT", headers: { "Content-Type": "application/json", Cookie: `session=${SESSION}` }, body: JSON.stringify({ stage: null }),
+  });
+  check("PUT Auto on no-due-date invoice allowed (200)", noDueAuto.status === 200, `status=${noDueAuto.status}`);
+  const allView = await get("/past-due?status=all");
+  const noDueOpts = selectOptions(rowFor(allView, paidCId));
+  check("no-due-date invoice renders Auto/Pause only (no manual stages)", hasOpt(noDueOpts, "", "Auto") && hasOpt(noDueOpts, "pause", "Pause") && !hasOpt(noDueOpts, "1", "Stage 1") && !hasOpt(noDueOpts, "2", "Stage 2") && !hasOpt(noDueOpts, "3", "Stage 3"), noDueOpts.replace(/\s+/g, " "));
 
   // ── Reply-pause copy pass (owner 2026-08-12): landing page + dashboard UI ──
   // The backend serves the built TanStack site at "/" (SSR, unauthenticated)
