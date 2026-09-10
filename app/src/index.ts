@@ -2,7 +2,7 @@ import { getDb, ensureDefaultMerchant, freeDraftsRemaining, isActivePaidSubscrib
 import { corsHeadersFor } from "./middleware/cors";
 import { handleWebhook } from "./routes/webhook";
 import { handleResendWebhook } from "./routes/resend-webhook";
-import { handlePastDuePage, handleRemindersPage } from "./routes/pages";
+import { handlePastDuePage, remindersRowsHtml } from "./routes/pages";
 import { handleTasks } from "./routes/tasks";
 import { handleInboundReply } from "./routes/inbound";
 import { handleReplies } from "./routes/replies";
@@ -34,6 +34,12 @@ const dashboardHtml = readFileSync(join(import.meta.dirname, "ui", "dashboard.ht
 // out of the dashboard's single-column settings card onto a dedicated
 // full-width page — /copilot-controls reuses the dashboard's app shell).
 const copilotControlsHtml = readFileSync(join(import.meta.dirname, "ui", "copilot-controls.html"), "utf-8");
+// Load the consolidated Messages page once at startup (owner 9/10: the
+// approval inbox and the sent-reminder history live on ONE page with the
+// app shell — same serve pattern as /dashboard and /copilot-controls). The
+// Sent tab consumes a session-protected HTML fragment from /reminders/rows
+// (same payload as the old standalone /reminders page).
+const messagesHtml = readFileSync(join(import.meta.dirname, "ui", "messages.html"), "utf-8");
 
 // ── Marketing site integration ──
 // The ENTIRE product runs as one Railway service: the backend serves its own
@@ -289,6 +295,27 @@ async function handleRequest(req: Request): Promise<Response> {
         });
       }
 
+      // GET /messages — the consolidated Messages page: the approval-task
+      // inbox (Awaiting your approval) and the sent-reminder history (Sent)
+      // in one shell, with the same client-side session handoff as the
+      // dashboard (/dashboard#inbox-section is no longer the Messages target).
+      if (path === "/messages" && req.method === "GET") {
+        const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+        const served = messagesHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
+        return new Response(served, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+      // GET /reminders/rows — the Sent-tab fragment for /messages: the same
+      // send-log rows handleRemindersPage renders, as plain HTML the page
+      // injects into its Sent tab (no JSON round-trip; one data path).
+      if (path === "/reminders/rows" && req.method === "GET") {
+        const auth = requireSession(db, req);
+        if (auth instanceof Response) return auth;
+        return new Response(remindersRowsHtml(db, auth.merchant_id), {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
       // GET /health — health check endpoint
       if (path === "/health" && req.method === "GET") {
         const uptime = Math.floor((Date.now() - START_TIME) / 1000);
@@ -427,17 +454,15 @@ async function handleRequest(req: Request): Promise<Response> {
         return handlePastDuePage(db, auth.merchant_id, status);
       }
 
-      // GET /reminders — server-rendered history of sent reminder emails.
-      // Drilled into from the dashboard "Reminders" stat card. Every row
-      // is a send_logs 'success' entry; test-mode stub sends are labeled with
-      // a muted "Test send" pill next to the customer name (and carry a
-      // row-test marker class) so a stub can never be mistaken for a real
-      // delivery; row-test rows are hidden by the shared list-page CSS.
+      // GET /reminders — now redirects to the consolidated Messages page's
+      // Sent tab (/messages#sent). The old standalone page had no app shell
+      // and only a "Back to dashboard" link; its data path lives on via
+      // remindersRowsHtml (used by /reminders/rows and handleRemindersPage).
       if (path === "/reminders" && req.method === "GET") {
-        const auth = requireSession(db, req);
-        if (auth instanceof Response) return auth;
-        // Single list — no ?type= split (the page has one dataset).
-        return handleRemindersPage(db, auth.merchant_id);
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "/messages#sent" },
+        });
       }
 
       // POST /webhook — Stripe webhook events

@@ -262,7 +262,7 @@ const LOG_COLUMNS = `
 // and the shared list-page CSS hides row-test rows unconditionally, so
 // merchants never see the team's internal test sends.
 
-export function handleRemindersPage(db: Database, merchantId: number): Response {
+export function remindersRowsHtml(db: Database, merchantId: number): string {
   // One list, newest first — every successful reminder send, real and test
   // (stub) alike. There is no ?type= split anymore: test rows are labeled
   // per-row with a muted "Test send" pill and a row-test marker class, and
@@ -377,6 +377,14 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
       <tbody>${rows}</tbody></table></div>`;
   }
 
+  return rows;
+}
+
+// GET /reminders kept its own handler so the /messages Sent tab and any
+// legacy link share ONE data path: handleRemindersPage renders the same rows
+// HTML that /reminders/rows returns as a fragment (see remindersRowsHtml).
+export function handleRemindersPage(db: Database, merchantId: number): Response {
+  const isPro = isActiveProSubscriber(db, merchantId);
   const engagementSubtitle = isPro
     ? "The Engagement column shows whether a recipient opened or clicked each reminder (via Resend open/click tracking). "
     : "";
@@ -385,6 +393,6 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
     "Reminder emails sent to your customers, newest first. " + engagementSubtitle +
       "Test sends are labeled “Test send”. Open any row to see the full email exactly as sent.",
     "",
-    rows
+    remindersRowsHtml(db, merchantId)
   );
 }
