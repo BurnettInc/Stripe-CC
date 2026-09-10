@@ -173,7 +173,7 @@ async function main(): Promise<void> {
   // ── App shell (owner 9/11): sidebar + topbar on both list pages ──
   check("past-due renders the app shell (sidebar + nav + topbar)", base.includes('class="cc-shell"') && base.includes('class="cc-sidebar"') && base.includes('class="cc-nav"') && base.includes('class="cc-topbar"') && base.includes('id="cc-account-name"') && base.includes('id="cc-conn-pill"'), "");
   check("past-due has no .back-link (sidebar is the navigation)", !base.includes("back-link") && !base.includes("Back to dashboard"), "");
-  check("past-due nav is the four shell links with Invoices active", (base.match(/<a href="\/dashboard">Dashboard<\/a>/g) || []).length === 1 && base.includes('href="/past-due" class="active">Invoices') && base.includes('href="/messages">Messages') && base.includes('href="/copilot-controls">Copilot Controls'), "");
+  check("past-due nav is the five shell links with Invoices active", (base.match(/<a href="\/dashboard">Dashboard<\/a>/g) || []).length === 1 && base.includes('href="/past-due" class="active">Invoices') && base.includes('href="/messages">Messages') && base.includes('href="/copilot-controls">Copilot Controls') && base.includes('href="/account">Account'), "");
 
   check("?status=all shows every invoice", rows(all).length === 5 && selectedChip(all) === "All invoices · 5", rows(all).join(","));
   check("?status=paid shows only paid", rows(paid).join(",") === "Refunded Delta,Paid Gamma" && selectedChip(paid) === "Paid · 2", rows(paid).join(","));
@@ -202,7 +202,19 @@ async function main(): Promise<void> {
   // ── App shell on /reminders (owner 9/11): sidebar + topbar, Messages active ──
   check("reminders renders the app shell (sidebar + topbar)", remAll.includes('class="cc-shell"') && remAll.includes('class="cc-sidebar"') && remAll.includes('class="cc-topbar"') && remAll.includes('id="cc-account-name"') && remAll.includes('id="cc-conn-pill"'), "");
   check("reminders has no .back-link", !remAll.includes("back-link") && !remAll.includes("Back to dashboard"), "");
-  check("reminders nav marks Messages active", remAll.includes('href="/messages" class="active">Messages') && !remAll.includes('href="/past-due" class="active"') && !remAll.includes('href="/dashboard" class="active"'), "");
+  check("reminders nav marks Messages active", remAll.includes('href="/messages" class="active">Messages') && !remAll.includes('href="/past-due" class="active"') && !remAll.includes('href="/dashboard" class="active"') && remAll.includes('href="/account">Account'), "");
+
+  // ── /account page (owner 9/11 layout pass, second half) ──
+  // The Account data card (export/delete) + the Subscription card
+  // (plan/pricing/manage billing) MOVED off the dashboard onto a dedicated
+  // app-shell page; the weekly recovery report stays on the dashboard and now
+  // sits directly under the Copilot Controls summary in the two-column grid.
+  const accountPage = await (await fetch(BASE + "/account")).text();
+  check("account page serves 200 with the app shell (sidebar + topbar)", accountPage.includes('class="cc-shell"') && accountPage.includes('class="cc-sidebar"') && accountPage.includes('class="cc-nav"') && accountPage.includes('class="cc-topbar"') && accountPage.includes('id="cc-account-name"') && accountPage.includes('id="cc-conn-pill"'), "");
+  check("account nav is the five shell links with Account active", accountPage.includes('href="/dashboard">Dashboard') && accountPage.includes('href="/past-due">Invoices') && accountPage.includes('href="/messages">Messages') && accountPage.includes('href="/copilot-controls">Copilot Controls') && accountPage.includes('href="/account" class="active">Account'), "");
+  check("account shows the Account data card (export/delete)", accountPage.includes('id="account-card"') && accountPage.includes("Export my data") && accountPage.includes("/account/export") && accountPage.includes("Delete my account and all data") && accountPage.includes("async function deleteAccount"), "");
+  check("account shows the Subscription card (plan/pricing/manage billing)", accountPage.includes('id="subscription-card"') && accountPage.includes('id="plan-card"') && accountPage.includes('id="pricing"') && accountPage.includes('id="beta-redeem-card"') && accountPage.includes("async function loadSubscription") && accountPage.includes("async function manageBilling") && accountPage.includes("async function subscribe") && accountPage.includes("setBillingInterval"), "");
+  check("account has no dashboard-only cards (overdue/report/controls)", !accountPage.includes('id="overdue-card"') && !accountPage.includes('id="report-card"') && !accountPage.includes('id="controls-summary-card"') && !accountPage.includes('id="trial-banner"'), "");
 
   // Auth must still be enforced on the new query-param variants.
   const unauth = await fetch(BASE + "/past-due?status=all", { headers: { Cookie: "session=nope" } });
@@ -400,6 +412,16 @@ async function main(): Promise<void> {
   // gone, and the page is a full-width app shell with a two-column area.
   check("dashboard: app-shell rebuild — inbox section and Stripe stat card removed", !dash.includes('id="inbox-section"') && !dash.includes("stat-stripe-card") && !dash.includes('id="server-status"'), "");
   check("dashboard: two-column area — overdue panel + Copilot Controls summary", dash.includes('class="dash-grid"') && dash.includes('id="overdue-card"') && dash.includes('id="controls-summary-card"') && dash.includes('href="/copilot-controls"'), "");
+  // Owner 9/11 layout pass (second half): the Account + Subscription cards
+  // moved to /account, so the dashboard must NOT re-render them; the weekly
+  // recovery report card moved INTO the grid under the controls summary.
+  check("dashboard: moved cards no longer render (account/subscription)", !dash.includes('id="account-card"') && !dash.includes('id="subscription-card"') && !dash.includes('id="plan-card"') && !dash.includes('id="pricing"') && !dash.includes("deleteAccount") && !dash.includes("redeemBetaCode"), "");
+  check("dashboard: report card sits in the grid under the controls summary (same column)", (function () {
+    const g = dash.slice(dash.indexOf('class="dash-grid"'), dash.indexOf('class="card footer-card"'));
+    return g.includes('id="controls-summary-card"') && g.includes('id="report-card"') && g.indexOf('id="controls-summary-card"') < g.indexOf('id="report-card"');
+  })(), "");
+  check("dashboard: shell nav includes the Account link (five shell links)", dash.includes('href="/account">Account') && dash.includes('href="/copilot-controls">Copilot Controls'), "");
+  check("dashboard: status-banner plan CTAs point at /account", dash.includes('href="/account">Standard') && dash.includes('href="/account">Pro'), "");
   // Per-invoice Copilot toggle (two-state, owner 9/10): "Following <global
   // mode>" <-> "Paused \u00b7 manual only", wired to the real endpoints
   // POST /tasks/pause | /tasks/resume. (Source contains the \u00b7 escape.)

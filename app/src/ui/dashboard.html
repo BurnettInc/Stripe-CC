@@ -717,6 +717,7 @@
         <a href="/past-due">Invoices</a>
         <a href="/messages">Messages</a>
         <a href="/copilot-controls">Copilot Controls</a>
+        <a href="/account">Account</a>
       </nav>
     </aside>
     <div class="cc-main">
@@ -837,7 +838,7 @@
           New overdue invoices won't be tracked until you're back under the limit.
           Upgrade to Pro for unlimited tracking.
         </p>
-        <button onclick="subscribe('pro')" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:0.85rem;font-weight:600;cursor:pointer;white-space:nowrap;">Upgrade to Pro</button>
+        <button onclick="location.href='/account'" style="background:var(--primary);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:0.85rem;font-weight:600;cursor:pointer;white-space:nowrap;">Upgrade to Pro</button>
       </div>
     </div>
 
@@ -887,27 +888,6 @@
             <a class="controls-cta" href="/copilot-controls">Manage Copilot Controls &rarr;</a>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Account data (owner 9/10: stays on the dashboard THIS pass; a
-         follow-up pass moves it to a Settings/Account page). Export = plain
-         download link; delete = confirm dialog + POST /account/delete
-         (cancels any active subscription). -->
-    <div class="card" id="account-card">
-      <h2 class="section-head" style="margin:0;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span><span>Account data</span></h2>
-      <p class="subtitle" style="margin:4px 0 0;">
-        Export a copy of everything we store for your account, or delete your account and all data.
-        Deletion is immediate and permanent, and any active subscription is cancelled.
-        If you cancel your subscription instead, your data is deleted within 30 days.
-      </p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
-        <a class="btn-outline" href="/account/export" style="font-size:0.85rem;padding:8px 16px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border-radius:8px;">&#11015;&#65039; Export my data</a>
-        <button id="delete-account-btn" style="font-size:0.85rem;padding:8px 16px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);" onclick="deleteAccount()">&#128465;&#65039; Delete my account and all data</button>
-      </div>
-      <div id="account-data-status" style="margin-top:8px;font-size:0.85rem;color:var(--muted);min-height:0;"></div>
-    </div>
-
     <!-- Weekly recovery report — on-demand summary email (not a billing control) -->
     <div class="card" id="report-card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
@@ -919,89 +899,7 @@
       </div>
       <div id="summary-status" style="margin-top:10px;font-size:0.85rem;min-height:0;"></div>
     </div>
-        <!-- Subscription -->
-    <div class="card" id="subscription-card">
-      <h2 class="section-head" style="margin:0;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></span><span>Subscription</span></h2>
-      <div id="sub-status" style="margin-top: 14px; margin-bottom: 20px;">
-        <p class="loading-placeholder" style="color: var(--muted); font-size: 0.85rem;">Loading subscription status...</p>
-      </div>
-      <!-- Your plan card — replaces the pricing block for active subscribers -->
-      <div id="plan-card" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:#fff;padding:24px;box-shadow:var(--shadow);margin-bottom:20px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-          <div>
-            <span id="plan-name" style="font-size:1.1rem;font-weight:700;"></span>
-            <p id="plan-since" style="margin:6px 0 0;font-size:0.85rem;color:var(--muted);"></p>
-            <p id="plan-manage-hint" style="margin:2px 0 0;font-size:0.8rem;color:var(--muted);">Switch or cancel anytime from Manage Billing.</p>
-          </div>
-          <button id="plan-manage-billing" class="btn-outline" style="font-size:0.85rem;white-space:nowrap;" onclick="manageBilling(this)">⚙️ Manage Billing</button>
-        </div>
-      </div>
-      <!-- Pricing block — hidden while an active subscription exists -->
-      <div id="pricing">
-        <!-- Billing period selector (Phase B): monthly (default, unchanged) or
-             yearly ($50/$100 — honest savings: Standard $7×12=$84 vs $50/yr =
-             $34 saved ≈ 40% off, Pro $15×12=$180 vs $100/yr = $80 saved ≈ 44%
-             off). The interval is UI state subscribe() sends to
-             /billing/checkout; checkout charges the current price with no
-             coupon — this page only displays what checkout will charge. -->
-        <div class="billing-toggle" role="tablist" aria-label="Billing period">
-          <button type="button" class="billing-toggle-btn active" id="toggle-month" data-interval="month" role="tab" aria-selected="true" onclick="setBillingInterval('month')">Monthly</button>
-          <button type="button" class="billing-toggle-btn" id="toggle-year" data-interval="year" role="tab" aria-selected="false" onclick="setBillingInterval('year')">Yearly <span class="billing-toggle-save">save up to ~44%</span></button>
-        </div>
-        <div class="tier-cards">
-          <!-- Standard Tier -->
-          <div class="tier-card">
-            <h3>Standard</h3>
-            <div class="price" id="price-standard"></div>
-            <div class="price-sub" id="price-sub-standard"></div>
-            <ul>
-              <li>✓ Up to 50 overdue invoices tracked</li>
-              <li>✓ 3-stage escalation ladder</li>
-              <li>✓ AI-drafted reminder emails</li>
-              <li>✓ Draft &amp; Semi-Auto modes</li>
-              <li>✓ Weekly summary reports</li>
-            </ul>
-            <button onclick="subscribe('standard')" id="btn-standard" class="btn-outline">
-              Subscribe to Standard
-            </button>
-          </div>
-          <!-- Pro Tier -->
-          <div class="tier-card featured">
-            <h3>Pro <span style="font-size:0.7rem;background:var(--primary);color:white;padding:2px 10px;border-radius:10px;">Popular</span></h3>
-            <div class="price" id="price-pro"></div>
-            <div class="price-sub" id="price-sub-pro"></div>
-            <ul>
-              <li>✓ Unlimited overdue invoices</li>
-              <li>✓ 3-stage escalation ladder</li>
-              <li>✓ AI-drafted reminder emails</li>
-              <li>✓ Copilot Mode</li>
-              <li>✓ Priority support</li>
-            </ul>
-            <button onclick="subscribe('pro')" id="btn-pro">
-              Subscribe to Pro
-            </button>
-          </div>
-        </div>
-      </div>
-      <!-- Beta tester? card — hidden by default; shown to merchants who have no
-           active subscription and are not already dev-flagged Pro (see
-           loadSubscription). POSTs the code to /api/beta/redeem which flips the
-           merchant to dev_pro=1 (active Pro preview); on success we prompt a
-           refresh so the /subscription-derived Pro billing state loads in. -->
-      <div id="beta-redeem-card" style="display:none;border:1px dashed var(--border-strong);border-radius:var(--radius);background:#fff;padding:24px;box-shadow:var(--shadow);margin:0 0 20px;">
-        <h3 class="section-head" style="margin:0 0 6px;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></span><span>Beta tester?</span></h3>
-        <p style="margin:0 0 14px;font-size:0.85rem;color:var(--muted);">Have an invite code? Redeem it to unlock Pro free.</p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <input id="beta-code-input" type="text" placeholder="Enter your invite code" autocomplete="off"
-            style="flex:1;min-width:220px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;" />
-          <button id="beta-redeem-btn" class="btn-outline" style="font-size:0.85rem;white-space:nowrap;" onclick="redeemBetaCode()">Redeem</button>
-        </div>
-        <p id="beta-redeem-msg" style="margin:10px 0 0;font-size:0.85rem;display:none;"></p>
-        <p id="beta-refresh-prompt" style="display:none;margin:10px 0 0;font-size:0.85rem;color:var(--success);">Pro is now active — refresh the page to load your Pro billing state.</p>
-      </div>
-      <div id="sub-error" style="margin-top: 14px; font-size: 0.85rem; display: none;"></div>
-      <div id="sub-actions" style="margin-top: 20px; display: none;">
-        <button onclick="manageBilling()" class="btn-outline" style="font-size:0.85rem;">⚙️ Manage Billing</button>
+
       </div>
     </div>
 
@@ -1173,9 +1071,12 @@
         dot.className = 'status-banner-dot warn';
         title.textContent = 'Connected to Stripe — subscription required';
         sub.textContent = 'Your Stripe account is connected and your invoices are synced. Choose a plan to start sending automatic payment reminders.';
+        // The Subscription card (plan/pricing/manage billing) moved to
+        // /account (owner 9/11 layout pass) — the CTAs link there, still
+        // showing the period's live prices from the same helpers.
         actions.innerHTML =
-          '<button onclick="subscribe(\'standard\')" id="status-banner-standard" class="status-banner-btn">Subscribe Standard — ' + planPriceLabel('standard') + '</button>' +
-          '<button onclick="subscribe(\'pro\')" id="status-banner-pro" class="status-banner-btn status-banner-btn-primary">Subscribe Pro — ' + planPriceLabel('pro') + '</button>';
+          '<a class="status-banner-btn" href="/account">Standard — ' + planPriceLabel('standard') + '</a>' +
+          '<a class="status-banner-btn status-banner-btn-primary" href="/account">Pro — ' + planPriceLabel('pro') + '</a>';
       } else {
         banner.classList.add('banner-ok');
         dot.className = 'status-banner-dot ok';
@@ -1431,7 +1332,9 @@
     // ── Billing period pricing (Phase B) ──
     // Display constants mirror the LIVE Stripe catalog (routes/billing.ts
     // PRICE_IDS): $7/$15 monthly, $50/$100 yearly (reprice 2026-08-26). The
-    // founding offer was removed — nothing special-cased below.
+    // founding offer was removed — nothing special-cased below. Only the
+    // formatting helpers stay on the dashboard (the status banner shows plan
+    // prices); the pricing card itself lives on /account.
     function fmtPrice(n) {
       var v = Math.round(Number(n) * 100) / 100;
       return String(v % 1 === 0 ? v : v.toFixed(2));
@@ -1445,183 +1348,29 @@
     function planPriceLabel(tier) {
       return '$' + fmtPrice(priceFor(tier)) + periodLabel();
     }
-    function renderPricing() {
-      ['standard', 'pro'].forEach(function(tier) {
-        var priceEl = el('price-' + tier);
-        var subEl = el('price-sub-' + tier);
-        if (!priceEl) return;
-        var price = priceFor(tier);
-        priceEl.innerHTML = '$' + fmtPrice(price) + '<span>' + periodLabel() + '</span>';
-        if (subEl) {
-          subEl.textContent = BILLING_INTERVAL === 'year'
-            ? 'Billed yearly — save $' + yearlySave(tier) + ' vs monthly'
-            : 'Billed monthly';
-        }
-      });
-    }
-    function setBillingInterval(iv) {
-      if (iv !== 'month' && iv !== 'year') return;
-      BILLING_INTERVAL = iv;
-      var m = el('toggle-month');
-      var y = el('toggle-year');
-      if (m) { m.classList.toggle('active', iv === 'month'); m.setAttribute('aria-selected', iv === 'month' ? 'true' : 'false'); }
-      if (y) { y.classList.toggle('active', iv === 'year'); y.setAttribute('aria-selected', iv === 'year' ? 'true' : 'false'); }
-      renderPricing();
-      if (LAST_STATS) renderStatusBanner(LAST_STATS);   // banner CTAs follow the period
-    }
-    renderPricing();
 
-    async function subscribe(tier) {
-      var errorEl = el('sub-error');
-      errorEl.style.display = 'none';
-      errorEl.style.color = 'var(--danger)';
-
-      var btnId = tier === 'standard' ? 'btn-standard' : 'btn-pro';
-      var btn = el(btnId);
-      var originalText = btn.textContent;
-
-      // Pre-gate: don't even call checkout if no Stripe account is connected.
-      if (!STIPE_CONNECTED) {
-        errorEl.textContent = '\u2717 Connect your Stripe account before subscribing';
-        errorEl.style.display = 'block';
-        return;
-      }
-
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Redirecting...';
-
-      try {
-        var res = await fetch('/billing/checkout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tier: tier, interval: BILLING_INTERVAL }),
-        });
-
-        var data = await res.json();
-
-        if (res.status === 401) {
-          errorEl.innerHTML = '\u2717 Session expired. <a href="/stripe/connect" style="color:var(--primary);font-weight:600;">Reconnect your Stripe account</a> to refresh.';
-          errorEl.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = originalText;
-          return;
-        }
-        if (res.ok && data.url) {
-          window.location.href = data.url;
-        } else {
-          errorEl.textContent = '\u2717 ' + (data.error || 'Checkout failed');
-          errorEl.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = originalText;
-        }
-      } catch (e) {
-        errorEl.textContent = '\u2717 Network error — could not reach billing';
-        errorEl.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = originalText;
-      }
-    }
-
-    // ── Stripe Customer Portal ──
-    async function manageBilling(btn) {
-      if (btn && btn.target) btn = btn.target;   // support onclick="manageBilling(event)"
-      var target = btn || document.querySelector('#sub-actions button') || document.querySelector('#plan-card button');
-      if (!target) return;
-      var orig = target.textContent;
-      target.disabled = true;
-      target.textContent = 'Loading...';
-      try {
-        var res = await fetch('/billing/portal', { method: 'POST' });
-        var data = await res.json();
-        if (res.ok && data.url) {
-          window.location.href = data.url;
-        } else {
-          alert(data.error || 'Could not open billing portal');
-          target.disabled = false;
-          target.textContent = orig;
-        }
-      } catch (e) {
-        alert('Network error — could not reach billing');
-        target.disabled = false;
-        target.textContent = orig;
-      }
-    }
-
+    // Subscription state for the dashboard's banners ONLY (owner 9/11 layout
+    // pass): the Subscription card (plan/pricing/manage billing) lives on
+    // /account; the dashboard keeps just enough to drive the free-trial banner
+    // and the dev-preview flag on the Free Drafts stat card.
     async function loadSubscription() {
-      var statusEl = el('sub-status');
-      var subActions = el('sub-actions');
-      var pricing = el('pricing');
-      var planCard = el('plan-card');
-      var betaCard = el('beta-redeem-card');
       try {
         var res = await fetch('/subscription');
         if (handoffIf401(res)) return;
         if (res.ok) {
           var sub = await res.json();
           renderTrialBanner(sub);
-          renderPricing();
           if (LAST_STATS) renderStatusBanner(LAST_STATS);
-          var isPro = sub.tier === 'pro' && sub.status === 'active';
-          var isActive = sub.tier && sub.status === 'active';
-          var isDevPro = !!sub.dev_pro;
-          IS_SUB_ACTIVE = isActive;
-          IS_PRO = isPro;
-          IS_DEV_PRO = isDevPro;
-          if (isActive) {
-            var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
-            var dateStr = sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '—';
-            // The plan card is the single source of truth for plan details
-            // (name + price, since date, Manage Billing). Price is
-            // interval-aware (Phase B): yearly subscribers see their yearly
-            // price. The founding 50% offer was removed (reprice 2026-08-26).
-            var planIv = sub.interval === 'year' ? 'year' : 'month';
-            var planList = PLAN_PRICES[sub.tier] ? PLAN_PRICES[sub.tier][planIv] : (sub.tier === 'pro' ? 15 : 7);
-            var planShown = planList;
-            el('plan-name').textContent = tierName + ' plan — $' + fmtPrice(planShown) + (planIv === 'year' ? '/yr' : '/mo');
-            el('plan-since').textContent = isDevPro
-              ? 'Developer preview — subscribe to manage billing'
-              : 'Since ' + dateStr;
-            if (planCard) planCard.style.display = 'block';
-            if (pricing) pricing.style.display = 'none';
-            if (betaCard) betaCard.style.display = 'none';
-            statusEl.innerHTML = '';
-            // Plan card carries its own Manage Billing button — hide the old one.
-            subActions.style.display = 'none';
-            // Dev preview (dev_pro=1) merchants have no real subscription — the
-            // billing portal has nothing to manage. Hide Manage Billing.
-            var planManageBtn = el('plan-manage-billing');
-            if (planManageBtn) planManageBtn.style.display = isDevPro ? 'none' : '';
-            var planManageHint = el('plan-manage-hint');
-            if (planManageHint) planManageHint.textContent = isDevPro
-              ? 'Subscribe to manage billing and keep reminders running.'
-              : 'Switch or cancel anytime from Manage Billing.';
-            // Same for the free-drafts stat card: drop the /billing/portal link
-            // so the preview can't navigate into a portal that cannot exist.
-            if (isDevPro) {
-              var fdl = el('stat-free-drafts-link');
-              if (fdl) { fdl.removeAttribute('href'); fdl.title = 'Developer preview'; }
-              var fdh = el('stat-free-drafts-hint');
-              if (fdh) fdh.textContent = 'Developer preview';
-            }
-          } else if (sub.status === 'cancelled') {
-            IS_SUB_ACTIVE = false;
-            statusEl.innerHTML =
-              '<div style="display:flex;align-items:center;gap:10px;">' +
-              '<span class="pill-badge badge-draft" style="font-size:0.75rem;">Cancelled</span>' +
-              '<span style="color:var(--muted);">Your subscription has ended. Resubscribe below.</span>' +
-              '</div>';
-            if (planCard) planCard.style.display = 'none';
-            if (pricing) pricing.style.display = 'block';
-            if (betaCard) betaCard.style.display = 'block';
-            subActions.style.display = 'none';
-          } else {
-            IS_SUB_ACTIVE = false;
-            statusEl.innerHTML =
-              '<p style="color:var(--muted);font-size:0.85rem;">No active subscription. Choose a plan below to get started.</p>';
-            if (planCard) planCard.style.display = 'none';
-            if (pricing) pricing.style.display = 'block';
-            if (betaCard) betaCard.style.display = 'block';
-            subActions.style.display = 'none';
+          IS_SUB_ACTIVE = !!(sub.tier && sub.status === 'active');
+          IS_PRO = sub.tier === 'pro' && sub.status === 'active';
+          IS_DEV_PRO = !!sub.dev_pro;
+          // Dev preview: drop the /billing/portal link on the free-drafts stat
+          // card so the preview can't navigate into a portal that cannot exist.
+          if (IS_DEV_PRO) {
+            var fdl = el('stat-free-drafts-link');
+            if (fdl) { fdl.removeAttribute('href'); fdl.title = 'Developer preview'; }
+            var fdh = el('stat-free-drafts-hint');
+            if (fdh) fdh.textContent = 'Developer preview';
           }
         }
       } catch (e) {
@@ -1629,7 +1378,7 @@
       }
     }
 
-    // -- Free-trial banner (dashboard only) --
+    // -- Free-trial banner --
     // Shows ONLY while the merchant is inside its automatic 30-day full-access
     // free trial. /subscription -> free_trial is false for active subscribers,
     // trial-expired merchants and dev-preview merchants, so the banner just
@@ -1639,57 +1388,11 @@
       if (!elB) return;
       elB.style.display = sub.free_trial ? 'flex' : 'none';
     }
-    // "Pick a plan" scrolls down to the subscription/pricing card.
+    // "Pick a plan" used to scroll to the dashboard's subscription/pricing
+    // card; the Subscription card now lives on /account (owner 9/11 layout
+    // pass), so the CTA navigates there.
     function scrollToPricing() {
-      var target = el('subscription-card') || el('pricing');
-      if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    // -- Beta-code redemption (dev-preview invite) --
-    async function redeemBetaCode() {
-      var input = el('beta-code-input');
-      var msg = el('beta-redeem-msg');
-      var btn = el('beta-redeem-btn');
-      var code = (input && input.value || '').trim();
-      if (!code) {
-        if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--danger)'; msg.textContent = 'Enter your invite code first.'; }
-        return;
-      }
-      if (btn) btn.disabled = true;
-      if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--muted)'; msg.textContent = 'Redeeming…'; }
-      try {
-        var res = await fetch('/api/beta/redeem', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: code }),
-        });
-        var data = await res.json();
-        if (res.ok) {
-          if (msg) msg.style.display = 'none';
-          if (input) input.style.display = 'none';
-          if (btn) btn.style.display = 'none';
-          var promptEl = el('beta-refresh-prompt');
-          if (promptEl) promptEl.style.display = 'block';
-        } else {
-          if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = data.error || 'Could not redeem that code.'; }
-        }
-      } catch (e) {
-        if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = 'Something went wrong. Please try again.'; }
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    }
-
-    // ── Subscription upgrade prompt (used by weekly-summary 402s) ──
-    function showUpgradePrompt(message) {
-      var errorEl = el('sub-error');
-      if (!errorEl) return;
-      var link = IS_SUB_ACTIVE
-        ? '<a href="#" onclick="manageBilling(event);return false;" style="color:var(--primary);font-weight:600;">Manage Billing</a>'
-        : '<a href="#pricing" style="color:var(--primary);font-weight:600;">View plans</a>';
-      errorEl.innerHTML = (message || 'An active subscription is required.') + ' ' + link;
-      errorEl.style.display = 'block';
-      errorEl.style.color = 'var(--warning)';
+      window.location.href = '/account';
     }
 
     // ── Send weekly summary now ──
@@ -1705,7 +1408,11 @@
         var res = await fetch('/summary/send', { method: 'POST' });
         var data = await res.json();
         if (res.status === 402) {
-          showUpgradePrompt(data.error || 'Weekly recovery reports require a subscription. Upgrade to unlock.');
+          // Upgrade prompt points at /account where the Subscription card lives
+          // (owner 9/11 layout pass) — no local checkout UI on the dashboard.
+          statusEl.innerHTML = (data.error || 'Weekly recovery reports require a subscription.') +
+            ' <a href="/account" style="color:var(--primary);font-weight:600;">View plans</a>.';
+          statusEl.style.color = 'var(--warning)';
         } else if (res.ok) {
           if (data.skipped || (data.sendResult && data.sendResult.skipped)) {
             statusEl.textContent = 'ℹ Weekly summary not sent — this account has no real email configured.';
@@ -1730,32 +1437,6 @@
         btn.innerHTML = orig;
       }
       updateTimestamp();
-    }
-
-    // ── Data rights: delete account + ALL stored data ──
-    async function deleteAccount() {
-      if (!window.confirm(
-        'Delete your account and ALL data?\n\nThis is immediate and permanent: ' +
-        'every stored invoice, task, email log and subscription is erased, and ' +
-        'your Collections Copilot subscription is cancelled. There is no undo.'
-      )) return;
-      var statusEl = el('account-data-status');
-      var btn = el('delete-account-btn');
-      if (statusEl) statusEl.textContent = 'Deleting your account…';
-      if (btn) btn.disabled = true;
-      try {
-        var res = await fetch('/account/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-        if (res.ok) {
-          window.location.href = '/'; // landing page — session is gone
-        } else {
-          var data = await res.json().catch(function () { return {}; });
-          if (statusEl) statusEl.textContent = 'Delete failed: ' + (data.error || 'please try again');
-          if (btn) btn.disabled = false;
-        }
-      } catch (e) {
-        if (statusEl) statusEl.textContent = 'Delete failed — please try again';
-        if (btn) btn.disabled = false;
-      }
     }
 
     // Update "last updated" timestamp

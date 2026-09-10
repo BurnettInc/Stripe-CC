@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- First-party dashboard visit tracking — mirrors the landing beacon in
+       site/src/routes/__root.tsx: SAME cc_vid localStorage id (so a visitor who
+       went landing → install → dashboard is one browser), SAME /api/track
+       endpoint + page_visits storage, SAME cc_skip opt-out. Runs on the app's
+       own web routes (/dashboard, /reminders, /past-due) so product activation
+       (signup → opens the dashboard) is measurable in the admin dashboard.
+       page = the real pathname. Privacy-by-default: no external service, no
+       merchant data, token-gated; IP is masked + country derived server-side.
+       Cross-origin seed (9/2, owner: app visits counted as NEW visitors): the
+       app origin (stripe-cc-production.up.railway.app) can't read the landing
+       site's localStorage (origin-scoped), so when cc_vid is absent here the
+       beacon reads it from the marketing origin via a hidden same-sandboxed
+       iframe (/cc-vid.html posts {type:'cc-vid', vid} back) — async, ~1s
+       timeout, and on any failure it MINTS a fresh UUID exactly as before
+       (never blocks, never double-fires: a success settles before the fire). -->
+  <script>
+    (function(){try{var p=location.pathname;if(localStorage.getItem('cc_skip')==='1')return;if(p==='/support'||p==='/privacy'||p==='/terms'||p==='/admin'||p.indexOf('/support/')===0||p.indexOf('/privacy/')===0||p.indexOf('/terms/')===0||p.indexOf('/admin/')===0)return;var k='cc_vid',v=localStorage.getItem(k);function mint(){return(crypto.randomUUID?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)}))}function fire(id){var q=new URLSearchParams(location.search),p2={visitor_id:id,page:p,referrer:document.referrer.slice(0,500),utm_source:q.get('utm_source')||'',utm_medium:q.get('utm_medium')||'',utm_campaign:q.get('utm_campaign')||'',utm_content:q.get('utm_content')||'',ua:navigator.userAgent,ts:new Date().toISOString()},b=new Blob([JSON.stringify(p2)],{type:'application/json'});if(navigator.sendBeacon){navigator.sendBeacon('/api/track',b)}else{var x=new XMLHttpRequest();x.open('POST','/api/track',true);x.send(b)}}var done=false,t=null;function onMsg(e){try{if(!e||!e.data||e.data.type!=='cc-vid')return;var o=e.origin;if(typeof o!=='string'||(o!=='https://www.getcollectionscopilot.com'&&o!=='http://localhost:3000'))return;settle(typeof e.data.vid==='string'?e.data.vid:null)}catch(err){settle(null)}}function settle(siteV){if(done)return;done=true;if(t){clearTimeout(t);t=null}if(window.removeEventListener)window.removeEventListener('message',onMsg);var sv=(typeof siteV==='string')?siteV.trim():'';var id=(sv.length>0&&sv.length<=128)?sv:mint();localStorage.setItem(k,id);fire(id)}if(v){fire(v)}else{try{if(window.addEventListener)window.addEventListener('message',onMsg)}catch(err){}t=setTimeout(function(){settle(null)},1000);try{var f=document.createElement('iframe');f.setAttribute('sandbox','allow-scripts allow-same-origin');f.style.display='none';f.src='https://www.getcollectionscopilot.com/cc-vid.html';(document.documentElement||document.body).appendChild(f)}catch(err){settle(null)}}}catch(e){}})();
+  </script>
+<head>
+  <title>Collections Copilot — Account</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235B4FE9'/%3E%3Ctext x='16' y='22' font-family='Arial, sans-serif' font-size='15' font-weight='bold' fill='white' text-anchor='middle'%3ECC%3C/text%3E%3C/svg%3E">
+  <style>
+    :root {
+      /* ── Design tokens — match marketing site (getcollectionscopilot.com) ── */
+      --bg: #F6F6FB;
+      --surface: #FFF;
+      --card-bg: #FFFFFF;
+      --text: #16162B;
+      --body: #6E7191;
+      --muted: #6E7191;
+      --faint: #A0A0BC;
+      --border: #E7E7F2;
+      --border-strong: #E7E7F2;
+      --brand: #5B4FE9;
+      --brand-dark: #463CC4;
+      --purple-soft: #EFEDFD;
+      --primary: #5B4FE9;
+      --primary-light: #EFEDFD;
+      --primary-hover: #463CC4;
+      --danger: #B3261E;
+      --danger-light: #FCEAE9;
+      --success: #0B6B4F;
+      --success-light: #E3F6EE;
+      --warning: #8A5A00;
+      --warning-light: #FDF3DE;
+      --radius: 12px;              /* rounded-xl */
+      --radius-sm: 8px;            /* rounded-lg */
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --amber-text: #8A5A00;
+      --amber-bg: #FDF3DE;
+      --green-text: #0B6B4F;
+      --green-bg: #E3F6EE;
+      --red-text: #B3261E;
+      --red-bg: #FCEAE9;
+      --radius-lg: 16px;
+      --badge-pro-bg: #EFEDFD;  --badge-pro-text: #463CC4;
+    }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-padding-top: 96px; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── App shell: fixed sidebar 216px + top bar + main (owner 9/9) ── */
+    .cc-shell { display: flex; min-height: 100vh; }
+    .cc-sidebar {
+      width: 216px; flex: 0 0 216px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 14px;
+      position: sticky; top: 0; align-self: flex-start;
+      height: 100vh; max-height: 100vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .cc-sidebar .cc-logo { font-weight: 800; font-size: 1rem; color: var(--text); padding: 0 10px 18px; letter-spacing: -0.01em; }
+    .cc-sidebar .cc-logo span { color: var(--brand); }
+    .cc-nav { display: flex; flex-direction: column; gap: 2px; }
+    .cc-nav a {
+      display: block; padding: 9px 12px; border-radius: var(--radius-sm);
+      color: var(--muted); font-size: 0.88rem; font-weight: 600; text-decoration: none;
+    }
+    .cc-nav a:hover { background: var(--bg); color: var(--text); }
+    .cc-nav a.active { background: var(--purple-soft); color: var(--brand-dark); }
+    .cc-main { flex: 1; min-width: 0; }
+    .cc-topbar {
+      display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+      padding: 14px 24px; border-bottom: 1px solid var(--border);
+      background: var(--surface); position: sticky; top: 0; z-index: 5;
+    }
+    .cc-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 9999px;
+      font-size: 0.78rem; font-weight: 600;
+      background: var(--bg); color: var(--muted); white-space: nowrap;
+      border: 1px solid var(--border);
+    }
+    .cc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-text); flex-shrink: 0; }
+    /* Semantic connection-pill states (green = healthy ONLY, amber = not
+       connected, red = genuine problem — disconnected Stripe). */
+    .cc-pill .cc-dot.ok   { background: var(--green-text); }
+    .cc-pill .cc-dot.warn { background: var(--amber-text); }
+    .cc-pill .cc-dot.bad  { background: var(--red-text); }
+    .cc-account-name {
+      font-size: 0.82rem; font-weight: 600; color: var(--muted);
+      max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ── Page content — FULL viewport width minus the sidebar (NOT .container) ── */
+    .cc-page { width: 100%; max-width: none; padding: 28px 32px 72px; }
+    /* Page header: icon badge + heading + subtitle, with account name + status
+       pill top-right (rendered by the topbar above on narrow screens). */
+    .controls-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap; margin-bottom: 24px;
+    }
+    .controls-header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+    .controls-header .page-subtitle {
+      color: var(--body); font-size: 0.92rem; margin-top: 4px;
+    }
+    .controls-header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 { font-size: 1.05rem; font-weight: 700; color: var(--text); letter-spacing: -0.01em; margin: 0; }
+    .card .subtitle { color: var(--body); font-size: 0.85rem; margin: 4px 0 0; line-height: 1.5; }
+    .icon-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--purple-soft); color: var(--brand);
+      flex: 0 0 auto;
+    }
+    .icon-badge svg { width: 18px; height: 18px; display: block; }
+    .section-head { display: flex; align-items: center; gap: 10px; }
+
+    /* ── Autonomy: three mode cards side by side ── */
+    .mode-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+    .mode-card {
+      position: relative;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 22px 16px 18px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .mode-card:hover { border-color: var(--faint); }
+    .mode-card.selected {
+      border-color: var(--brand);
+      box-shadow: 0 1px 4px rgba(91, 79, 233, 0.16);
+    }
+    .mode-card input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+    /* Selected check indicator (filled) */
+    .mode-card.selected::after {
+      content: '\2713';
+      position: absolute; top: 10px; right: 10px;
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--brand); color: #fff;
+      font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1;
+    }
+    .mode-card .pill-icon {
+      width: 42px; height: 42px;
+      margin: 0 auto 10px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+      background: var(--purple-soft); color: var(--brand);
+    }
+    .mode-card .pill-icon svg { width: 20px; height: 20px; }
+    .mode-card .mode-name { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+    .mode-card .mode-desc { font-size: 0.8rem; color: var(--body); margin-top: 8px; line-height: 1.5; }
+    /* Copilot Mode (Pro): visually locked for non-Pro — same pattern as the
+       dashboard's trust pill (opacity + no pointer events + title tooltip). */
+    .mode-card.mode-locked { opacity: 0.45; pointer-events: none; }
+    /* Plain-language confirmation of the active mode */
+    .mode-confirm {
+      margin-top: 16px; padding: 12px 16px; border-radius: var(--radius-sm);
+      background: var(--purple-soft); border: 1px solid var(--border);
+      color: var(--brand-dark); font-size: 0.88rem; font-weight: 500;
+    }
+
+    /* ── Settings grid: three columns below the Autonomy row ── */
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      align-items: start;
+      margin-top: 18px;
+    }
+    .controls-grid .card { display: flex; flex-direction: column; }
+    .controls-grid .card h2 { margin: 0; }
+    .controls-grid .card .subtitle { margin-bottom: 14px; }
+    .settings-label {
+      display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted);
+      margin: 14px 0 4px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .settings-input {
+      width: 100%; padding: 9px 12px; border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm); font-size: 0.85rem; font-family: inherit;
+      color: var(--text); background: #fff;
+    }
+    .settings-input-sm { max-width: 150px; }
+    .settings-input:focus {
+      outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(91,79,233,0.12);
+    }
+    .settings-input:disabled { background: var(--bg); color: var(--muted); cursor: not-allowed; }
+    .input-with-suffix { position: relative; display: inline-block; width: 100%; max-width: 150px; }
+    .input-with-suffix .settings-input { padding-right: 62px; }
+    .input-with-suffix .input-suffix {
+      position: absolute; right: 26px; top: 50%; transform: translateY(-50%);
+      font-size: 0.78rem; color: var(--muted); pointer-events: none; user-select: none;
+    }
+    .settings-locked {
+      margin-top: 10px; padding: 8px 12px; border-radius: var(--radius-sm);
+      background: var(--bg); border: 1px dashed var(--border);
+      font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 8px;
+    }
+
+    .pill-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 9999px;
+      font-size: 0.68rem; font-weight: 700; margin-top: 0;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .badge-pro { background: var(--badge-pro-bg); color: var(--badge-pro-text); }
+    .badge-standard { background: var(--purple-soft); color: var(--brand); }
+
+    .badge-draft { background: var(--badge-draft-bg); color: var(--badge-draft-text); }
+    .badge-semi  { background: var(--badge-semi-bg);  color: var(--badge-semi-text); }
+    .badge-full  { background: var(--badge-full-bg);  color: var(--badge-full-text); }
+    .badge-live { background: var(--green-bg); color: var(--green-text); }
+    .badge-test { background: var(--purple-soft); color: var(--brand-dark); }
+    .badge-pro { background: var(--badge-pro-bg); color: var(--badge-pro-text); }
+    .badge-standard { background: var(--badge-draft-bg); color: var(--badge-draft-text); }
+
+    /* ── Buttons ── */
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 12px 24px;                  /* px-6 py-3 */
+      background: var(--primary);          /* indigo-600 */
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);     /* rounded-lg */
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover { background: var(--primary-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.btn-outline {
+      background: #fff;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+    }
+    button.btn-outline:hover {
+      background: var(--primary-light);
+    }
+    #save-btn { padding: 10px 18px; font-size: 0.85rem; }
+    #save-status { font-size: 0.85rem; margin-left: 12px; color: var(--muted); }
+
+    /* Primary save actions — solid near-black with white text so they read as
+       THE main action at a glance: clearly distinct from the light-purple Pro
+       badge (--badge-pro-bg) and from the indigo primary buttons elsewhere. */
+    #save-btn, #save-settings-btn {
+      background: #16162B;
+      box-shadow: 0 1px 2px rgba(22, 22, 43, 0.28);
+    }
+    #save-btn:hover, #save-settings-btn:hover { background: var(--brand-dark); }
+    #save-btn:active, #save-settings-btn:active {
+      background: var(--brand-dark);
+      transform: translateY(0.5px);
+    }
+    /* Wrapper holding the merchant-settings Save button; tightened on mobile so
+       the button sits closer to the last settings input (see media query). */
+    .save-settings-row { margin-top: 20px; }
+
+    /* ── Subscription / pricing cards ── */
+    .tier-cards {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .tier-card {
+      flex: 1;
+      min-width: 260px;
+      border: 1px solid var(--border-strong);  /* gray-300 for Standard */
+      border-radius: var(--radius);            /* rounded-xl */
+      background: #fff;
+      padding: 24px;                           /* p-6 */
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      transition: box-shadow 0.2s ease;
+    }
+    .tier-card h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+    .tier-card .price {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--text);                      /* gray-900 like marketing */
+      margin-bottom: 6px;
+      letter-spacing: -0.02em;
+    }
+    .tier-card .price span {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .tier-card ul {
+      list-style: none;
+      padding: 0;
+      margin-bottom: 18px;
+      font-size: 0.85rem;
+      color: var(--body);
+      text-align: left;
+      flex: 1;
+    }
+    .tier-card ul li { padding: 5px 0; }
+    .tier-card button {
+      width: 100%;
+      justify-content: center;
+    }
+    .tier-card.featured {
+      border-color: var(--primary);            /* indigo-600 */
+      background: var(--primary-light);        /* indigo-50 */
+      box-shadow: 0 4px 14px rgba(91, 79, 233, 0.12);
+    }
+    .tier-card.featured .price { color: var(--primary-hover); }
+    /* ── Billing period toggle (Phase B) ── */
+    .billing-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--primary-light);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px;
+      margin: 0 0 18px;
+    }
+    .billing-toggle-btn {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+      padding: 7px 16px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background .15s ease, color .15s ease;
+    }
+    .billing-toggle-btn:hover { color: var(--text); }
+    .billing-toggle-btn.active {
+      background: #fff;
+      color: var(--primary);
+      box-shadow: var(--shadow);
+    }
+    .billing-toggle-save { font-size: 0.7rem; font-weight: 700; color: var(--success); }
+    .price-sub { font-size: 0.8rem; color: var(--muted); margin: 0 0 14px; }
+
+    /* ── Footer ── */
+    .footer-card {
+      text-align: center;
+      padding: 24px;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      border-top: 1px solid var(--border);
+      border-radius: 0;
+      margin-bottom: 0;
+    }
+    .footer-card p {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .updated-at {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .footer-links a {
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-decoration: none;
+    }
+    .footer-links a:hover {
+      color: var(--primary);
+      text-decoration: underline;
+    }
+    .footer-links .footer-sep {
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    /* ── Loading states ── */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+    .loading-placeholder { animation: pulse 1.6s ease-in-out infinite; }
+
+    @media (max-width: 1120px) {
+      .controls-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 860px) {
+      .controls-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .cc-shell { flex-direction: column; }
+      .cc-sidebar { width: 100%; flex: none; height: auto; position: static; flex-direction: row; align-items: center; padding: 12px; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); }
+      .cc-sidebar .cc-logo { padding: 0 10px 0 0; white-space: nowrap; }
+      .cc-nav { flex-direction: row; }
+      .cc-nav a { white-space: nowrap; }
+      .cc-topbar { justify-content: flex-start; padding: 10px 16px; }
+      .cc-page { padding: 20px 16px 64px; }
+      .mode-cards { grid-template-columns: 1fr; }
+      .cc-savebar { flex-direction: column; align-items: stretch; }
+      .savebar-status { margin-right: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="cc-shell">
+    <aside class="cc-sidebar" aria-label="Dashboard navigation">
+      <div class="cc-logo">Collections <span>Copilot</span></div>
+      <nav class="cc-nav">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/past-due">Invoices</a>
+        <a href="/messages">Messages</a>
+        <a href="/copilot-controls">Copilot Controls</a>
+        <a href="/account" class="active">Account</a>
+      </nav>
+    </aside>
+    <div class="cc-main">
+      <div class="cc-topbar">
+        <span class="cc-account-name" id="cc-account-name"></span>
+        <span class="cc-pill" id="cc-conn-pill"><span class="cc-dot"></span><span id="cc-conn-pill-text">Checking connection&hellip;</span></span>
+      </div>
+
+      <div class="cc-page">
+        <!-- Page header: icon badge + heading + subtitle; account name +
+             connection pill live top-right in the topbar above. -->
+        <header class="controls-header">
+          <div>
+            <div class="section-head">
+              <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+              <h1>Account</h1>
+            </div>
+            <p class="page-subtitle">Your data, plan and billing — in one place.</p>
+          </div>
+        </header>
+
+    <!-- Account data (moved off the dashboard to /account, owner 9/11
+         layout pass second half): export = plain download link; delete =
+         confirm dialog + POST /account/delete (cancels any active subscription). -->
+    <div class="card" id="account-card">
+      <h2 class="section-head" style="margin:0;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span><span>Account data</span></h2>
+      <p class="subtitle" style="margin:4px 0 0;">
+        Export a copy of everything we store for your account, or delete your account and all data.
+        Deletion is immediate and permanent, and any active subscription is cancelled.
+        If you cancel your subscription instead, your data is deleted within 30 days.
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+        <a class="btn-outline" href="/account/export" style="font-size:0.85rem;padding:8px 16px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border-radius:8px;">&#11015;&#65039; Export my data</a>
+        <button id="delete-account-btn" style="font-size:0.85rem;padding:8px 16px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);" onclick="deleteAccount()">&#128465;&#65039; Delete my account and all data</button>
+      </div>
+      <div id="account-data-status" style="margin-top:8px;font-size:0.85rem;color:var(--muted);min-height:0;"></div>
+    </div>
+
+        <!-- Subscription -->
+    <div class="card" id="subscription-card">
+      <h2 class="section-head" style="margin:0;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></span><span>Subscription</span></h2>
+      <div id="sub-status" style="margin-top: 14px; margin-bottom: 20px;">
+        <p class="loading-placeholder" style="color: var(--muted); font-size: 0.85rem;">Loading subscription status...</p>
+      </div>
+      <!-- Your plan card — replaces the pricing block for active subscribers -->
+      <div id="plan-card" style="display:none;border:1px solid var(--border);border-radius:var(--radius);background:#fff;padding:24px;box-shadow:var(--shadow);margin-bottom:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+          <div>
+            <span id="plan-name" style="font-size:1.1rem;font-weight:700;"></span>
+            <p id="plan-since" style="margin:6px 0 0;font-size:0.85rem;color:var(--muted);"></p>
+            <p id="plan-manage-hint" style="margin:2px 0 0;font-size:0.8rem;color:var(--muted);">Switch or cancel anytime from Manage Billing.</p>
+          </div>
+          <button id="plan-manage-billing" class="btn-outline" style="font-size:0.85rem;white-space:nowrap;" onclick="manageBilling(this)">⚙️ Manage Billing</button>
+        </div>
+      </div>
+      <!-- Pricing block — hidden while an active subscription exists -->
+      <div id="pricing">
+        <!-- Billing period selector (Phase B): monthly (default, unchanged) or
+             yearly ($50/$100 — honest savings: Standard $7×12=$84 vs $50/yr =
+             $34 saved ≈ 40% off, Pro $15×12=$180 vs $100/yr = $80 saved ≈ 44%
+             off). The interval is UI state subscribe() sends to
+             /billing/checkout; checkout charges the current price with no
+             coupon — this page only displays what checkout will charge. -->
+        <div class="billing-toggle" role="tablist" aria-label="Billing period">
+          <button type="button" class="billing-toggle-btn active" id="toggle-month" data-interval="month" role="tab" aria-selected="true" onclick="setBillingInterval('month')">Monthly</button>
+          <button type="button" class="billing-toggle-btn" id="toggle-year" data-interval="year" role="tab" aria-selected="false" onclick="setBillingInterval('year')">Yearly <span class="billing-toggle-save">save up to ~44%</span></button>
+        </div>
+        <div class="tier-cards">
+          <!-- Standard Tier -->
+          <div class="tier-card">
+            <h3>Standard</h3>
+            <div class="price" id="price-standard"></div>
+            <div class="price-sub" id="price-sub-standard"></div>
+            <ul>
+              <li>✓ Up to 50 overdue invoices tracked</li>
+              <li>✓ 3-stage escalation ladder</li>
+              <li>✓ AI-drafted reminder emails</li>
+              <li>✓ Draft &amp; Semi-Auto modes</li>
+              <li>✓ Weekly summary reports</li>
+            </ul>
+            <button onclick="subscribe('standard')" id="btn-standard" class="btn-outline">
+              Subscribe to Standard
+            </button>
+          </div>
+          <!-- Pro Tier -->
+          <div class="tier-card featured">
+            <h3>Pro <span style="font-size:0.7rem;background:var(--primary);color:white;padding:2px 10px;border-radius:10px;">Popular</span></h3>
+            <div class="price" id="price-pro"></div>
+            <div class="price-sub" id="price-sub-pro"></div>
+            <ul>
+              <li>✓ Unlimited overdue invoices</li>
+              <li>✓ 3-stage escalation ladder</li>
+              <li>✓ AI-drafted reminder emails</li>
+              <li>✓ Copilot Mode</li>
+              <li>✓ Priority support</li>
+            </ul>
+            <button onclick="subscribe('pro')" id="btn-pro">
+              Subscribe to Pro
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- Beta tester? card — hidden by default; shown to merchants who have no
+           active subscription and are not already dev-flagged Pro (see
+           loadSubscription). POSTs the code to /api/beta/redeem which flips the
+           merchant to dev_pro=1 (active Pro preview); on success we prompt a
+           refresh so the /subscription-derived Pro billing state loads in. -->
+      <div id="beta-redeem-card" style="display:none;border:1px dashed var(--border-strong);border-radius:var(--radius);background:#fff;padding:24px;box-shadow:var(--shadow);margin:0 0 20px;">
+        <h3 class="section-head" style="margin:0 0 6px;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></span><span>Beta tester?</span></h3>
+        <p style="margin:0 0 14px;font-size:0.85rem;color:var(--muted);">Have an invite code? Redeem it to unlock Pro free.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <input id="beta-code-input" type="text" placeholder="Enter your invite code" autocomplete="off"
+            style="flex:1;min-width:220px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:0.9rem;" />
+          <button id="beta-redeem-btn" class="btn-outline" style="font-size:0.85rem;white-space:nowrap;" onclick="redeemBetaCode()">Redeem</button>
+        </div>
+        <p id="beta-redeem-msg" style="margin:10px 0 0;font-size:0.85rem;display:none;"></p>
+        <p id="beta-refresh-prompt" style="display:none;margin:10px 0 0;font-size:0.85rem;color:var(--success);">Pro is now active — refresh the page to load your Pro billing state.</p>
+      </div>
+      <div id="sub-error" style="margin-top: 14px; font-size: 0.85rem; display: none;"></div>
+      <div id="sub-actions" style="margin-top: 20px; display: none;">
+        <button onclick="manageBilling()" class="btn-outline" style="font-size:0.85rem;">⚙️ Manage Billing</button>
+      </div>
+    </div>
+
+    <!-- Footer / Meta -->
+    <div class="card footer-card">
+      <div class="footer-links">
+        <a href="/support">Support</a>
+        <span class="footer-sep">·</span>
+        <a href="/terms">Terms</a>
+        <span class="footer-sep">·</span>
+        <a href="/privacy">Privacy</a>
+      </div>
+      <p>Collections Copilot v0.1.0</p>
+      <div class="updated-at" id="last-updated">Loading...</div>
+    </div>
+
+      </div><!-- /.cc-page -->
+    </div><!-- /.cc-main -->
+  </div><!-- /.cc-shell -->
+
+  <script>
+    // ── Cross-host session handoff (self-heal) ──
+    // The session cookie is host-only: browsers that connected before the
+    // OAuth handoff shipped have a Railway-host cookie but no www-host cookie,
+    // so every relative API call on the www dashboard 401s. On the FIRST 401
+    // of a page load, bounce through the backend's /oauth/handoff (a top-level
+    // navigation to the Railway host, where the cookie lives): it validates
+    // the session and 302s through /oauth/session?token=... on the www host,
+    // which sets the www cookie and returns to the dashboard — self-healed,
+    // no manual reconnect. The one-shot sessionStorage guard stops any
+    // redirect loop: a user with no session at all lands back here, the guard
+    // blocks the second redirect, and the normal error UI shows.
+    // __CC_HANDOFF_URL__ is replaced at serve time (GET /dashboard) with
+    // <BASE_URL>/oauth/handoff.
+    var HANDOFF_URL = '__CC_HANDOFF_URL__';
+    function handoffIf401(res) {
+      if (!res || res.status !== 401) return false;
+      var guard;
+      try { guard = sessionStorage.getItem('cc_handoff'); } catch (e) { return false; }
+      if (guard) return false;
+      try { sessionStorage.setItem('cc_handoff', '1'); } catch (e) { /* attempt the handoff anyway */ }
+      window.location.href = HANDOFF_URL;
+      return true;
+    }
+
+    // ── Globals / display constants ──
+    var IS_SUB_ACTIVE = false;         // any active paid plan
+    var IS_PRO = false;                // active Pro
+    var IS_DEV_PRO = false;            // dev preview flag (developer-preview merchants)
+    var STIPE_CONNECTED = false;       // /stats connection gate for subscribe()
+    var BILLING_INTERVAL = 'month';    // UI state, sent to /billing/checkout
+    var PLAN_PRICES = {
+      standard: { month: 7, year: 50 },
+      pro:      { month: 15, year: 100 },
+    };
+
+    function el(id) { return document.getElementById(id); }
+
+    // ── Top bar: connection pill (/stats) + account name (/settings) ──
+function renderConnPill(s) {
+      var pill = el('cc-conn-pill');
+      var txt = el('cc-conn-pill-text');
+      if (!pill || !txt || !s) return;
+      var dot = pill.querySelector('.cc-dot');
+      if (!s.stripeConnected) {
+        // Disconnected (deauthorized): the pill IS the reconnect affordance
+        // (owner 9/11) — the status banner no longer renders in this state, so
+        // the one-click reconnect lives here, anchored to /stripe/connect.
+        if (s.stripeDisconnected) {
+          txt.innerHTML = '<a href="/stripe/connect" class="cc-pill-link">Stripe disconnected \u2014 reconnect</a>';
+        } else {
+          txt.textContent = 'Not connected to Stripe';
+        }
+        if (dot) dot.className = 'cc-dot ' + (s.stripeDisconnected ? 'bad' : 'warn');
+        return;
+      }
+      var mode = (s.stripe_livemode === false || s.stripe_livemode === 0) ? 'Test' : 'Live';
+      txt.textContent = 'Connected to Stripe \u00b7 ' + mode;
+      if (dot) dot.className = 'cc-dot ok';
+    }
+
+    async function loadStats() {
+      try {
+        var res = await fetch('/stats');
+        if (handoffIf401(res)) return;
+        if (res.ok) {
+          var s = await res.json();
+          STIPE_CONNECTED = !!s.stripeConnected;   // subscribe() pre-gate
+          renderConnPill(s);
+        }
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+      }
+    }
+
+    async function loadSettings() {
+      try {
+        var res = await fetch('/settings');
+        if (handoffIf401(res)) return;
+        if (res.ok) {
+          var data = await res.json();
+          // Account name: no dedicated business-name field exists; surface
+          // the sender_name (falling back to the merchant email).
+          var nameEl = el('cc-account-name');
+          if (nameEl) nameEl.textContent = data.sender_name || data.email || '';
+        }
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+      }
+    }
+
+    // ── Billing period pricing (Phase B) ──
+    // Display constants mirror the LIVE Stripe catalog (routes/billing.ts
+    // PRICE_IDS): $7/$15 monthly, $50/$100 yearly (reprice 2026-08-26). The
+    // founding offer was removed — nothing special-cased below.
+function fmtPrice(n) {
+      var v = Math.round(Number(n) * 100) / 100;
+      return String(v % 1 === 0 ? v : v.toFixed(2));
+    }
+function periodLabel() { return BILLING_INTERVAL === 'year' ? '/yr' : '/mo'; }
+function yearlySave(tier) { return (PLAN_PRICES[tier].month * 12) - PLAN_PRICES[tier].year; }
+function priceFor(tier, iv) {
+      var period = iv || BILLING_INTERVAL;
+      return PLAN_PRICES[tier][period];
+    }
+function planPriceLabel(tier) {
+      return '$' + fmtPrice(priceFor(tier)) + periodLabel();
+    }
+function renderPricing() {
+      ['standard', 'pro'].forEach(function(tier) {
+        var priceEl = el('price-' + tier);
+        var subEl = el('price-sub-' + tier);
+        if (!priceEl) return;
+        var price = priceFor(tier);
+        priceEl.innerHTML = '$' + fmtPrice(price) + '<span>' + periodLabel() + '</span>';
+        if (subEl) {
+          subEl.textContent = BILLING_INTERVAL === 'year'
+            ? 'Billed yearly — save $' + yearlySave(tier) + ' vs monthly'
+            : 'Billed monthly';
+        }
+      });
+    }
+function setBillingInterval(iv) {
+      if (iv !== 'month' && iv !== 'year') return;
+      BILLING_INTERVAL = iv;
+      var m = el('toggle-month');
+      var y = el('toggle-year');
+      if (m) { m.classList.toggle('active', iv === 'month'); m.setAttribute('aria-selected', iv === 'month' ? 'true' : 'false'); }
+      if (y) { y.classList.toggle('active', iv === 'year'); y.setAttribute('aria-selected', iv === 'year' ? 'true' : 'false'); }
+      renderPricing();
+    }
+    renderPricing();
+
+async function subscribe(tier) {
+      var errorEl = el('sub-error');
+      errorEl.style.display = 'none';
+      errorEl.style.color = 'var(--danger)';
+
+      var btnId = tier === 'standard' ? 'btn-standard' : 'btn-pro';
+      var btn = el(btnId);
+      var originalText = btn.textContent;
+
+      // Pre-gate: don't even call checkout if no Stripe account is connected.
+      if (!STIPE_CONNECTED) {
+        errorEl.textContent = '\u2717 Connect your Stripe account before subscribing';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Redirecting...';
+
+      try {
+        var res = await fetch('/billing/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tier: tier, interval: BILLING_INTERVAL }),
+        });
+
+        var data = await res.json();
+
+        if (res.status === 401) {
+          errorEl.innerHTML = '\u2717 Session expired. <a href="/stripe/connect" style="color:var(--primary);font-weight:600;">Reconnect your Stripe account</a> to refresh.';
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = originalText;
+          return;
+        }
+        if (res.ok && data.url) {
+          window.location.href = data.url;
+        } else {
+          errorEl.textContent = '\u2717 ' + (data.error || 'Checkout failed');
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      } catch (e) {
+        errorEl.textContent = '\u2717 Network error — could not reach billing';
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
+
+    // ── Stripe Customer Portal ──
+async function manageBilling(btn) {
+      if (btn && btn.target) btn = btn.target;   // support onclick="manageBilling(event)"
+      var target = btn || document.querySelector('#sub-actions button') || document.querySelector('#plan-card button');
+      if (!target) return;
+      var orig = target.textContent;
+      target.disabled = true;
+      target.textContent = 'Loading...';
+      try {
+        var res = await fetch('/billing/portal', { method: 'POST' });
+        var data = await res.json();
+        if (res.ok && data.url) {
+          window.location.href = data.url;
+        } else {
+          alert(data.error || 'Could not open billing portal');
+          target.disabled = false;
+          target.textContent = orig;
+        }
+      } catch (e) {
+        alert('Network error — could not reach billing');
+        target.disabled = false;
+        target.textContent = orig;
+      }
+    }
+
+async function loadSubscription() {
+      var statusEl = el('sub-status');
+      var subActions = el('sub-actions');
+      var pricing = el('pricing');
+      var planCard = el('plan-card');
+      var betaCard = el('beta-redeem-card');
+      try {
+        var res = await fetch('/subscription');
+        if (handoffIf401(res)) return;
+        if (res.ok) {
+          var sub = await res.json();
+          renderPricing();
+          var isPro = sub.tier === 'pro' && sub.status === 'active';
+          var isActive = sub.tier && sub.status === 'active';
+          var isDevPro = !!sub.dev_pro;
+          IS_SUB_ACTIVE = isActive;
+          IS_PRO = isPro;
+          IS_DEV_PRO = isDevPro;
+          if (isActive) {
+            var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
+            var dateStr = sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '—';
+            // The plan card is the single source of truth for plan details
+            // (name + price, since date, Manage Billing). Price is
+            // interval-aware (Phase B): yearly subscribers see their yearly
+            // price. The founding 50% offer was removed (reprice 2026-08-26).
+            var planIv = sub.interval === 'year' ? 'year' : 'month';
+            var planList = PLAN_PRICES[sub.tier] ? PLAN_PRICES[sub.tier][planIv] : (sub.tier === 'pro' ? 15 : 7);
+            var planShown = planList;
+            el('plan-name').textContent = tierName + ' plan — $' + fmtPrice(planShown) + (planIv === 'year' ? '/yr' : '/mo');
+            el('plan-since').textContent = isDevPro
+              ? 'Developer preview — subscribe to manage billing'
+              : 'Since ' + dateStr;
+            if (planCard) planCard.style.display = 'block';
+            if (pricing) pricing.style.display = 'none';
+            if (betaCard) betaCard.style.display = 'none';
+            statusEl.innerHTML = '';
+            // Plan card carries its own Manage Billing button — hide the old one.
+            subActions.style.display = 'none';
+            // Dev preview (dev_pro=1) merchants have no real subscription — the
+            // billing portal has nothing to manage. Hide Manage Billing.
+            var planManageBtn = el('plan-manage-billing');
+            if (planManageBtn) planManageBtn.style.display = isDevPro ? 'none' : '';
+            var planManageHint = el('plan-manage-hint');
+            if (planManageHint) planManageHint.textContent = isDevPro
+              ? 'Subscribe to manage billing and keep reminders running.'
+              : 'Switch or cancel anytime from Manage Billing.';
+            // Same for the free-drafts stat card: drop the /billing/portal link
+            // so the preview can't navigate into a portal that cannot exist.
+            if (isDevPro) {
+              var fdl = el('stat-free-drafts-link');
+              if (fdl) { fdl.removeAttribute('href'); fdl.title = 'Developer preview'; }
+              var fdh = el('stat-free-drafts-hint');
+              if (fdh) fdh.textContent = 'Developer preview';
+            }
+          } else if (sub.status === 'cancelled') {
+            IS_SUB_ACTIVE = false;
+            statusEl.innerHTML =
+              '<div style="display:flex;align-items:center;gap:10px;">' +
+              '<span class="pill-badge badge-draft" style="font-size:0.75rem;">Cancelled</span>' +
+              '<span style="color:var(--muted);">Your subscription has ended. Resubscribe below.</span>' +
+              '</div>';
+            if (planCard) planCard.style.display = 'none';
+            if (pricing) pricing.style.display = 'block';
+            if (betaCard) betaCard.style.display = 'block';
+            subActions.style.display = 'none';
+          } else {
+            IS_SUB_ACTIVE = false;
+            statusEl.innerHTML =
+              '<p style="color:var(--muted);font-size:0.85rem;">No active subscription. Choose a plan below to get started.</p>';
+            if (planCard) planCard.style.display = 'none';
+            if (pricing) pricing.style.display = 'block';
+            if (betaCard) betaCard.style.display = 'block';
+            subActions.style.display = 'none';
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load subscription:', e);
+      }
+    }
+
+    // ── Beta-code redemption (dev-preview invite) ──
+async function redeemBetaCode() {
+      var input = el('beta-code-input');
+      var msg = el('beta-redeem-msg');
+      var btn = el('beta-redeem-btn');
+      var code = (input && input.value || '').trim();
+      if (!code) {
+        if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--danger)'; msg.textContent = 'Enter your invite code first.'; }
+        return;
+      }
+      if (btn) btn.disabled = true;
+      if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--muted)'; msg.textContent = 'Redeeming…'; }
+      try {
+        var res = await fetch('/api/beta/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: code }),
+        });
+        var data = await res.json();
+        if (res.ok) {
+          if (msg) msg.style.display = 'none';
+          if (input) input.style.display = 'none';
+          if (btn) btn.style.display = 'none';
+          var promptEl = el('beta-refresh-prompt');
+          if (promptEl) promptEl.style.display = 'block';
+        } else {
+          if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = data.error || 'Could not redeem that code.'; }
+        }
+      } catch (e) {
+        if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = 'Something went wrong. Please try again.'; }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    // ── Data rights: delete account + ALL stored data ──
+async function deleteAccount() {
+      if (!window.confirm(
+        'Delete your account and ALL data?\n\nThis is immediate and permanent: ' +
+        'every stored invoice, task, email log and subscription is erased, and ' +
+        'your Collections Copilot subscription is cancelled. There is no undo.'
+      )) return;
+      var statusEl = el('account-data-status');
+      var btn = el('delete-account-btn');
+      if (statusEl) statusEl.textContent = 'Deleting your account…';
+      if (btn) btn.disabled = true;
+      try {
+        var res = await fetch('/account/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        if (res.ok) {
+          window.location.href = '/'; // landing page — session is gone
+        } else {
+          var data = await res.json().catch(function () { return {}; });
+          if (statusEl) statusEl.textContent = 'Delete failed: ' + (data.error || 'please try again');
+          if (btn) btn.disabled = false;
+        }
+      } catch (e) {
+        if (statusEl) statusEl.textContent = 'Delete failed — please try again';
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    // Update "last updated" timestamp
+function updateTimestamp() {
+      el('last-updated').textContent =
+        'Last updated: ' + new Date().toLocaleTimeString();
+    }
+
+    // ── Initialize ──
+    loadSubscription();
+    loadSettings();
+    loadStats();
+    updateTimestamp();
+
+    // Periodic refresh
+    setInterval(loadStats, 60000);
+    setInterval(updateTimestamp, 10000);
+  </script>
+</body>
+</html>

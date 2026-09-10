@@ -34,6 +34,10 @@ const dashboardHtml = readFileSync(join(import.meta.dirname, "ui", "dashboard.ht
 // out of the dashboard's single-column settings card onto a dedicated
 // full-width page — /copilot-controls reuses the dashboard's app shell).
 const copilotControlsHtml = readFileSync(join(import.meta.dirname, "ui", "copilot-controls.html"), "utf-8");
+// Load the Account page once at startup (owner 9/11 layout pass, second half:
+// the Account data + Subscription cards moved off the dashboard onto this
+// dedicated app-shell page — same serve pattern as /dashboard).
+const accountHtml = readFileSync(join(import.meta.dirname, "ui", "account.html"), "utf-8");
 // Load the consolidated Messages page once at startup (owner 9/10: the
 // approval inbox and the sent-reminder history live on ONE page with the
 // app shell — same serve pattern as /dashboard and /copilot-controls). The
@@ -290,6 +294,18 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/copilot-controls" && req.method === "GET") {
         const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
         const served = copilotControlsHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
+        return new Response(served, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+
+      // GET /account — the app-shell Account page (owner 9/11 layout pass,
+      // second half): the Account data card (export/delete) + the Subscription
+      // card (plan/pricing/manage billing) moved off the dashboard unchanged.
+      // Same serve pattern as /dashboard and /copilot-controls.
+      if (path === "/account" && req.method === "GET") {
+        const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+        const served = accountHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
         return new Response(served, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
