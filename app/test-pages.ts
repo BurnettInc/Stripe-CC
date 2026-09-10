@@ -245,12 +245,27 @@ async function main(): Promise<void> {
   check("landing FAQ: reply question still present", landing.includes("What happens if a customer replies?"), "");
 
   const dash = await (await fetch(BASE + "/dashboard")).text();
+  const messages = await (await fetch(BASE + "/messages")).text();
+  const controls = await (await fetch(BASE + "/copilot-controls")).text();
   check("dashboard: Reply-To customization field removed", !dash.includes('id="reply-to"') && !dash.includes("Reply-To email") && !dash.includes("payload.reply_to"), "");
-  check("dashboard: sender-name branding field kept", dash.includes('id="sender-name"'), "");
   check("dashboard: sender helper line no longer mentions Reply-To", !dash.includes("replies go to your Reply-To"), "");
-  check("dashboard: pause-reason chips renderer present (reply/dispute/paid)", dash.includes("pauseReasonChipFor") && dash.includes("Reply received") && dash.includes("Dispute") && dash.includes("Payment received"), "");
-  check("dashboard: reply-draft-awaiting-review chip + inbox copy present", dash.includes("Reply draft awaiting review") && dash.includes("Customer replies pause that invoice's sequence and wait here for your response."), "");
-  check("dashboard: chip keys documented defensively (reply_paused_at/dispute_id/invoice_status)", dash.includes("reply_paused_at") && dash.includes("dispute_id") && dash.includes("invoice_status"), "");
+  // Sender identity (sender-name input) moved to the /copilot-controls page
+  // (PR #213); the buyer-impersonation claim was retired with the old UI.
+  check("dashboard: sender-name branding field moved to /copilot-controls", !dash.includes("sender-name") && controls.includes('id="sender-name"'), "");
+  // Dashboard rebuild (owner 9/10): the approval inbox consolidated onto
+  // /messages (PR #214), the Stripe stat card + old inline status pill are
+  // gone, and the page is a full-width app shell with a two-column area.
+  check("dashboard: app-shell rebuild — inbox section and Stripe stat card removed", !dash.includes('id="inbox-section"') && !dash.includes("stat-stripe-card") && !dash.includes('id="server-status"'), "");
+  check("dashboard: two-column area — overdue panel + Copilot Controls summary", dash.includes('class="dash-grid"') && dash.includes('id="overdue-card"') && dash.includes('id="controls-summary-card"') && dash.includes('href="/copilot-controls"'), "");
+  // Per-invoice Copilot toggle (two-state, owner 9/10): "Following <global
+  // mode>" <-> "Paused \u00b7 manual only", wired to the real endpoints
+  // POST /tasks/pause | /tasks/resume. (Source contains the \u00b7 escape.)
+  check("dashboard: per-invoice Copilot toggle (Following <global mode> / Paused) wired to /tasks pause+resume", dash.includes("toggleInvoicePause") && dash.includes("Paused \\u00b7 manual only") && dash.includes("Following ") && dash.includes("fetch('/tasks/'"), "");
+  check("dashboard: connection pill starts neutral (no fake 'Connected to Stripe \u00b7 Live' flash)", dash.includes("Checking connection") && !dash.includes("Connected to Stripe &middot; Live"), "");
+  // Reply-pause machinery moved with the inbox onto /messages.
+  check("messages: pause-reason chips renderer present (reply/dispute/paid)", messages.includes("pauseReasonChipFor") && messages.includes("Reply received") && messages.includes("Dispute") && messages.includes("Payment received"), "");
+  check("messages: reply-draft-awaiting-review chip + inbox copy present", messages.includes("Reply draft awaiting review") && messages.includes("Customer replies pause that invoice's sequence and wait here for your response."), "");
+  check("messages: chip keys documented defensively (reply_paused_at/dispute_id/invoice_status)", messages.includes("reply_paused_at") && messages.includes("dispute_id") && messages.includes("invoice_status"), "");
 
   console.log(failures === 0 ? "ALL PASS" : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);
