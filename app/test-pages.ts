@@ -120,6 +120,22 @@ function selectOptions(row: string): string {
   return m ? m[1] : "";
 }
 
+/** The full source of a named JS function in a served HTML page (balanced
+ *  brace scan from "function <name>(" — safe here because none of the
+ *  dashboard's render functions contain braces inside string literals). */
+function fnSource(html: string, name: string): string {
+  const i = html.indexOf("function " + name + "(");
+  if (i < 0) return "";
+  const start = html.indexOf("{", i);
+  if (start < 0) return "";
+  let depth = 0;
+  for (let j = start; j < html.length; j++) {
+    if (html[j] === "{") depth++;
+    else if (html[j] === "}") { depth--; if (depth === 0) return html.slice(i, j + 1); }
+  }
+  return "";
+}
+
 /** True when the option `<option value="VAL"[ selected]>LABEL</option>` exists.
  *  selected=false accepts the option in EITHER state (presence only — the
  *  selected row's Auto option carries " selected"); selected=true requires
@@ -389,6 +405,19 @@ async function main(): Promise<void> {
   // POST /tasks/pause | /tasks/resume. (Source contains the \u00b7 escape.)
   check("dashboard: per-invoice Copilot toggle (Following <global mode> / Paused) wired to /tasks pause+resume", dash.includes("toggleInvoicePause") && dash.includes("Paused \\u2014 manual only") && dash.includes("Following ") && dash.includes("fetch('/tasks/'"), "");
   check("dashboard: connection pill starts neutral (no fake 'Connected to Stripe \u00b7 Live' flash)", dash.includes("Checking connection") && !dash.includes("Connected to Stripe &middot; Live"), "");
+  // Disconnected-state dedup (owner 9/11): when /stats reports a deauthorized
+  // Stripe connection (stripeConnected=false, stripeDisconnected=true) the
+  // full-width status banner must NOT render the "Stripe connection lost"
+  // duplicate — the top-right connection pill is the one reconnect affordance,
+  // anchored to /stripe/connect. The never-connected banner ("Not connected to
+  // Stripe" + Connect CTA) must keep rendering for first-time onboarding.
+  const pillFn = fnSource(dash, "renderConnPill");
+  const sbFn = fnSource(dash, "renderStatusBanner");
+  check("dashboard: disconnected banner copy gone ('Stripe connection lost' / deauthorized)", !dash.includes("Stripe connection lost") && !dash.includes("was deauthorized"), "");
+  check("dashboard: renderStatusBanner suppresses the banner for disconnected (display none + early return)", sbFn.includes("stripeDisconnected") && sbFn.includes("banner.style.display = 'none'") && sbFn.includes("return;"), "");
+  check("dashboard: never-connected banner still renders (Not connected to Stripe + Connect CTA)", sbFn.includes("Not connected to Stripe") && sbFn.includes("Connect your Stripe account") && sbFn.includes('href="/stripe/connect"'), "");
+  check("dashboard: disconnected pill is an anchor to /stripe/connect", pillFn.includes('href="/stripe/connect"') && pillFn.includes("cc-pill-link") && pillFn.includes("Stripe disconnected \\u2014 reconnect"), "");
+  check("dashboard: anchor lives in the disconnected branch; connected/never-connected stay plain text", pillFn.includes("if (s.stripeDisconnected) {") && pillFn.includes(`txt.innerHTML = '<a href="/stripe/connect" class="cc-pill-link">`) && pillFn.includes("txt.textContent = 'Not connected to Stripe'") && pillFn.includes("txt.textContent = 'Connected to Stripe "), "");
   // Reply-pause machinery moved with the inbox onto /messages.
   check("messages: pause-reason chips renderer present (reply/dispute/paid)", messages.includes("pauseReasonChipFor") && messages.includes("Reply received") && messages.includes("Dispute") && messages.includes("Payment received"), "");
   check("messages: reply-draft-awaiting-review chip + inbox copy present", messages.includes("Reply draft awaiting review") && messages.includes("Customer replies pause that invoice's sequence and wait here for your response."), "");
