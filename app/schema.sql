@@ -1,4 +1,4 @@
--- Stripe Collections Copilot database schema
+-- Collections Copilot database schema
 
 CREATE TABLE IF NOT EXISTS merchants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

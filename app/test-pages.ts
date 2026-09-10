@@ -159,7 +159,7 @@ async function main(): Promise<void> {
   check("reminders renders a View email toggle per row", (remAll.match(/class="email-toggle"/g) || []).length >= 2, `toggles=${(remAll.match(/class="email-toggle"/g) || []).length}`);
   check("reminders detail panel present per row (hidden by default)", (remAll.match(/class="email-body" id="emailbody-/g) || []).length >= 2, `panels=${(remAll.match(/class="email-body" id="emailbody-/g) || []).length}`);
   // From: global FROM_EMAIL + merchant sender_name display-name branding.
-  check("reminders detail From uses merchant sender-name branding", remAll.includes("Acme Widgets") && remAll.includes("noreply@stripecollectionscopilot.com"), "");
+  check("reminders detail From uses merchant sender-name branding", remAll.includes("Acme Widgets") && remAll.includes("noreply@getcollectionscopilot.com"), "");
   // Reply-To: system-tracked reply+{invoice_id}@{REPLY_DOMAIN} (per-task/invoice).
   check("reminders detail shows tracked Reply-To for real row", remAll.includes(`reply+${ovdAId}@replies.getcollectionscopilot.com`), `reply+${ovdAId}@replies.getcollectionscopilot.com`);
   check("reminders detail shows tracked Reply-To for stub row (distinct per invoice)", remAll.includes(`reply+${ovdBId}@replies.getcollectionscopilot.com`), `reply+${ovdBId}@replies.getcollectionscopilot.com`);

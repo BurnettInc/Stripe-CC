@@ -77,7 +77,7 @@ production.
 | `NODE_ENV` | ✅ | `production` (engages the boot guard and production behavior). |
 | `DB_PATH` | ✅ | `/data/app.db` — where SQLite lives (must match the volume mount path from step 2). |
 | `BUSINESS_ADDRESS` | ✅ (by law) | Physical mailing address for the CAN-SPAM footer on every outgoing email. |
-| `FROM_EMAIL` | ✅ | Sender address for reminders and summaries — must be on a **Resend-verified domain** (e.g. `reminders@mail.getcollectionscopilot.com`). **FATAL if missing** — the app exits at boot without it when `NODE_ENV=production` (the code-level fallback `noreply@stripecollectionscopilot.com` is unregistered, so Resend would reject every send). |
+| `FROM_EMAIL` | ✅ | Sender address for reminders and summaries — must be on a **Resend-verified domain** (e.g. `reminders@mail.getcollectionscopilot.com`). **FATAL if missing** — the app exits at boot without it when `NODE_ENV=production` (the code-level fallback `noreply@getcollectionscopilot.com` is unregistered, so Resend would reject every send). |
 | `SENDGRID_API_KEY` **or** `RESEND_API_KEY` | ✅ (to send) | Pick **one** email provider — the code supports both natively. With neither set, the app runs in **log-only mode** (emails are logged, never delivered). Do not launch without one. |
 | `OPENAI_API_KEY` | ✅ (for AI drafts) | Powers the AI drafter (product default model `gpt-4o-mini`). Without it, drafting falls back to templates. |
 | `PORT` | ❌ do **not** set | Railway injects `PORT` automatically; the app now honors it (`Number(process.env.PORT) || 3002`). Setting it manually can collide with Railway's value. |

@@ -1,5 +1,5 @@
 /**
- * Stripe Collections Copilot — End-to-End Test Suite
+ * Collections Copilot — End-to-End Test Suite
  *
  * Runs 10 test sequences against the running server (TEST_BASE, default
  * localhost:3001). Uses unique invoice IDs per test to avoid collisions.
@@ -167,7 +167,7 @@ function record(seq: number, name: string, pass: boolean, details: string) {
 async function run() {
   bootstrap();
   console.log("═══════════════════════════════════════════════");
-  console.log("  Stripe Collections Copilot — E2E Test Suite");
+  console.log("  Collections Copilot — E2E Test Suite");
   console.log("═══════════════════════════════════════════════\n");
 
   const INV_PREFIX = `e2e_test_${Date.now()}`;

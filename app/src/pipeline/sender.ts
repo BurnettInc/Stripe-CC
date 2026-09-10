@@ -172,7 +172,7 @@ export async function sendEmailForReal(
   const branding = opts?.senderName !== undefined
     ? { senderName: opts.senderName }
     : senderBrandingForTask(db, task);
-  const baseFrom = fromEmail || process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
+  const baseFrom = fromEmail || process.env.FROM_EMAIL || "noreply@getcollectionscopilot.com";
   const from = buildFromAddress(baseFrom, branding.senderName);
   const replyTo = opts?.replyTo ?? trackedReplyToForTask(task);
 
@@ -323,7 +323,7 @@ export function sendEmail(
   const branding = opts?.senderName !== undefined
     ? { senderName: opts.senderName }
     : senderBrandingForTask(db, task);
-  const baseFrom = process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com";
+  const baseFrom = process.env.FROM_EMAIL || "noreply@getcollectionscopilot.com";
   const from = buildFromAddress(baseFrom, branding.senderName);
   const replyTo = opts?.replyTo ?? trackedReplyToForTask(task);
 

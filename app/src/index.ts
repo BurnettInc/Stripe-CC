@@ -90,7 +90,7 @@ async function serveSiteAsset(pathname: string): Promise<Response | null> {
 
 // ── Startup logging ──
 
-console.log(`🚀 Stripe Collections Copilot starting up...`);
+console.log(`🚀 Collections Copilot starting up...`);
 console.log(`   Time: ${new Date().toISOString()}`);
 console.log(`   Port: ${PORT}`);
 
@@ -177,7 +177,7 @@ if (process.env.RESEND_WEBHOOK_SECRET) {
 }
 
 // From-address boot guard. sender.ts falls back to
-// noreply@stripecollectionscopilot.com when FROM_EMAIL is unset — that domain
+// noreply@getcollectionscopilot.com when FROM_EMAIL is unset — that domain
 // is NOT registered, so Resend rejects every send from it and production
 // reminders would fail silently. Refuse to boot without FROM_EMAIL outside
 // local development, mirroring the STRIPE_WEBHOOK_SECRET guard above.
@@ -188,7 +188,7 @@ if (!process.env.FROM_EMAIL) {
   if (isProduction || !isLocalDev) {
     console.error(`   FATAL: FROM_EMAIL is not set and this server is not running on localhost.`);
     console.error(`   (NODE_ENV=${process.env.NODE_ENV || "unset"}, BASE_URL=${baseUrl})`);
-    console.error(`   Outgoing reminders need a sender address on a Resend-verified domain — the fallback noreply@stripecollectionscopilot.com is not registered, so Resend would reject every send.`);
+    console.error(`   Outgoing reminders need a sender address on a Resend-verified domain — the fallback noreply@getcollectionscopilot.com is not registered, so Resend would reject every send.`);
     console.error(`   Set FROM_EMAIL (e.g. reminders@mail.getcollectionscopilot.com) and retry.`);
     process.exit(1);
   }
