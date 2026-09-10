@@ -302,7 +302,7 @@ function Home() {
                       stage: 3,
                       status: "24 days overdue",
                       critical: true,
-                      copilot: "Auto",
+                      paused: false,
                     },
                     {
                       name: "Brightworks Studio",
@@ -311,7 +311,7 @@ function Home() {
                       stage: 2,
                       status: "Needs attention",
                       critical: false,
-                      copilot: "Semi-Auto",
+                      paused: false,
                     },
                     {
                       name: "Northwind Traders",
@@ -320,7 +320,7 @@ function Home() {
                       stage: 1,
                       status: "Reminder sent",
                       critical: false,
-                      copilot: "Semi-Auto",
+                      paused: false,
                     },
                     {
                       name: "Harbor & Finch",
@@ -329,7 +329,7 @@ function Home() {
                       stage: 1,
                       status: "Needs attention",
                       critical: false,
-                      copilot: "Draft Mode",
+                      paused: true,
                     },
                   ].map((row) => (
                     <tr key={row.name}>
@@ -369,25 +369,27 @@ function Home() {
                         </span>
                       </td>
                       <td className="px-5 py-3 text-right whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1 rounded-md border border-hairline bg-white py-1 pl-2.5 pr-1.5 text-[12.5px] font-medium text-ink select-none">
-                          {row.copilot}
-                          <svg
-                            width="12"
-                            height="12"
-                            viewBox="0 0 12 12"
-                            fill="none"
-                            aria-hidden="true"
-                            className="shrink-0"
-                          >
-                            <path
-                              d="M2.5 4.5 6 8l3.5-3.5"
-                              stroke="#62626B"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </span>
+                        {row.paused ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-band px-2.5 py-1 text-[12.5px] font-medium text-muted select-none">
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 10 10"
+                              fill="none"
+                              aria-hidden="true"
+                              className="shrink-0"
+                            >
+                              <rect x="1.5" y="1.5" width="2.2" height="7" rx="0.8" fill="currentColor" />
+                              <rect x="6.3" y="1.5" width="2.2" height="7" rx="0.8" fill="currentColor" />
+                            </svg>
+                            Paused — manual only
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-md border border-hairline bg-white px-2.5 py-1 text-[12.5px] font-medium text-ink select-none">
+                            <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+                            Following Semi-Auto
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
