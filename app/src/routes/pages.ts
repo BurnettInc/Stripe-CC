@@ -295,7 +295,7 @@ export function handleRemindersPage(db: Database, merchantId: number): Response 
     return body ? appendCanspamFooter(body, log.merchant_id, log.customer_email) : "";
   };
   const fromFor = (log: typeof logs[number]): string =>
-    buildFromAddress(process.env.FROM_EMAIL || "noreply@stripecollectionscopilot.com", log.sender_name);
+    buildFromAddress(process.env.FROM_EMAIL || "noreply@getcollectionscopilot.com", log.sender_name);
   const replyToFor = (log: typeof logs[number]): string | undefined =>
     trackedReplyToForTask({ invoice_id: log.invoice_id } as { invoice_id: number });
 

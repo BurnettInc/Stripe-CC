@@ -1,5 +1,5 @@
 /**
- * Stripe Collections Copilot — Merchant Notification Unit Tests
+ * Collections Copilot — Merchant Notification Unit Tests
  *
  * Direct unit tests for notifyMerchant() (app/src/pipeline/notify.ts):
  *   1. Real-email merchant → send_logs row with type 'merchant_notification'.

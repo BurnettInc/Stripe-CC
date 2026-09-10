@@ -28,7 +28,7 @@ export function formatSummaryEmail(summary: WeeklySummary, merchantName: string)
       ? "Great work! Your recovery rate is looking strong this week."
       : "Tip: Sending reminders earlier can help improve your recovery rate.",
     "",
-    "Managed by Stripe Collections Copilot",
+    "Managed by Collections Copilot",
   ].join("\n");
 
   return { subject, body };
