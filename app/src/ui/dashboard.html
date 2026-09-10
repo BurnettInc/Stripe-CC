@@ -655,7 +655,7 @@
 
     /* ── Per-invoice Copilot toggle (owner 9/10 decision): a NARROW pause
          override, NOT a second mode selector. "Following <global mode>" by
-         default; "Paused · manual only" while paused for that invoice. The
+         default; "Paused — manual only" while paused for that invoice. The
          toggle maps to the REAL backend pause/resume endpoints
          (POST /tasks/pause | /tasks/resume, body { invoice_id }) — the old
          per-invoice trust-mode dropdown (PUT /invoices/:id/trust-mode,
@@ -841,7 +841,7 @@
     <div class="dash-grid">
       <div class="dash-col">
         <!-- Overdue invoices (top 4) with the per-invoice Copilot toggle:
-             "Following <global mode>" by default, "Paused · manual only" while
+             "Following <global mode>" by default, "Paused — manual only" while
              paused. The toggle calls POST /tasks/pause | /tasks/resume (the
              real endpoints); the old per-invoice dropdown
              (PUT /invoices/:id/trust-mode, setCopilotOverride) had no backend
@@ -1279,7 +1279,7 @@
       return !!(t && (t.status === 'paused' || t.pause_reason));
     }
     // The two-state Copilot toggle: "Following <global mode>" by default,
-    // "Paused · manual only" while paused. A narrow per-invoice override —
+    // "Paused — manual only" while paused. A narrow per-invoice override —
     // NOT a second mode selector (the Autonomy picker on /copilot-controls is
     // the single source of truth). Backed by the REAL pause/resume endpoints
     // (POST /tasks/pause | /tasks/resume); the old per-invoice dropdown
@@ -1292,7 +1292,7 @@
         return '<button type="button" class="inv-toggle paused" data-invoice="' + inv + '" data-paused="1"' +
           ' onclick="toggleInvoicePause(' + inv + ', false, this)" aria-pressed="true"' +
           ' title="Paused for this invoice \u2014 Copilot is not following it. Click to resume.">' +
-          '<span class="toggle-dot"></span>Paused \u00b7 manual only</button>';
+          '<span class="toggle-dot"></span>Paused \u2014 manual only</button>';
       }
       return '<button type="button" class="inv-toggle" data-invoice="' + inv + '" data-paused="0"' +
         ' onclick="toggleInvoicePause(' + inv + ', true, this)" aria-pressed="false"' +
