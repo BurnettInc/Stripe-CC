@@ -311,14 +311,14 @@ function Home() {
                       stage: 2,
                       status: "Needs attention",
                       critical: false,
-                      copilot: "Draft Mode",
+                      copilot: "Semi-Auto",
                     },
                     {
                       name: "Northwind Traders",
                       amount: "$1,180",
                       days: "6 days",
                       stage: 1,
-                      status: "Needs attention",
+                      status: "Reminder sent",
                       critical: false,
                       copilot: "Semi-Auto",
                     },
@@ -329,7 +329,7 @@ function Home() {
                       stage: 1,
                       status: "Needs attention",
                       critical: false,
-                      copilot: "Auto",
+                      copilot: "Draft Mode",
                     },
                   ].map((row) => (
                     <tr key={row.name}>
@@ -360,7 +360,9 @@ function Home() {
                           className={`inline-block rounded-full px-2.5 py-0.5 text-[13px] font-medium ${
                             row.critical
                               ? "bg-danger-bg text-danger-text"
-                              : "bg-warn-bg text-warn-text"
+                              : row.status === "Needs attention"
+                                ? "bg-warn-bg text-warn-text"
+                                : "bg-band text-muted"
                           }`}
                         >
                           {row.status}
