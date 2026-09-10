@@ -42,7 +42,7 @@ export function SiteNav({ businessName = "" }: { businessName?: string }) {
           </a>
         ))}
         <a href="/demo" className={BTN_SECONDARY_NAV}>
-          Try the demo
+          See the demo
         </a>
         <a href={INSTALL_URL} className={BTN_PRIMARY_NAV}>
           Get started
