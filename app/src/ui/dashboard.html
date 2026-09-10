@@ -97,17 +97,18 @@
       line-height: 1.6;
       min-height: 100vh;
     }
-    .container {
-      max-width: 1024px;          /* max-w-5xl */
-      margin: 0 auto;
-      padding: 32px 24px 56px;
-      /* legacy alias — real layout is .cc-shell/.cc-main below */
-      /* Page content paints in its own stacking context: it always renders
-         above static/sibling content and can't interleave with (or be
-         partially covered by) fixed/sticky chrome from the embedding shell. */
-      position: relative;
-      z-index: 1;
+    /* ── Full-width page (owner 9/10 rebuild: same app shell as /messages and
+         /copilot-controls — sidebar + topbar + full-width content). ── */
+    .cc-page { width: 100%; max-width: none; padding: 28px 32px 72px; }
+    .cc-account-name {
+      font-size: 0.82rem; font-weight: 600; color: var(--muted);
+      max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    /* Connection-pill dot states (semantic: green = connected/success ONLY,
+       amber = needs attention, red = disconnected). */
+    .cc-pill .cc-dot.ok   { background: var(--green-text); }
+    .cc-pill .cc-dot.warn { background: var(--amber-text); }
+    .cc-pill .cc-dot.bad  { background: var(--red-text); }
 
     /* ── App shell: fixed sidebar 216px + top bar + main (owner 9/9) ── */
     .cc-shell { display: flex; min-height: 100vh; }
@@ -177,80 +178,6 @@
     .cc-chip.red { background: var(--red-bg); color: var(--red-text); }
     .cc-chip.green { background: var(--green-bg); color: var(--green-text); }
     .cc-chip.neutral { background: var(--bg); color: var(--muted); }
-    /* ── Header / brand nav ── */
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 32px;
-      padding-bottom: 24px;
-      border-bottom: 1px solid var(--border);
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .brand svg {
-      height: 32px;               /* h-8 */
-      width: auto;
-      display: block;
-      flex-shrink: 0;
-    }
-    .header-left h1 {
-      font-size: 1.4rem;
-      font-weight: 700;
-      letter-spacing: -0.025em;   /* tracking-tight */
-      color: var(--primary);      /* indigo-600 */
-      line-height: 1.2;
-      margin: 0;
-    }
-    .header-left p {
-      color: var(--body);         /* gray-600 */
-      font-size: 0.85rem;
-      margin-top: 4px;
-    }
-    .server-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 14px;
-      border-radius: 9999px;      /* rounded-full pill */
-      font-size: 0.78rem;
-      font-weight: 600;
-      background: var(--purple-soft);
-      color: var(--muted);
-      white-space: nowrap;
-    }
-    .server-status .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--success);
-      box-shadow: 0 0 0 2px rgba(11, 107, 79, 0.18);
-    }
-    .server-status.offline {
-      background: var(--red-bg);
-      color: var(--red-text);
-    }
-    .server-status.offline .dot {
-      background: var(--danger);
-      box-shadow: 0 0 0 2px rgba(179, 38, 30, 0.18);
-    }
-    /* Stripe disconnected: amber/warn treatment (green = paid/success ONLY).
-       Shown whenever /stats reports the Stripe connection lost, matching the
-       reconnect banner — never "Healthy" while disconnected. */
-    .server-status.disconnected {
-      background: var(--amber-bg);
-      color: var(--amber-text);
-    }
-    .server-status.disconnected .dot {
-      background: var(--amber-text);
-      box-shadow: 0 0 0 2px rgba(138, 90, 0, 0.18);
-    }
-
     /* ── Stats grid ── */
     .stats-grid {
       display: grid;
@@ -352,91 +279,9 @@
     }
     .section-head h2 { margin: 0; }
 
-    /* ── Trust Mode segmented control (Draft Mode / Semi-Auto / Copilot Mode) ──
-       Visual only: same labels/inputs/data-mode/selected class the JS drives. */
-    .trust-pills {
-      display: flex;
-      gap: 0;
-      flex-wrap: wrap;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 4px;
-    }
-    .trust-pill {
-      flex: 1;
-      min-width: 160px;
-      padding: 14px 12px;
-      border: 1px solid transparent;
-      border-radius: var(--radius-sm);
-      background: transparent;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      text-align: center;
-      position: relative;
-    }
-    .trust-pill.selected {
-      background: #fff;
-      border-color: var(--brand);
-      box-shadow: 0 1px 4px rgba(91, 79, 233, 0.16);
-    }
-    .trust-pill input[type="radio"] {
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    /* Selected check indicator */
-    .trust-pill.selected::after {
-      content: '\2713';
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: var(--primary);
-      color: #fff;
-      font-size: 12px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      line-height: 1;
-    }
-    .trust-pill .pill-icon {
-      width: 40px; height: 40px;
-      margin: 0 auto 8px;
-      display: flex; align-items: center; justify-content: center;
-      border-radius: 50%;
-      background: var(--purple-soft);
-      color: var(--brand);
-    }
-    .trust-pill .pill-label {
-      font-weight: 700;
-      font-size: 0.95rem;
-      color: var(--text);
-    }
-    .trust-pill .pill-badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 9999px;
-      font-size: 0.68rem;
-      font-weight: 700;
-      margin-top: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
     .badge-draft { background: var(--badge-draft-bg); color: var(--badge-draft-text); }
     .badge-semi  { background: var(--badge-semi-bg);  color: var(--badge-semi-text); }
     .badge-full  { background: var(--badge-full-bg);  color: var(--badge-full-text); }
-    .trust-pill .pill-desc {
-      font-size: 0.8rem;
-      color: var(--body);
-      margin-top: 8px;
-      line-height: 1.5;
-    }
-
     /* ── Buttons ── */
     button {
       display: inline-flex;
@@ -482,26 +327,6 @@
        the button sits closer to the last settings input (see media query). */
     .save-settings-row { margin-top: 20px; }
 
-
-    .status-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 0.85rem;
-      color: var(--body);
-      padding: 14px 16px;
-      background: #fff;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      margin-top: 16px;
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--success);
-      flex-shrink: 0;
-    }
 
     /* ── Subscription / pricing cards ── */
     .tier-cards {
@@ -731,152 +556,6 @@
     .badge-live { background: var(--green-bg); color: var(--green-text); }
     .badge-test { background: var(--purple-soft); color: var(--brand-dark); }
 
-    /* ── Pause toggle switch ── */
-    .switch { position: relative; display: inline-block; width: 52px; height: 28px; flex-shrink: 0; }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .switch .slider {
-      position: absolute; cursor: pointer; inset: 0;
-      background: var(--border-strong); border-radius: 9999px;
-      transition: background 0.2s ease;
-    }
-    .switch .slider::before {
-      content: '';
-      position: absolute; height: 22px; width: 22px; left: 3px; top: 3px;
-      background: #fff; border-radius: 50%;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-      transition: transform 0.2s ease;
-    }
-    .switch input:checked + .slider { background: var(--success); }
-    .switch input:checked + .slider::before { transform: translateX(24px); }
-
-    /* ── Task inbox ── */
-    .task-card {
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      background: #fff;
-      padding: 20px;
-      margin-bottom: 16px;
-      box-shadow: var(--shadow);
-    }
-    .task-top {
-      display: flex; align-items: flex-start; justify-content: space-between;
-      gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
-    }
-    .task-customer { font-weight: 700; font-size: 1rem; color: var(--text); }
-    .task-meta {
-      display: flex; gap: 14px; flex-wrap: wrap;
-      font-size: 0.78rem; color: var(--muted); margin-bottom: 12px;
-    }
-    .stage-badge {
-      display: inline-block; padding: 3px 10px; border-radius: 9999px;
-      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
-    }
-    .stage-badge.st1 { background: var(--purple-soft); color: var(--brand-dark); }
-    .stage-badge.st2 { background: var(--purple-soft); color: var(--brand-dark); }
-    .stage-badge.st3 { background: var(--purple-soft); color: var(--brand-dark); }
-    .task-status-chip {
-      display: inline-block; padding: 3px 10px; border-radius: 9999px;
-      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
-      background: var(--primary-light); color: var(--primary-hover);
-    }
-    .task-status-chip.chip-drafted { background: var(--tm-draft-bg); color: var(--badge-draft-text); }
-    .task-status-chip.chip-pending { background: var(--bg); color: var(--muted); }
-    /* Per-invoice pause-reason chips — why a sequence is paused (rendered
-       defensively: only when the backend row carries the matching field). */
-    .pause-reason-chip {
-      display: inline-block; padding: 3px 10px; border-radius: 9999px;
-      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
-    }
-    .pause-reason-chip.reply  { background: var(--amber-bg); color: var(--amber-text); }
-    .pause-reason-chip.dispute { background: var(--amber-bg); color: var(--amber-text); }
-    .pause-reason-chip.paid   { background: var(--green-bg); color: var(--green-text); }
-    .pause-reason-chip.review { background: var(--amber-bg); color: var(--amber-text); }
-    .task-subject { font-weight: 600; font-size: 0.85rem; color: var(--text); margin-bottom: 4px; }
-    .task-draft-body {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 14px 16px;
-      font-size: 0.82rem;
-      color: var(--body);
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      line-height: 1.55;
-      max-height: 220px;
-      overflow-y: auto;
-      margin-bottom: 14px;
-    }
-    .task-draft-empty { color: var(--muted); font-style: italic; }
-    .task-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .task-actions button { padding: 8px 16px; font-size: 0.8rem; }
-    .task-actions .btn-reject { background: #fff; color: var(--red-text); border: 1.5px solid var(--border); }
-    .task-actions .btn-reject:hover { background: var(--red-bg); }
-    .task-error {
-      margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
-      background: var(--red-bg); color: var(--red-text);
-      font-size: 0.82rem; border: 1px solid var(--border);
-    }
-    .task-edit label {
-      display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted);
-      margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.05em;
-    }
-    .task-edit input[type="text"], .task-edit textarea {
-      width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm); font-size: 0.85rem; font-family: inherit;
-      color: var(--text); background: #fff;
-    }
-    .task-edit textarea { resize: vertical; line-height: 1.5; }
-    .task-edit input:focus, .task-edit textarea:focus {
-      outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(91,79,233,0.12);
-    }
-    .inbox-note {
-      margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
-      background: var(--warning-light); border: 1px solid rgba(138, 90, 0, 0.3);
-      color: var(--warning); font-size: 0.82rem;
-    }
-
-    /* ── Merchant settings card (sender identity / escalation timing / late fee) ── */
-    .settings-label {
-      display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted);
-      margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.05em;
-    }
-    .settings-input {
-      width: 100%; padding: 9px 12px; border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm); font-size: 0.85rem; font-family: inherit;
-      color: var(--text); background: #fff;
-    }
-    .settings-input-sm { max-width: 150px; }
-    /* Inline "days" unit inside the day-number inputs (non-interactive suffix). */
-    .input-with-suffix {
-      position: relative;
-      display: inline-block;
-      width: 100%;
-      max-width: 150px;
-    }
-    .input-with-suffix .settings-input {
-      padding-right: 62px;              /* clear the suffix (and number spinner) */
-    }
-    .input-with-suffix .input-suffix {
-      position: absolute;
-      right: 26px;                      /* clear of the number-input spinner */
-      top: 50%;
-      transform: translateY(-50%);
-      font-size: 0.78rem;
-      color: var(--muted);
-      pointer-events: none;
-      user-select: none;
-    }
-    .settings-input:focus {
-      outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(91,79,233,0.12);
-    }
-    .settings-input:disabled {
-      background: var(--bg); color: var(--muted); cursor: not-allowed;
-    }
-    .settings-locked {
-      margin-top: 8px; padding: 8px 12px; border-radius: var(--radius-sm);
-      background: var(--bg); border: 1px dashed var(--border);
-      font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 8px;
-    }
     .badge-pro { background: var(--badge-pro-bg); color: var(--badge-pro-text); }
     .badge-standard { background: var(--badge-draft-bg); color: var(--badge-draft-text); }
 
@@ -941,15 +620,82 @@
     }
     .loading-placeholder { animation: pulse 1.6s ease-in-out infinite; }
 
-    /* ── Responsive ── */
+    /* ── Dashboard two-column area (owner 9/10) ── */
+    .dash-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr);
+      gap: 20px; align-items: start; margin-bottom: 24px;
+    }
+    .dash-col { min-width: 0; }
+    .view-all {
+      font-size: 0.82rem; font-weight: 600; color: var(--primary);
+      text-decoration: none; white-space: nowrap;
+    }
+    .view-all:hover { text-decoration: underline; }
+    .overdue-more { margin-top: 12px; font-size: 0.82rem; }
+    .overdue-more a { color: var(--primary); font-weight: 600; text-decoration: none; }
+    .overdue-more a:hover { text-decoration: underline; }
+
+    /* Copilot Controls summary card (mode read from /settings; the global
+       Autonomy picker on /copilot-controls stays the single source of truth) */
+    .controls-mode {
+      margin-top: 14px; padding: 14px 16px;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--bg);
+    }
+    .controls-mode .mode-name { font-weight: 800; font-size: 0.95rem; color: var(--text); }
+    .controls-mode .mode-desc { font-size: 0.82rem; color: var(--body); margin-top: 4px; line-height: 1.5; }
+    .controls-mode .mode-src { font-size: 0.72rem; color: var(--faint); margin-top: 8px; }
+    .controls-note {
+      margin-top: 10px; padding: 8px 12px; border-radius: var(--radius-sm);
+      background: var(--warning-light); color: var(--warning);
+      font-size: 0.8rem; font-weight: 600; border: 1px solid rgba(138, 90, 0, 0.3);
+    }
+    .controls-actions { margin-top: 16px; }
+
+    /* ── Per-invoice Copilot toggle (owner 9/10 decision): a NARROW pause
+         override, NOT a second mode selector. "Following <global mode>" by
+         default; "Paused · manual only" while paused for that invoice. The
+         toggle maps to the REAL backend pause/resume endpoints
+         (POST /tasks/pause | /tasks/resume, body { invoice_id }) — the old
+         per-invoice trust-mode dropdown (PUT /invoices/:id/trust-mode,
+         setCopilotOverride) had no backend handler and is retired. ── */
+    .inv-toggle {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 9999px;
+      border: 1px solid var(--border);
+      background: var(--purple-soft); color: var(--brand-dark);
+      font-size: 0.72rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+      font-family: inherit; line-height: 1.3;
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    }
+    .inv-toggle:hover { border-color: var(--brand); }
+    .inv-toggle.paused { background: var(--bg); color: var(--muted); }
+    .inv-toggle.paused:hover { border-color: var(--faint); color: var(--text); }
+    .inv-toggle .toggle-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand); flex-shrink: 0; }
+    .inv-toggle.paused .toggle-dot { background: var(--faint); }
+    .inv-toggle:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* Paused-invoice row indicator: muted glyph on the row so a paused
+       invoice is obvious at a glance without implying "needs attention"
+       (amber stays reserved for that). */
+    .row-pause-badge {
+      display: inline-flex; align-items: center; gap: 5px; margin-left: 8px;
+      padding: 2px 8px; border-radius: 9999px;
+      background: var(--bg); color: var(--muted);
+      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.4px;
+      text-transform: uppercase; border: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    /* ── Responsive ──
     @media (max-width: 720px) {
       .cc-shell { flex-direction: column; }
       .cc-sidebar { width: 100%; flex: none; height: auto; position: static; flex-direction: row; align-items: center; padding: 12px; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); }
       .cc-sidebar .cc-logo { padding: 0 10px 0 0; white-space: nowrap; }
       .cc-nav { flex-direction: row; }
       .cc-nav a { white-space: nowrap; }
-      .trust-pills, .tier-cards { flex-direction: column; }
-      .trust-pill { min-width: 0; }
+
       .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
       header { flex-direction: column; align-items: flex-start; }
       /* Tighten the gap between the last settings input and Save Settings */
@@ -971,23 +717,11 @@
     </aside>
     <div class="cc-main">
       <div class="cc-topbar">
-        <span class="cc-pill" id="cc-conn-pill"><span class="cc-dot"></span><span id="cc-conn-pill-text">Connected to Stripe &middot; Live</span></span>
+        <span class="cc-account-name" id="cc-account-name"></span>
+        <span class="cc-pill" id="cc-conn-pill"><span class="cc-dot"></span><span id="cc-conn-pill-text">Checking connection&hellip;</span></span>
       </div>
-  <div class="container">
-    <header>
-      <div class="header-left">
-        <div class="brand">
-          <img src="data:image/png;base64,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" alt="Collections Copilot" style="height:32px;width:auto"/>
-          <h1>Collections Copilot</h1>
-        </div>
-        <p>AI-powered overdue invoice follow-ups — automated, personalized, humane.</p>
-      </div>
-      <div class="server-status" id="server-status">
-        <span class="dot"></span>
-        <span id="server-status-text">Healthy</span>
-      </div>
-      <div id="pro-badge" style="display:none;background:var(--primary);color:white;padding:4px 14px;border-radius:99px;font-size:0.75rem;font-weight:600;letter-spacing:0.05em;">PRO</div>
-    </header>
+  <div class="cc-page">
+
 
     <!-- Full-width banner shown while collections are paused -->
     <div class="paused-banner" id="paused-banner">
@@ -1086,20 +820,7 @@
           <span class="stat-sub-hint" id="stat-free-drafts-hint">Upgrade to send &rarr;</span>
         </a>
       </div>
-      <!-- Stripe connection: the static card below is a REAL link to
-           /stripe/connect so a brand-new (unauthenticated) visitor always has
-           an entry point to start onboarding — before any session exists.
-           loadStats() then replaces the card contents with a genuine status
-           (green dot, no pointer/hover, no hint) when connected, or keeps a
-           link to /stripe/connect when not connected / deauthorized. -->
-      <div class="stat-card linkable" id="stat-stripe-card">
-        <a class="stat-link" href="/stripe/connect" title="Connect your Stripe account">
-          <div class="stat-value">—</div>
-          <div class="stat-label">Stripe</div>
-          <div class="stat-sub">Not connected</div>
-          <span class="stat-sub-hint">Connect Stripe &rarr;</span>
-        </a>
-      </div>
+
     </div>
 
     <!-- Standard invoice-limit banner (shown when over the 50-invoice cap) -->
@@ -1114,34 +835,71 @@
       </div>
     </div>
 
-    <!-- Copilot Controls (owner 9/10): Autonomy (Trust Mode), sender
-         identity, escalation timing and late-fee automation moved to a
-         dedicated full-width page at /copilot-controls. This card keeps the
-         non-duplicated Account data (export/delete) and links to that page. -->
-    <div class="card" id="settings-card">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-        <div>
-          <h2 class="section-head"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></span><span>Copilot Controls</span></h2>
-          <p class="subtitle" style="margin-bottom:0;">Autonomy, sender identity, escalation timing, and late-fee automation live on the dedicated controls page.</p>
+    <!-- Two-column area (owner 9/10 rebuild): left = top overdue invoices
+         (GET /overdue/summary, same set as /past-due) with a View-all link;
+         right = Copilot Controls summary (current mode from /settings). -->
+    <div class="dash-grid">
+      <div class="dash-col">
+        <!-- Overdue invoices (top 4) with the per-invoice Copilot toggle:
+             "Following <global mode>" by default, "Paused · manual only" while
+             paused. The toggle calls POST /tasks/pause | /tasks/resume (the
+             real endpoints); the old per-invoice dropdown
+             (PUT /invoices/:id/trust-mode, setCopilotOverride) had no backend
+             handler and is retired. Any paused row carries a muted pause glyph
+             in the name cell so it is obvious at a glance it isn't following
+             the global rule. -->
+        <div class="card" id="overdue-card">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:2px;">
+            <h2 class="section-head" style="margin:0;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span><span>Overdue invoices</span></h2>
+            <a class="view-all" href="/past-due">View all &rarr;</a>
+          </div>
+          <p class="subtitle">The most urgent sequences first. Each row's toggle pauses Copilot for that invoice only.</p>
+          <div class="cc-table-wrap" style="margin-top:14px;">
+            <table class="cc-table" id="overdue-table">
+              <thead><tr><th>Customer</th><th>Amount</th><th>Days overdue</th><th>Stage</th><th>Status</th><th>Copilot</th></tr></thead>
+              <tbody id="overdue-tbody">
+                <tr><td colspan="6" style="color:var(--muted);">Loading invoices&hellip;</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="overdue-more" id="overdue-more" style="display:none;">
+            <a href="/past-due">View all <span id="overdue-more-count"></span> overdue invoices &rarr;</a>
+          </div>
         </div>
-        <a href="/copilot-controls" class="controls-cta">Manage Copilot Controls &rarr;</a>
       </div>
-      <!-- Account data (untouched by the move — not duplicated on
-           /copilot-controls). Export = plain download link; delete = confirm
-           dialog + POST /account/delete (cancels any active subscription). -->
-      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
-        <strong style="font-size:0.95rem;">Account data</strong>
-        <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 10px;">
-          Export a copy of everything we store for your account, or delete your account and all data.
-          Deletion is immediate and permanent, and any active subscription is cancelled.
-          If you cancel your subscription instead, your data is deleted within 30 days.
-        </p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <a class="btn-outline" href="/account/export" style="font-size:0.85rem;padding:8px 16px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border-radius:8px;">&#11015;&#65039; Export my data</a>
-          <button id="delete-account-btn" style="font-size:0.85rem;padding:8px 16px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);" onclick="deleteAccount()">&#128465;&#65039; Delete my account and all data</button>
+      <div class="dash-col">
+        <!-- Copilot Controls summary: reads the CURRENT global mode from
+             /settings and links to the dedicated page. The Autonomy picker on
+             /copilot-controls remains the single source of truth; the toggle
+             above is a narrow per-invoice override, not a second selector. -->
+        <div class="card" id="controls-summary-card">
+          <h2 class="section-head" style="margin:0;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></span><span>Copilot Controls</span></h2>
+          <p class="subtitle">Autonomy, sender identity, escalation timing and late-fee automation live on the dedicated controls page.</p>
+          <div id="controls-mode" class="controls-mode loading-placeholder">Loading your current mode&hellip;</div>
+          <div id="controls-paused-note" class="controls-note" style="display:none;">Collections are paused — no automatic sends.</div>
+          <div class="controls-actions">
+            <a class="controls-cta" href="/copilot-controls">Manage Copilot Controls &rarr;</a>
+          </div>
         </div>
-        <div id="account-data-status" style="margin-top:8px;font-size:0.85rem;color:var(--muted);min-height:0;"></div>
       </div>
+    </div>
+
+    <!-- Account data (owner 9/10: stays on the dashboard THIS pass; a
+         follow-up pass moves it to a Settings/Account page). Export = plain
+         download link; delete = confirm dialog + POST /account/delete
+         (cancels any active subscription). -->
+    <div class="card" id="account-card">
+      <h2 class="section-head" style="margin:0;"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span><span>Account data</span></h2>
+      <p class="subtitle" style="margin:4px 0 0;">
+        Export a copy of everything we store for your account, or delete your account and all data.
+        Deletion is immediate and permanent, and any active subscription is cancelled.
+        If you cancel your subscription instead, your data is deleted within 30 days.
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+        <a class="btn-outline" href="/account/export" style="font-size:0.85rem;padding:8px 16px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border-radius:8px;">&#11015;&#65039; Export my data</a>
+        <button id="delete-account-btn" style="font-size:0.85rem;padding:8px 16px;background:#fff;color:var(--danger);border:1.5px solid var(--danger);" onclick="deleteAccount()">&#128465;&#65039; Delete my account and all data</button>
+      </div>
+      <div id="account-data-status" style="margin-top:8px;font-size:0.85rem;color:var(--muted);min-height:0;"></div>
     </div>
 
     <!-- Weekly recovery report — on-demand summary email (not a billing control) -->
@@ -1154,46 +912,6 @@
         <button id="summary-btn" class="btn-outline" style="font-size:0.8rem;padding:8px 16px;white-space:nowrap;" onclick="sendSummaryNow()">📧 Send weekly summary</button>
       </div>
       <div id="summary-status" style="margin-top:10px;font-size:0.85rem;min-height:0;"></div>
-    </div>
-    <!-- Task Inbox — emails awaiting merchant approval -->
-    <div class="card" id="inbox-section">
-      <h2 class="section-head"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span><span>Awaiting your approval</span></h2>
-      <p class="subtitle">
-        Emails drafted and ready for you. Approve to send, edit the draft, or reject.
-        Customer replies pause that invoice's sequence and wait here for your response.
-      </p>
-      <div id="inbox-full-auto" style="display:none;">
-        <div class="status-bar">
-          <span class="status-dot"></span>
-          <span>Copilot Mode is running — no approvals needed.</span>
-        </div>
-      </div>
-      <div id="inbox-empty" style="display:none;color:var(--muted);font-size:0.9rem;padding:8px 0;">
-        No emails waiting on you — you're all caught up.
-      </div>
-      <div id="inbox-paused-note" class="inbox-note" style="display:none;">
-        Collections are paused — but manual approvals still work normally.
-      </div>
-      <div id="inbox-list">
-        <p class="loading-placeholder" style="color: var(--muted); font-size: 0.85rem;">Loading your inbox...</p>
-      </div>
-    </div>
-
-    <!-- Overdue invoices table: rows render from the /tasks inbox payload
-         (one row per sequence); semantic chips only — amber = needs attention,
-         red = 10+ days overdue, green = paid/success only. The Copilot column
-         is the existing per-invoice override (PUT /invoices/:id/trust-mode). -->
-    <div class="card" id="overdue-card">
-      <h2 class="section-head"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span><span>Overdue invoices</span></h2>
-      <p class="subtitle">Every overdue sequence, with its status and Copilot control.</p>
-      <div class="cc-table-wrap">
-        <table class="cc-table" id="overdue-table">
-          <thead><tr><th>Customer</th><th>Amount</th><th>Days overdue</th><th>Stage</th><th>Status</th><th>Copilot</th></tr></thead>
-          <tbody id="overdue-tbody">
-            <tr><td colspan="6" style="color:var(--muted);">Loading invoices&hellip;</td></tr>
-          </tbody>
-        </table>
-      </div>
     </div>
         <!-- Subscription -->
     <div class="card" id="subscription-card">
@@ -1295,7 +1013,7 @@
     </div>
   </div>
 
-  <script>
+<script>
     // ── Cross-host session handoff (self-heal) ──
     // The session cookie is host-only: browsers that connected before the
     // OAuth handoff shipped have a Railway-host cookie but no www-host cookie,
@@ -1319,64 +1037,95 @@
       window.location.href = HANDOFF_URL;
       return true;
     }
-    // ── Health check ──
-    // The badge answers TWO different questions, in priority order:
-    //   1. Is the backend reachable? (/health fetch fails → "Offline", red.)
-    //   2. Is Stripe connected? (LAST_STATS from /stats — the SAME data that
-    //      drives the reconnect banner: stripeConnected false →
-    //      "Disconnected", amber warn. Green is paid/success ONLY, so a lost
-    //      Stripe connection must never show "Healthy".)
-    // loadStats() re-renders after every /stats payload so the badge follows
-    // connection changes without waiting for the 30s checkHealth tick.
-    function renderServerStatus(s) {
-      var statusEl = document.getElementById('server-status');
-      var statusText = document.getElementById('server-status-text');
-      if (!statusEl || !statusText) return;
-      statusEl.classList.remove('offline', 'disconnected');
-      if (s && s.stripeConnected === false) {
-        statusEl.classList.add('disconnected');
-        statusText.textContent = 'Disconnected';
-      } else {
-        statusText.textContent = 'Healthy';
-      }
+
+    // ── Helpers ──
+    function el(id) { return document.getElementById(id); }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
     }
-    function markServerOffline() {
-      var statusEl = document.getElementById('server-status');
-      var statusText = document.getElementById('server-status-text');
-      if (!statusEl || !statusText) return;
-      statusEl.classList.remove('disconnected');
-      statusEl.classList.add('offline');
-      statusText.textContent = 'Offline';
+    function formatMoney(cents, currency) {
+      var c = String(currency || 'USD').toUpperCase();
+      var n = (Number(cents) || 0) / 100;
+      try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: c }).format(n); }
+      catch (e) { return '$' + n.toFixed(2); }
     }
-    async function checkHealth() {
-      try {
-        var res = await fetch('/health');
-        if (!res.ok) throw new Error('unhealthy');
-        await res.json();
-        renderServerStatus(LAST_STATS);
-      } catch (e) {
-        markServerOffline();
+    function formatDate(s) {
+      if (!s) return '—';
+      var d = new Date(s);
+      return isNaN(d.getTime()) ? String(s) : d.toLocaleDateString();
+    }
+    function formatDateTime(s) {
+      if (!s) return '—';
+      var d = new Date(s);
+      return isNaN(d.getTime()) ? String(s) : d.toLocaleString();
+    }
+
+    // ── Globals / display constants ──
+    var LAST_STATS = null;               // last /stats payload (banner re-render)
+    var currentTrustMode = 'draft';      // from /settings (stored ids: draft|semi|full)
+    var isPaused = false;                // merchant-level collections pause
+    var IS_SUB_ACTIVE = false;
+    var IS_PRO = false;
+    var IS_DEV_PRO = false;
+    var STIPE_CONNECTED = false;         // /stats connection gate for subscribe()
+    var overdueInvoices = [];            // GET /overdue/summary rows
+    var overdueCounts = null;            // /overdue/summary counts (hero awaiting)
+    var BILLING_INTERVAL = 'month';      // UI state, sent to /billing/checkout
+    var PLAN_PRICES = {
+      standard: { month: 7, year: 50 },
+      pro:      { month: 15, year: 100 },
+    };
+    // Display labels for the global Autonomy setting (stored identifiers stay
+    // draft|semi|full — display only, never renamed). Single source of truth
+    // for the per-invoice toggle's "Following <mode>" label and the Copilot
+    // Controls summary card; the picker on /copilot-controls owns the setting.
+    var MODE_LABELS = { draft: 'Draft Mode', semi: 'Semi-Auto', full: 'Copilot Mode' };
+    var MODE_DESCS = {
+      draft: 'you review and send every reminder manually \u2014 nothing goes out without your say-so',
+      semi: 'Stage 1 reminders send automatically; later drafts wait for your approval',
+      full: 'reminders are drafted, reviewed and sent end-to-end, with no manual step',
+    };
+    function modeLabel(m) { return MODE_LABELS[m] || MODE_LABELS.semi; }
+
+    // ── Top bar: connection pill (/stats) + account name (/settings) ──
+    // Initial markup reads "Checking connection…" — never a fake "Connected".
+    // The pill only speaks after a real /stats payload (same approach as
+    // copilot-controls.html). Green dot = connected (success ONLY); amber =
+    // not connected (needs attention); red = disconnected.
+    function renderConnPill(s) {
+      var pill = el('cc-conn-pill');
+      var txt = el('cc-conn-pill-text');
+      if (!pill || !txt || !s) return;
+      var dot = pill.querySelector('.cc-dot');
+      if (!s.stripeConnected) {
+        txt.textContent = s.stripeDisconnected ? 'Stripe disconnected \u2014 reconnect' : 'Not connected to Stripe';
+        if (dot) dot.className = 'cc-dot ' + (s.stripeDisconnected ? 'bad' : 'warn');
+        return;
       }
+      var mode = (s.stripe_livemode === false || s.stripe_livemode === 0) ? 'Test' : 'Live';
+      txt.textContent = 'Connected to Stripe \u00b7 ' + mode;
+      if (dot) dot.className = 'cc-dot ok';
     }
 
     // ── Connection + subscription status banner ──
-    // The clear source of truth for "is my Stripe account connected and is my
-    // subscription active?" — rendered from /stats only (no duplicated logic):
+    // The ONE Stripe connection banner on the page (card-level Stripe pill
+    // removed 9/10). Rendered from /stats only — no duplicated logic:
     //   • not connected    → warn "Not connected to Stripe" + Connect CTA
     //   • connected, no    → warn "Connected to Stripe — subscription
-    //     active plan        required" + Subscribe Standard/Pro CTAs (the
-    //                       reviewer's exact wording)
+    //     active plan        required" + Subscribe Standard/Pro CTAs
     //   • connected+active → ok "Connected to Stripe · Live." + Test/Live
-    //                       badge when the connection's mode is known
+    //                        badge when the connection's mode is known
     //                        (stripe_livemode from the marketplace-install
     //                        token pair; null = web-connect, badge omitted)
     function renderStatusBanner(s) {
-      var banner = document.getElementById('status-banner');
+      var banner = el('status-banner');
       if (!banner) return;
-      var dot = document.getElementById('status-banner-dot');
-      var title = document.getElementById('status-banner-title');
-      var sub = document.getElementById('status-banner-sub');
-      var actions = document.getElementById('status-banner-actions');
+      var dot = el('status-banner-dot');
+      var title = el('status-banner-title');
+      var sub = el('status-banner-sub');
+      var actions = el('status-banner-actions');
       banner.style.display = 'flex';
       banner.className = 'status-banner';
       if (!s.stripeConnected) {
@@ -1422,7 +1171,7 @@
       }
     }
 
-    // ── Load Stats ──
+    // ── Stats cards (Invoices / Reminders / Free drafts — no Stripe card) ──
     async function loadStats() {
       try {
         var res = await fetch('/stats');
@@ -1430,25 +1179,21 @@
         if (res.ok) {
           var s = await res.json();
           // Stripe-connection gate for subscribe(): /stats already carries the
-          // connection state (PR #49), so this is the single source of truth
-          // for STIPE_CONNECTED now that the old /stripe/connection card is gone.
+          // connection state, so this is the single source of truth.
           STIPE_CONNECTED = !!s.stripeConnected;
-          document.getElementById('stat-invoices').textContent = s.totalInvoices || 0;
-          document.getElementById('stat-paid').textContent = (s.paidInvoices || 0) + ' paid · ' + (s.overdueInvoices ?? 0) + ' overdue';
-          document.getElementById('stat-reminders').textContent = s.remindersSent || 0;
-          document.getElementById('stat-emails').textContent = (s.emailsSent || 0) + ' real sends';
-          // Free-drafts card: paid merchants (Standard or Pro active) have no
-          // draft cap — "Unlimited" + "Manage plan →" (Stripe Customer Portal).
-          // Free Draft Mode is UNLIMITED and free forever (owner 9/2): every
-          // merchant renders "Unlimited" here. SENDING is the paid unlock, so
-          // the sub-copy says so honestly and the card links to checkout
-          // ("Upgrade to send →") for non-subscribers. Free-trial merchants
-          // (30-day full access) keep the trial badge + no plan link; paid
+          el('stat-invoices').textContent = s.totalInvoices || 0;
+          el('stat-paid').textContent = (s.paidInvoices || 0) + ' paid \u00b7 ' + (s.overdueInvoices ?? 0) + ' overdue';
+          el('stat-reminders').textContent = s.remindersSent || 0;
+          el('stat-emails').textContent = (s.emailsSent || 0) + ' real sends';
+          // Free-drafts card: Free Draft Mode is UNLIMITED and free forever
+          // (owner 9/2) — every merchant renders "Unlimited". SENDING is the
+          // paid unlock, so the sub-copy says so honestly and the card links
+          // to checkout ("Upgrade to send →") for non-subscribers; paid
           // merchants get the "Manage plan" portal link.
-          var freeDraftsValue = document.getElementById('stat-free-drafts');
-          var freeDraftsSub = document.getElementById('stat-free-drafts-sub');
-          var freeDraftsLink = document.getElementById('stat-free-drafts-link');
-          var freeDraftsHint = document.getElementById('stat-free-drafts-hint');
+          var freeDraftsValue = el('stat-free-drafts');
+          var freeDraftsSub = el('stat-free-drafts-sub');
+          var freeDraftsLink = el('stat-free-drafts-link');
+          var freeDraftsHint = el('stat-free-drafts-hint');
           if (freeDraftsValue) freeDraftsValue.textContent = 'Unlimited';
           if (s.free_trial && !IS_DEV_PRO) {
             if (freeDraftsSub) freeDraftsSub.textContent = 'full access during your free trial';
@@ -1467,53 +1212,16 @@
             }
             if (freeDraftsHint) freeDraftsHint.textContent = activeSub ? 'Manage plan \u2192' : 'Upgrade to send \u2192';
           }
-                    // Stripe connection card: a genuine STATUS when connected (green dot,
-          // no pointer/hover, no "→"), a real link to /stripe/connect when not
-          // connected or deauthorized.
-          var stripeCard = document.getElementById('stat-stripe-card');
-          if (stripeCard) {
-            if (s.stripeConnected) {
-              stripeCard.className = 'stat-card stat-status';
-              stripeCard.innerHTML =
-                '<div class="stat-value"><span class="status-dot"></span>Connected</div>' +
-                '<div class="stat-label">Stripe</div>' +
-                '<div class="stat-sub">' + (s.stripeAccountId || 'Account connected') + '</div>';
-            } else if (s.stripeDisconnected) {
-              stripeCard.className = 'stat-card linkable';
-              stripeCard.innerHTML =
-                '<a class="stat-link" href="/stripe/connect" title="Reconnect your Stripe account">' +
-                  '<div class="stat-value">—</div>' +
-                  '<div class="stat-label">Stripe</div>' +
-                  '<div class="stat-sub">Deauthorized</div>' +
-                  '<span class="stat-sub-hint">Reconnect Stripe &rarr;</span>' +
-                '</a>';
-            } else {
-              stripeCard.className = 'stat-card linkable';
-              stripeCard.innerHTML =
-                '<a class="stat-link" href="/stripe/connect" title="Connect your Stripe account">' +
-                  '<div class="stat-value">—</div>' +
-                  '<div class="stat-label">Stripe</div>' +
-                  '<div class="stat-sub">Not connected</div>' +
-                  '<span class="stat-sub-hint">Connect Stripe &rarr;</span>' +
-                '</a>';
-            }
-          }
           // Fresh-visitor empty-state banner: once /stats succeeds the visitor
-          // is authed — hide it. The Stripe card above already renders the
-          // right state (connected status, or a connect link when disconnected).
-          var connectBanner = document.getElementById('connect-banner');
+          // is authed — hide it (the status banner above is connection truth).
+          var connectBanner = el('connect-banner');
           if (connectBanner) connectBanner.style.display = 'none';
-          // Status banner — the clear source of truth for connection +
-          // subscription state (rendered from this same /stats payload).
           LAST_STATS = s;
           renderStatusBanner(s);
           renderConnPill(s);
           renderHero(s);
-          renderServerStatus(s);
-          // Standard 50-invoice cap banner — shown only while over the limit
-          // (active Standard with >= 50 overdue invoices; the watcher blocks
-          // new tracking until the count drops back under 50).
-          var limitBanner = document.getElementById('limit-banner');
+          // Standard 50-invoice cap banner — shown only while over the limit.
+          var limitBanner = el('limit-banner');
           if (limitBanner) {
             limitBanner.style.display = s.overInvoiceLimit ? 'block' : 'none';
           }
@@ -1523,14 +1231,166 @@
       }
     }
 
-    // Update "last updated" timestamp
-    function updateTimestamp() {
-      var now = new Date();
-      document.getElementById('last-updated').textContent =
-        'Last updated: ' + now.toLocaleTimeString();
+    // ── Hero (full-width, top of page): overdue count + awaiting-drafts line.
+    // Awaiting count comes from /overdue/summary counts (the inbox moved to
+    // /messages, so /tasks is no longer fetched on the dashboard).
+    function renderHero(s) {
+      var amt = el('cc-hero-amount');
+      var sub = el('cc-hero-sub');
+      if (!amt || !sub || !s) return;
+      var n = s.overdueInvoices || 0;
+      amt.textContent = n + (n === 1 ? ' invoice' : ' invoices');
+      var awaiting = (overdueCounts && overdueCounts.awaiting_approval) || 0;
+      sub.textContent = awaiting > 0
+        ? awaiting + (awaiting === 1 ? ' draft' : ' drafts') + ' awaiting approval \u2014 see Messages'
+        : (n > 0 ? n + (n === 1 ? ' invoice needs' : ' invoices need') + ' attention' : 'Nothing overdue — nice work.');
     }
 
-    // ── Trust Mode ──
+    // ── Overdue panel + per-invoice Copilot toggle (owner 9/10) ──
+    // Rows come from GET /overdue/summary (the same invoice set as /past-due).
+    // The payload already carries the paused state (status:'paused' +
+    // pause_reason:'manual'|'reply'), so the toggle renders from REAL data.
+    async function loadOverduePanel() {
+      try {
+        var res = await fetch('/overdue/summary');
+        if (handoffIf401(res)) return;
+        if (!res.ok) return;
+        var data = await res.json();
+        overdueInvoices = (data && data.invoices) || [];
+        overdueCounts = (data && data.counts) || null;
+        renderOverdueTable();
+        renderHero(LAST_STATS);
+      } catch (e) {
+        console.error('Failed to load overdue panel:', e);
+      }
+    }
+    function overdueStatusChip(t) {
+      var d = (t && t.days_overdue != null) ? t.days_overdue : null;
+      if (t && t.status === 'paused') {
+        // Reply-paused = needs attention (amber); manual pause = merchant's
+        // intentional choice (neutral — the row badge shows the pause).
+        if (t.pause_reason === 'reply') return '<span class="cc-chip amber">Reply received</span>';
+        return '<span class="cc-chip neutral">Paused</span>';
+      }
+      if (d != null && d >= 10) return '<span class="cc-chip red">' + d + ' days overdue</span>';
+      return '<span class="cc-chip amber">Needs attention</span>';
+    }
+    function isInvoicePaused(t) {
+      return !!(t && (t.status === 'paused' || t.pause_reason));
+    }
+    // The two-state Copilot toggle: "Following <global mode>" by default,
+    // "Paused · manual only" while paused. A narrow per-invoice override —
+    // NOT a second mode selector (the Autonomy picker on /copilot-controls is
+    // the single source of truth). Backed by the REAL pause/resume endpoints
+    // (POST /tasks/pause | /tasks/resume); the old per-invoice dropdown
+    // (PUT /invoices/:id/trust-mode, setCopilotOverride) had no backend
+    // handler and is retired.
+    function invToggleFor(t) {
+      var inv = (t.invoice_id != null) ? t.invoice_id : t.id;
+      var paused = isInvoicePaused(t);
+      if (paused) {
+        return '<button type="button" class="inv-toggle paused" data-invoice="' + inv + '" data-paused="1"' +
+          ' onclick="toggleInvoicePause(' + inv + ', false, this)" aria-pressed="true"' +
+          ' title="Paused for this invoice \u2014 Copilot is not following it. Click to resume.">' +
+          '<span class="toggle-dot"></span>Paused \u00b7 manual only</button>';
+      }
+      return '<button type="button" class="inv-toggle" data-invoice="' + inv + '" data-paused="0"' +
+        ' onclick="toggleInvoicePause(' + inv + ', true, this)" aria-pressed="false"' +
+        ' title="Following ' + esc(modeLabel(currentTrustMode)) + ' (global Autonomy). Click to pause Copilot for this invoice only.">' +
+        '<span class="toggle-dot"></span>Following ' + esc(modeLabel(currentTrustMode)) + '</button>';
+    }
+    // Pause glyph on the ROW (name cell) so a paused invoice is obvious at a
+    // glance without implying "needs attention" (amber stays reserved).
+    function rowPauseBadgeFor(t) {
+      if (!isInvoicePaused(t)) return '';
+      return '<span class="row-pause-badge">\u23F8 Paused</span>';
+    }
+    function renderOverdueTable() {
+      var tb = el('overdue-tbody');
+      if (!tb) return;
+      var more = el('overdue-more');
+      var moreCount = el('overdue-more-count');
+      if (!overdueInvoices || overdueInvoices.length === 0) {
+        tb.innerHTML = '<tr><td colspan="6" style="color:var(--muted);">No overdue invoices right now.</td></tr>';
+        if (more) more.style.display = 'none';
+        return;
+      }
+      var rows = overdueInvoices.slice(0, 4);
+      tb.innerHTML = rows.map(function(t) {
+        var days = (t.days_overdue != null) ? t.days_overdue + (t.days_overdue === 1 ? ' day' : ' days') : '—';
+        return '<tr class="' + (isInvoicePaused(t) ? 'row-paused' : '') + '">' +
+          '<td>' + esc(t.customer_name || 'Unknown customer') + rowPauseBadgeFor(t) + '</td>' +
+          '<td>' + formatMoney(t.amount_due != null ? t.amount_due : t.amount_cents, t.currency) + '</td>' +
+          '<td>' + days + '</td>' +
+          '<td><span class="cc-chip neutral">Stage ' + (t.stage || '—') + '</span></td>' +
+          '<td>' + overdueStatusChip(t) + '</td>' +
+          '<td>' + invToggleFor(t) + '</td>' +
+        '</tr>';
+      }).join('');
+      if (moreCount) moreCount.textContent = overdueInvoices.length;
+      if (more) more.style.display = overdueInvoices.length > 4 ? 'block' : 'none';
+    }
+    // Toggle handler — calls the REAL pause/resume endpoints under /tasks
+    // (POST /tasks/pause, POST /tasks/resume; body { invoice_id }). On success
+    // the local payload is updated so the row + pause badge re-render
+    // immediately; the next 60s refresh reconciles against the server.
+    async function toggleInvoicePause(invoiceId, wantPaused, btn) {
+      if (btn && btn.disabled) return;
+      if (btn) btn.disabled = true;
+      try {
+        var res = await fetch('/tasks/' + (wantPaused ? 'pause' : 'resume'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invoice_id: invoiceId }),
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) {
+          alert(data.error || (wantPaused ? 'Could not pause this invoice.' : 'Could not resume this invoice.'));
+          return;
+        }
+        for (var i = 0; i < overdueInvoices.length; i++) {
+          if (overdueInvoices[i].id === invoiceId || overdueInvoices[i].invoice_id === invoiceId) {
+            if (wantPaused) {
+              overdueInvoices[i].status = 'paused';
+              overdueInvoices[i].pause_reason = overdueInvoices[i].pause_reason || 'manual';
+            } else {
+              overdueInvoices[i].status = 'active';
+              overdueInvoices[i].pause_reason = null;
+            }
+            break;
+          }
+        }
+        renderOverdueTable();
+        loadStats();          // hero + counts stay honest (awaiting may change)
+        updateTimestamp();
+      } catch (e) {
+        alert('Network error — could not update this invoice.');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    // ── Copilot Controls summary card (mode from /settings) ──
+    function renderCopilotSummary() {
+      var modeEl = el('controls-mode');
+      if (!modeEl) return;
+      modeEl.className = 'controls-mode';
+      var m = MODE_LABELS[currentTrustMode] ? currentTrustMode : 'semi';
+      modeEl.innerHTML =
+        '<div class="mode-name">' + esc(MODE_LABELS[m]) + '</div>' +
+        '<div class="mode-desc">' + esc(MODE_DESCS[m]) + '</div>' +
+        '<div class="mode-src">Global Autonomy \u2014 the picker on Copilot Controls is your single source of truth.</div>';
+      var noteEl = el('controls-paused-note');
+      if (noteEl) noteEl.style.display = isPaused ? 'block' : 'none';
+    }
+
+    // ── Settings: mode + global pause + account name. (The editable controls
+    //    moved to /copilot-controls — this page only READS the current state.)
+    function applyPausedState(paused) {
+      isPaused = !!paused;
+      var banner = el('paused-banner');
+      if (banner) banner.style.display = isPaused ? 'block' : 'none';
+    }
     async function loadSettings() {
       try {
         var res = await fetch('/settings');
@@ -1538,390 +1398,21 @@
         if (res.ok) {
           var data = await res.json();
           currentTrustMode = data.trust_mode || 'draft';
-          isPaused = !!data.paused;
-          var radio = document.querySelector('input[value="' + data.trust_mode + '"]');
-          if (radio) {
-            radio.checked = true;
-            updateSelectedStyle(data.trust_mode);
-          }
-          applyPausedState(isPaused);
-          // Merchant settings pack: populate branding / timing / late-fee fields.
-          var s1 = data.stage1_days != null ? data.stage1_days : 6;
-          var s2 = data.stage2_days != null ? data.stage2_days : 20;
-          var senderNameEl = document.getElementById('sender-name');
-          var stage1El = document.getElementById('stage1-days');
-          var stage2El = document.getElementById('stage2-days');
-          var lfTypeEl = document.getElementById('late-fee-type');
-          var lfValueEl = document.getElementById('late-fee-value');
-          if (senderNameEl) senderNameEl.value = data.sender_name || '';
-          if (stage1El) stage1El.value = s1;
-          if (stage2El) stage2El.value = s2;
-          if (lfTypeEl) lfTypeEl.value = data.late_fee_type || 'none';
-          if (lfValueEl) lfValueEl.value = data.late_fee_value != null ? data.late_fee_value : 0;
-          savedS1 = s1;
-          savedS2 = s2;
-          updateTimingDesc(s1, s2);
-          applyMerchantSettingsGating();
-          loadInbox();
+          applyPausedState(data.paused);
+          renderCopilotSummary();
+          renderOverdueTable();   // re-label toggles with the current global mode
+          var nameEl = el('cc-account-name');
+          if (nameEl) nameEl.textContent = data.sender_name || data.email || '';
         }
       } catch (e) {
         console.error('Failed to load settings:', e);
       }
     }
 
-    // Stage labels in the settings card reflect the merchant's saved boundaries.
-    function updateTimingDesc(s1, s2) {
-      var el = document.getElementById('timing-desc');
-      if (!el) return;
-      el.textContent = 'Stage 1: Day 1\u2013' + s1 + ' \u00b7 Stage 2: Day ' + (s1 + 1) + '\u2013' + s2 + ' \u00b7 Stage 3: Day ' + (s2 + 1) + '+';
-    }
-
-    // Last saved/loaded escalation boundaries (defaults match the server).
-    var savedS1 = 6, savedS2 = 20;
-    // Live preview: recompute the summary line as the user types in the day
-    // fields. While the inputs are empty/partial/out-of-range (or contradictory,
-    // s1 >= s2), fall back to the last saved values so the line never shows
-    // nonsense like "Day 1–" or an inverted range.
-    function refreshTimingDescLive() {
-      var s1 = parseInt(document.getElementById('stage1-days').value, 10);
-      var s2 = parseInt(document.getElementById('stage2-days').value, 10);
-      var v1 = (!isNaN(s1) && s1 >= 1 && s1 <= 89) ? s1 : null;
-      var v2 = (!isNaN(s2) && s2 >= 2 && s2 <= 90) ? s2 : null;
-      if (v1 === null || v2 === null || v1 >= v2) {
-        updateTimingDesc(savedS1, savedS2);
-        return;
-      }
-      updateTimingDesc(v1, v2);
-    }
-    var stage1El = document.getElementById('stage1-days');
-    var stage2El = document.getElementById('stage2-days');
-    if (stage1El) stage1El.addEventListener('input', refreshTimingDescLive);
-    if (stage2El) stage2El.addEventListener('input', refreshTimingDescLive);
-
-    // Show/hide + enable/disable the merchant-settings fields by entitlement:
-    // branding = any active paid plan (Standard+), timing + late fee = Pro.
-    function applyMerchantSettingsGating() {
-      var brandingFields = document.getElementById('branding-fields');
-      var brandingLocked = document.getElementById('branding-locked');
-      if (brandingFields) brandingFields.style.display = IS_SUB_ACTIVE ? 'block' : 'none';
-      if (brandingLocked) brandingLocked.style.display = IS_SUB_ACTIVE ? 'none' : 'flex';
-
-      ['stage1-days', 'stage2-days', 'late-fee-type', 'late-fee-value'].forEach(function(id) {
-        var el = document.getElementById(id);
-        if (el) el.disabled = !IS_PRO;
-      });
-      var timingLocked = document.getElementById('timing-locked');
-      var latefeeLocked = document.getElementById('latefee-locked');
-      if (timingLocked) timingLocked.style.display = IS_PRO ? 'none' : 'flex';
-      if (latefeeLocked) latefeeLocked.style.display = IS_PRO ? 'none' : 'flex';
-    }
-
-    // Save the merchant-settings fields the merchant is entitled to edit.
-    async function saveMerchantSettings() {
-      var statusEl = document.getElementById('save-settings-status');
-      var btn = document.getElementById('save-settings-btn');
-      var payload = {};
-      var canEdit = false;
-
-      if (IS_SUB_ACTIVE) {
-        var senderNameEl = document.getElementById('sender-name');
-        payload.sender_name = (senderNameEl ? senderNameEl.value : '').trim();
-        canEdit = true;
-      }
-      if (IS_PRO) {
-        var stage1El = document.getElementById('stage1-days');
-        var stage2El = document.getElementById('stage2-days');
-        var lfTypeEl = document.getElementById('late-fee-type');
-        var lfValueEl = document.getElementById('late-fee-value');
-        payload.stage1_days = parseInt(stage1El ? stage1El.value : '', 10);
-        payload.stage2_days = parseInt(stage2El ? stage2El.value : '', 10);
-        payload.late_fee_type = lfTypeEl ? lfTypeEl.value : 'none';
-        var lfRaw = parseFloat(lfValueEl ? lfValueEl.value : '');
-        payload.late_fee_value = isNaN(lfRaw) ? 0 : lfRaw;
-        canEdit = true;
-      }
-
-      if (!canEdit) {
-        statusEl.textContent = '\u2717 Upgrade to edit these settings.';
-        statusEl.style.color = 'var(--danger)';
-        return;
-      }
-
-      statusEl.textContent = 'Saving...';
-      statusEl.style.color = 'var(--muted)';
-      btn.disabled = true;
-
-      try {
-        var res = await fetch('/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (res.ok) {
-          var data = await res.json();
-          statusEl.textContent = '\u2713 Saved!';
-          statusEl.style.color = 'var(--success)';
-          if (data.stage1_days != null) savedS1 = data.stage1_days;
-          if (data.stage2_days != null) savedS2 = data.stage2_days;
-          updateTimingDesc(savedS1, savedS2);
-          loadSettings(); // re-sync fields (server-normalized values)
-        } else {
-          var err = await res.json();
-          statusEl.textContent = '\u2717 ' + (err.error || 'Save failed');
-          statusEl.style.color = 'var(--danger)';
-        }
-      } catch (e) {
-        statusEl.textContent = '\u2717 Network error';
-        statusEl.style.color = 'var(--danger)';
-      } finally {
-        btn.disabled = false;
-        setTimeout(function() { statusEl.textContent = ''; }, 4000);
-      }
-    }
-
-    function updateSelectedStyle(mode) {
-      document.querySelectorAll('.trust-pill').forEach(function(pill) {
-        pill.classList.toggle('selected', pill.getAttribute('data-mode') === mode);
-      });
-    }
-
-    document.querySelectorAll('.trust-pill').forEach(function(pill) {
-      pill.addEventListener('click', function() {
-        pill.querySelector('input').checked = true;
-        updateSelectedStyle(pill.getAttribute('data-mode'));
-      });
-    });
-
-    async function saveSettings() {
-      var selected = document.querySelector('input[name="trust_mode"]:checked');
-      if (!selected) return;
-
-      var statusEl = document.getElementById('save-status');
-      var btn = document.getElementById('save-btn');
-      statusEl.textContent = 'Saving...';
-      statusEl.style.color = 'var(--muted)';
-      btn.disabled = true;
-
-      try {
-        var res = await fetch('/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trust_mode: selected.value }),
-        });
-        if (res.ok) {
-          statusEl.textContent = '✓ Saved!';
-          statusEl.style.color = 'var(--success)';
-          currentTrustMode = selected.value;
-          renderInbox();
-        } else {
-          var err = await res.json();
-          statusEl.textContent = '✗ ' + (err.error || 'Save failed');
-          statusEl.style.color = 'var(--danger)';
-        }
-      } catch (e) {
-        statusEl.textContent = '✗ Network error';
-        statusEl.style.color = 'var(--danger)';
-      } finally {
-        btn.disabled = false;
-        setTimeout(function() { statusEl.textContent = ''; }, 3000);
-      }
-      updateTimestamp();
-    }
-
-    // ── Subscription handling ──
-
-    // Process an overdue task and surface paywall responses distinctly.
-    // Invoice/task views can call this helper when a merchant clicks Process.
-    async function processTask(taskId) {
-      var res = await fetch('/tasks/' + encodeURIComponent(taskId) + '/process', { method: 'POST' });
-      var data = await res.json();
-      if (res.status === 402) {
-        showUpgradePrompt(data.message || data.error || 'A subscription is required.');
-        return data;
-      }
-      if (!res.ok) throw new Error(data.error || 'Could not process task');
-      loadStats();
-      return data;
-    }
-
-    async function loadSubscription() {
-      var statusEl = document.getElementById('sub-status');
-      var proBadge = document.getElementById('pro-badge');
-      var subActions = document.getElementById('sub-actions');
-      var pricing = document.getElementById('pricing');
-      var planCard = document.getElementById('plan-card');
-      var betaCard = document.getElementById('beta-redeem-card');
-      var fullAutoPill = document.querySelector('.trust-pill[data-mode="full"]');
-      try {
-        var res = await fetch('/subscription');
-        if (handoffIf401(res)) return;
-        if (res.ok) {
-          var sub = await res.json();
-          renderTrialBanner(sub);
-          renderPricing();
-          if (LAST_STATS) renderStatusBanner(LAST_STATS);
-          var isPro = sub.tier === 'pro' && sub.status === 'active';
-          var isActive = sub.tier && sub.status === 'active';
-          var isDevPro = !!sub.dev_pro;
-          IS_SUB_ACTIVE = isActive;
-          IS_PRO = isPro;
-          IS_DEV_PRO = isDevPro;
-          if (isActive) {
-            var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
-            var dateStr = sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '—';
-            // The plan card is the single source of truth for plan details
-            // (name + price, since date, Manage Billing) — no duplicate pill.
-            // Price is interval-aware (Phase B): yearly subscribers see their
-            // yearly price. The founding 50% offer was removed (reprice
-            // 2026-08-26) — the plan card always shows the current listed
-            // price for the merchant's tier/interval; there is no founder
-            // pricing to special-case.
-            var planIv = sub.interval === 'year' ? 'year' : 'month';
-            var planList = PLAN_PRICES[sub.tier] ? PLAN_PRICES[sub.tier][planIv] : (sub.tier === 'pro' ? 15 : 7);
-            var planShown = planList;
-            document.getElementById('plan-name').textContent = tierName + ' plan — $' + fmtPrice(planShown) + (planIv === 'year' ? '/yr' : '/mo');
-            document.getElementById('plan-since').textContent = isDevPro
-              ? 'Developer preview — subscribe to manage billing'
-              : 'Since ' + dateStr;
-            if (planCard) planCard.style.display = 'block';
-            if (pricing) pricing.style.display = 'none';
-            if (betaCard) betaCard.style.display = 'none';
-            statusEl.innerHTML = '';
-            // Plan card carries its own Manage Billing button — hide the old one
-            subActions.style.display = 'none';
-            proBadge.style.display = isPro ? 'inline-block' : 'none';
-            // Dev preview (dev_pro=1) merchants have no real subscription — the
-            // billing portal has nothing to manage. Hide Manage Billing and reword
-            // the plan-card hint so the preview never invites a dead portal trip.
-            var planManageBtn = document.getElementById('plan-manage-billing');
-            if (planManageBtn) planManageBtn.style.display = isDevPro ? 'none' : '';
-            var planManageHint = document.getElementById('plan-manage-hint');
-            if (planManageHint) planManageHint.textContent = isDevPro
-              ? 'Subscribe to manage billing and keep reminders running.'
-              : 'Switch or cancel anytime from Manage Billing.';
-            // Same for the free-drafts stat card: keep "Unlimited / no limit on
-            // your plan" but drop the /billing/portal link so the preview can't
-            // navigate into a portal that cannot exist. (Re-applied here so the
-            // init race with loadStats() converges either way.)
-            if (isDevPro) {
-              var fdl = document.getElementById('stat-free-drafts-link');
-              if (fdl) { fdl.removeAttribute('href'); fdl.title = 'Developer preview'; }
-              var fdh = document.getElementById('stat-free-drafts-hint');
-              if (fdh) fdh.textContent = 'Developer preview';
-            }
-            // Gate Copilot Mode behind Pro
-            if (fullAutoPill) {
-              if (!isPro) {
-                fullAutoPill.style.opacity = '0.45';
-                fullAutoPill.style.pointerEvents = 'none';
-                fullAutoPill.title = 'Copilot Mode requires a Pro subscription';
-              } else {
-                fullAutoPill.style.opacity = '1';
-                fullAutoPill.style.pointerEvents = 'auto';
-                fullAutoPill.title = '';
-              }
-            }
-          } else if (sub.status === 'cancelled') {
-            IS_SUB_ACTIVE = false;
-            statusEl.innerHTML =
-              '<div style="display:flex;align-items:center;gap:10px;">' +
-              '<span class="pill-badge badge-draft" style="font-size:0.75rem;">Cancelled</span>' +
-              '<span style="color:var(--muted);">Your subscription has ended. Resubscribe below.</span>' +
-              '</div>';
-            if (planCard) planCard.style.display = 'none';
-            if (pricing) pricing.style.display = 'block';
-            if (betaCard) betaCard.style.display = 'block';
-            subActions.style.display = 'none';
-            proBadge.style.display = 'none';
-          } else {
-            IS_SUB_ACTIVE = false;
-            statusEl.innerHTML =
-              '<p style="color:var(--muted);font-size:0.85rem;">No active subscription. Choose a plan below to get started.</p>';
-            if (planCard) planCard.style.display = 'none';
-            if (pricing) pricing.style.display = 'block';
-            if (betaCard) betaCard.style.display = 'block';
-            subActions.style.display = 'none';
-            proBadge.style.display = 'none';
-          }
-          applyMerchantSettingsGating();
-        }
-      } catch (e) {
-        console.error('Failed to load subscription:', e);
-      }
-    }
-
-    // -- Free-trial banner (home screen only) --
-    // Shows the trial banner ONLY while the merchant is inside its 30-day
-    // full-access free trial. /subscription -> free_trial (same
-    // isWithinFreeTrial source as /stats) is false for active subscribers,
-    // trial-expired merchants, and dev-preview merchants, so the banner just
-    // toggles off on exactly that flag. The markup hides it by default so it
-    // never flashes on first paint for non-trial or logged-out visitors.
-    function renderTrialBanner(sub) {
-      var el = document.getElementById('trial-banner');
-      if (!el) return;
-      el.style.display = sub.free_trial ? 'flex' : 'none';
-    }
-    // "Pick a plan" scrolls the merchant down to the subscription/pricing card.
-    function scrollToPricing() {
-      var target = document.getElementById('subscription-card') || document.getElementById('pricing');
-      if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-
-    // -- Beta-code redemption --
-    // POSTs the entered code to /api/beta/redeem. On success the merchant is
-    // flipped to dev_pro=1 (active Pro preview) server-side; we prompt a
-    // refresh so /subscription re-derives and renders the Pro billing state.
-    // Friendly server errors (invalid / expired / already redeemed) show inline.
-    async function redeemBetaCode() {
-      var input = document.getElementById('beta-code-input');
-      var msg = document.getElementById('beta-redeem-msg');
-      var btn = document.getElementById('beta-redeem-btn');
-      var code = (input && input.value || '').trim();
-      if (!code) {
-        if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--danger)'; msg.textContent = 'Enter your invite code first.'; }
-        return;
-      }
-      if (btn) btn.disabled = true;
-      if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--muted)'; msg.textContent = 'Redeeming…'; }
-      try {
-        var res = await fetch('/api/beta/redeem', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: code }),
-        });
-        var data = await res.json();
-        if (res.ok) {
-          if (msg) { msg.style.display = 'none'; }
-          if (input) input.style.display = 'none';
-          if (btn) btn.style.display = 'none';
-          var promptEl = document.getElementById('beta-refresh-prompt');
-          if (promptEl) promptEl.style.display = 'block';
-        } else {
-          if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = data.error || 'Could not redeem that code.'; }
-        }
-      } catch (e) {
-        if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = 'Something went wrong. Please try again.'; }
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    }
-
-    // Track connection state so subscribe() can pre-check before hitting checkout
-    var STIPE_CONNECTED = false;
-
     // ── Billing period pricing (Phase B) ──
     // Display constants mirror the LIVE Stripe catalog (routes/billing.ts
-    // PRICE_IDS): $7/$15 monthly, $50/$100 yearly (reprice 2026-08-26; the
-    // founding offer was removed). These helpers only display what checkout
-    // will charge (no coupon). Savings are the honest dollar amounts vs
-    // 12 × monthly: Standard 84−50 = $34/yr (≈40%), Pro 180−100 = $80/yr (≈44%).
-    var BILLING_INTERVAL = 'month';      // UI state, sent to /billing/checkout
-    var LAST_STATS = null;               // last /stats payload (banner re-render)
-    var PLAN_PRICES = {
-      standard: { month: 7, year: 50 },
-      pro:      { month: 15, year: 100 },
-    };
+    // PRICE_IDS): $7/$15 monthly, $50/$100 yearly (reprice 2026-08-26). The
+    // founding offer was removed — nothing special-cased below.
     function fmtPrice(n) {
       var v = Math.round(Number(n) * 100) / 100;
       return String(v % 1 === 0 ? v : v.toFixed(2));
@@ -1937,8 +1428,8 @@
     }
     function renderPricing() {
       ['standard', 'pro'].forEach(function(tier) {
-        var priceEl = document.getElementById('price-' + tier);
-        var subEl = document.getElementById('price-sub-' + tier);
+        var priceEl = el('price-' + tier);
+        var subEl = el('price-sub-' + tier);
         if (!priceEl) return;
         var price = priceFor(tier);
         priceEl.innerHTML = '$' + fmtPrice(price) + '<span>' + periodLabel() + '</span>';
@@ -1952,8 +1443,8 @@
     function setBillingInterval(iv) {
       if (iv !== 'month' && iv !== 'year') return;
       BILLING_INTERVAL = iv;
-      var m = document.getElementById('toggle-month');
-      var y = document.getElementById('toggle-year');
+      var m = el('toggle-month');
+      var y = el('toggle-year');
       if (m) { m.classList.toggle('active', iv === 'month'); m.setAttribute('aria-selected', iv === 'month' ? 'true' : 'false'); }
       if (y) { y.classList.toggle('active', iv === 'year'); y.setAttribute('aria-selected', iv === 'year' ? 'true' : 'false'); }
       renderPricing();
@@ -1962,24 +1453,21 @@
     renderPricing();
 
     async function subscribe(tier) {
-      var errorEl = document.getElementById('sub-error');
+      var errorEl = el('sub-error');
       errorEl.style.display = 'none';
       errorEl.style.color = 'var(--danger)';
 
       var btnId = tier === 'standard' ? 'btn-standard' : 'btn-pro';
-      var btn = document.getElementById(btnId);
+      var btn = el(btnId);
       var originalText = btn.textContent;
 
       // Pre-gate: don't even call checkout if no Stripe account is connected.
-      // /stats carries the connection state (stripeConnected), so loadStats()
-      // keeps this in-memory flag fresh — it gates the subscribe buttons below.
       if (!STIPE_CONNECTED) {
         errorEl.textContent = '\u2717 Connect your Stripe account before subscribing';
         errorEl.style.display = 'block';
         return;
       }
 
-      // Loading state
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span> Redirecting...';
 
@@ -1993,8 +1481,6 @@
         var data = await res.json();
 
         if (res.status === 401) {
-          // The Stripe account card says connected, but /billing/checkout
-          // returned 401 — almost always a missing or expired session cookie.
           errorEl.innerHTML = '\u2717 Session expired. <a href="/stripe/connect" style="color:var(--primary);font-weight:600;">Reconnect your Stripe account</a> to refresh.';
           errorEl.style.display = 'block';
           btn.disabled = false;
@@ -2004,13 +1490,13 @@
         if (res.ok && data.url) {
           window.location.href = data.url;
         } else {
-          errorEl.textContent = '✗ ' + (data.error || 'Checkout failed');
+          errorEl.textContent = '\u2717 ' + (data.error || 'Checkout failed');
           errorEl.style.display = 'block';
           btn.disabled = false;
           btn.textContent = originalText;
         }
       } catch (e) {
-        errorEl.textContent = '✗ Network error — could not reach billing';
+        errorEl.textContent = '\u2717 Network error — could not reach billing';
         errorEl.style.display = 'block';
         btn.disabled = false;
         btn.textContent = originalText;
@@ -2042,487 +1528,155 @@
       }
     }
 
-    // ── Task inbox ──
-    var inboxTasks = [];
-    // -- Overdue panel (owner 9/9 item 2): overdueInvoices holds EVERY
-    // overdue invoice (GET /overdue/summary, same set as /past-due and
-    // the /stats hero count). inboxTasks holds only sequences with an
-    // open draft/review task (GET /tasks) - an overdue invoice with no
-    // open task (sent, paused, none yet) is invisible to /tasks, which
-    // is exactly the reported bug.
-    var overdueInvoices = [];
-    var editingTaskId = null;
-    var busyTasks = {};
-    var currentTrustMode = 'draft';
-    var isPaused = false;
-    var IS_SUB_ACTIVE = false;
-    var IS_PRO = false;
-    var IS_DEV_PRO = false;
-
-    function esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-      });
-    }
-    function formatMoney(cents, currency) {
-      var c = String(currency || 'USD').toUpperCase();
-      var n = (Number(cents) || 0) / 100;
-      try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: c }).format(n); }
-      catch (e) { return '$' + n.toFixed(2); }
-    }
-    function formatDate(s) {
-      if (!s) return '—';
-      var d = new Date(s);
-      return isNaN(d.getTime()) ? String(s) : d.toLocaleDateString();
-    }
-    function formatDateTime(s) {
-      if (!s) return '—';
-      var d = new Date(s);
-      return isNaN(d.getTime()) ? String(s) : d.toLocaleString();
-    }
-    function statusChipFor(status) {
-      var map = { reviewed: 'Ready to send', drafted: 'Drafted', pending: 'Queued' };
-      var cls = status === 'reviewed' ? '' : status === 'drafted' ? ' chip-drafted' : status === 'pending' ? ' chip-pending' : '';
-      return '<span class="task-status-chip' + cls + '">' + esc(map[status] || status) + '</span>';
-    }
-    // ── Per-invoice pause reasons + held reply drafts (defensive render) ──
-    // The task inbox lists per-invoice sequences. The backend spec (D1a)
-    // delivers per-invoice pause-reason data on the /tasks payload; today the
-    // rows already carry dispute_id, refund_id and invoice_status. Expected
-    // fields this UI keys off (renders a chip ONLY when present, so it
-    // degrades gracefully to today's output until D1a ships):
-    //   reply_paused_at  — timestamp set when a customer reply paused this
-    //                      invoice's sequence (D1a)
-    //   reply_status     — status like 'reply_paused' marking the pause reason
-    //                      (D1a)
-    //   status           — task status; a reply-paused row may carry
-    //                      'reply_paused' directly (D1a)
-    //   dispute_id       — set when a dispute paused the invoice (live today)
-    //   invoice_status   — invoice status from the invoices join; 'paid' means
-    //                      the sequence stopped on payment (live today)
-    function hasReplyPause(t) {
-      return !!(t && (t.reply_paused_at || t.reply_status || t.status === 'reply_paused'));
-    }
-    function pauseReasonChipFor(t) {
-      if (hasReplyPause(t)) {
-        // Reply detection v1: the /tasks payload carries reply_action_flag (the
-        // owner-approved actionable flag for the detected classification) —
-        // surface it right on the pause chip when present.
-        var flag = t && t.reply_action_flag ? ' — ' + esc(t.reply_action_flag) : '';
-        return '<span class="pause-reason-chip reply">Reply received' + flag + '</span>';
-      }
-      if (t && t.dispute_id) {
-        return '<span class="pause-reason-chip dispute">Dispute</span>';
-      }
-      if (t && (t.invoice_status === 'paid' || t.status === 'paid')) {
-        return '<span class="pause-reason-chip paid">Payment received</span>';
-      }
-      return '';
-    }
-    // A held customer reply awaiting the merchant's action appears in this
-    // inbox as a task row carrying reply data — flag it so it is
-    // distinguishable from a plain reminder draft.
-    function replyReviewChipFor(t) {
-      if (hasReplyPause(t) && t && (t.awaiting_approval || t.status === 'reviewed' || t.status === 'drafted')) {
-        return '<span class="pause-reason-chip review">Reply draft awaiting review</span>';
-      }
-      return '';
-    }
-
-    function showTaskError(id, message) {
-      var el = document.getElementById('task-error-' + id);
-      if (!el) return;
-      el.textContent = message;
-      el.style.display = 'block';
-    }
-
-    async function loadInbox() {
-      if (editingTaskId != null || Object.keys(busyTasks).length > 0) return;
-      var listEl = document.getElementById('inbox-list');
+    async function loadSubscription() {
+      var statusEl = el('sub-status');
+      var subActions = el('sub-actions');
+      var pricing = el('pricing');
+      var planCard = el('plan-card');
+      var betaCard = el('beta-redeem-card');
       try {
-        var res = await fetch('/tasks');
+        var res = await fetch('/subscription');
         if (handoffIf401(res)) return;
-        if (!res.ok) {
-          listEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load tasks (HTTP ' + res.status + ').</p>';
-          return;
-        }
-        inboxTasks = await res.json();
-        renderInbox();
-        renderHero(LAST_STATS);
-      } catch (e) {
-        listEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load tasks — check your connection.</p>';
-        console.error('Failed to load tasks:', e);
-      }
-    }
-
-    // Overdue-invoice panel loader (owner 9/9 item 2): the full overdue set
-    // from GET /overdue/summary - same endpoint and same base query
-    // (invoices.status='overdue') behind /past-due's default view and the
-    // /stats overdueInvoices hero count. Runs alongside loadInbox (not inside
-    // it) so the panel stays correct even when the approval inbox is empty;
-    // silent on failure so a panel error can never clobber the inbox UI.
-    async function loadOverduePanel() {
-      try {
-        var res = await fetch('/overdue/summary');
-        if (handoffIf401(res)) return;
-        if (!res.ok) return;
-        var data = await res.json();
-        overdueInvoices = (data && data.invoices) || [];
-        renderOverdueTable();
-      } catch (e) {
-        console.error('Failed to load overdue panel:', e);
-      }
-    }
-    function renderInbox() {
-      var fullAutoEl = document.getElementById('inbox-full-auto');
-      var emptyEl = document.getElementById('inbox-empty');
-      var listEl = document.getElementById('inbox-list');
-      var pausedNote = document.getElementById('inbox-paused-note');
-      if (!fullAutoEl || !emptyEl || !listEl || !pausedNote) return;
-
-      pausedNote.style.display = isPaused ? 'block' : 'none';
-
-      if (currentTrustMode === 'full') {
-        listEl.style.display = 'none';
-        emptyEl.style.display = 'none';
-        fullAutoEl.style.display = 'block';
-        renderOverdueTable();
-        renderHero(LAST_STATS);
-        return;
-      }
-      fullAutoEl.style.display = 'none';
-      listEl.style.display = 'block';
-
-      var visible = inboxTasks.filter(function(t) {
-        return currentTrustMode === 'semi' ? t.stage >= 2 : true;
-      });
-
-      if (visible.length === 0) {
-        emptyEl.style.display = 'block';
-        listEl.innerHTML = '';
-        renderOverdueTable();
-        renderHero(LAST_STATS);
-        return;
-      }
-      emptyEl.style.display = 'none';
-      listEl.innerHTML = visible.map(renderTaskCard).join('');
-      renderOverdueTable();
-      renderHero(LAST_STATS);
-    }
-
-    // ── Owner 9/9 layout: hero risk card + top-bar pill ──
-    // Rendered from the same /stats + /tasks payloads as everything else —
-    // no new endpoints. Amounts reuse formatMoney; counts reuse inboxTasks.
-    function renderConnPill(s) {
-      var el = document.getElementById('cc-conn-pill-text');
-      if (!el || !s) return;
-      if (!s.stripeConnected) {
-        el.textContent = s.stripeDisconnected ? 'Stripe disconnected — reconnect' : 'Not connected to Stripe';
-      } else if (s.sub_status !== 'active' && !s.free_trial) {
-        el.textContent = 'Connected to Stripe · Live';
-      } else {
-        var mode = (s.stripe_livemode === false || s.stripe_livemode === 0) ? 'Test' : 'Live';
-        el.textContent = 'Connected to Stripe · ' + mode;
-      }
-    }
-    function renderHero(s) {
-      var amt = document.getElementById('cc-hero-amount');
-      var sub = document.getElementById('cc-hero-sub');
-      if (!amt || !sub || !s) return;
-      var n = s.overdueInvoices || 0;
-      // /stats carries counts, not sums — show the count headline honestly.
-      amt.textContent = n + (n === 1 ? ' invoice' : ' invoices');
-      var awaiting = inboxTasks.filter(function(t) { return t.awaiting_approval || t.status === 'reviewed'; }).length;
-      sub.textContent = awaiting > 0
-        ? awaiting + (awaiting === 1 ? ' draft' : ' drafts') + ' awaiting approval'
-        : (n > 0 ? n + (n === 1 ? ' invoice needs' : ' invoices need') + ' attention' : 'Nothing overdue — nice work.');
-    }
-    // ── Overdue table: one row per OVERDUE INVOICE (GET /overdue/summary,
-    // the same invoice set /past-due lists, NOT the /tasks inbox). Semantic chips ONLY: amber = needs attention,
-    // red = 10+ days overdue, green = paid/success ONLY. The Copilot column
-    // is the existing per-invoice trust-mode override
-    // (PUT /invoices/:id/trust-mode, values draft/semi/full/null=Auto).
-    function overdueStatusChip(t) {
-      if (t && (t.invoice_status === 'paid' || t.status === 'paid')) return '<span class="cc-chip green">Paid</span>';
-      if (t && (t.status === 'paused' || t.pause_reason)) return '<span class="cc-chip amber">Paused - needs attention</span>';
-      var d = (t && t.days_overdue != null) ? t.days_overdue : null;
-      if (d != null && d >= 10) return '<span class="cc-chip red">' + d + (d === 1 ? ' day' : ' days') + ' overdue</span>';
-      if (t && (t.reply_paused_at || t.reply_status || t.status === 'reply_paused' || t.dispute_id)) return '<span class="cc-chip amber">Needs attention</span>';
-      return '<span class="cc-chip amber">Needs attention</span>';
-    }
-    function copilotCellFor(t) {
-      // /overdue/summary rows key the invoice as .id; /tasks rows as .invoice_id.
-      var inv = (t.invoice_id != null) ? t.invoice_id : t.id;
-      var cur = t.trust_mode_override || '';
-      var sel = function(v) { return cur === v ? ' selected' : ''; };
-      return '<select data-copilot-invoice="' + inv + '" onchange="setCopilotOverride(' + inv + ', this.value)"' +
-        ' style="font-size:0.78rem;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);"' +
-        ' aria-label="Copilot Mode for invoice ' + inv + '">' +
-        '<option value=""' + sel('') + '>Auto</option>' +
-        '<option value="draft"' + sel('draft') + '>Draft Mode</option>' +
-        '<option value="semi"' + sel('semi') + '>Semi-Auto</option>' +
-        '<option value="full"' + sel('full') + '>Copilot Mode</option>' +
-        '</select>';
-    }
-    function renderOverdueTable() {
-      var tb = document.getElementById('overdue-tbody');
-      if (!tb) return;
-      if (!overdueInvoices || overdueInvoices.length === 0) {
-        tb.innerHTML = '<tr><td colspan="6" style="color:var(--muted);">No overdue invoices right now.</td></tr>';
-        return;
-      }
-      tb.innerHTML = overdueInvoices.map(function(t) {
-        var days = (t.days_overdue != null) ? t.days_overdue + (t.days_overdue === 1 ? ' day' : ' days') : '—';
-        return '<tr>' +
-          '<td>' + esc(t.customer_name || 'Unknown customer') + '</td>' +
-          '<td>' + formatMoney(t.amount_due != null ? t.amount_due : t.amount_cents, t.currency) + '</td>' +
-          '<td>' + days + '</td>' +
-          '<td><span class="cc-chip neutral">Stage ' + (t.stage || '—') + '</span></td>' +
-          '<td>' + overdueStatusChip(t) + '</td>' +
-          '<td>' + copilotCellFor(t) + '</td>' +
-        '</tr>';
-      }).join('');
-    }
-    async function setCopilotOverride(invoiceId, value) {
-      try {
-        var res = await fetch('/invoices/' + encodeURIComponent(invoiceId) + '/trust-mode', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trust_mode: value === '' ? null : value }),
-        });
         if (res.ok) {
-          for (var i = 0; i < inboxTasks.length; i++) {
-            if (inboxTasks[i].invoice_id === invoiceId) { inboxTasks[i].trust_mode_override = value === '' ? null : value; break; }
-          }
-          for (var j = 0; j < overdueInvoices.length; j++) {
-            if (overdueInvoices[j].id === invoiceId || overdueInvoices[j].invoice_id === invoiceId) { overdueInvoices[j].trust_mode_override = value === '' ? null : value; break; }
-          }
-          renderOverdueTable();
-          updateTimestamp();
-        }
-      } catch (e) { console.error('Failed to set Copilot override:', e); }
-    }
-    function renderTaskCard(t) {
-      var editing = editingTaskId === t.id;
-      var busy = !!busyTasks[t.id];
-      var hasDraft = t.draft_body && String(t.draft_body).trim() !== '';
-
-      var bodyHtml = '';
-      var actionsHtml = '';
-      if (editing) {
-        bodyHtml =
-          '<div class="task-edit">' +
-            '<label for="edit-subject-' + t.id + '">Subject</label>' +
-            '<input type="text" id="edit-subject-' + t.id + '" maxlength="500" value="' + esc(t.draft_subject || '') + '">' +
-            '<label for="edit-body-' + t.id + '">Email body</label>' +
-            '<textarea id="edit-body-' + t.id + '" rows="8" maxlength="10000">' + esc(t.draft_body || '') + '</textarea>' +
-            '<div class="task-actions" style="margin-top:12px;">' +
-              '<button id="btn-save-' + t.id + '" onclick="saveEditTask(' + t.id + ')">💾 Save draft</button>' +
-              '<button class="btn-outline" onclick="cancelEdit()">Cancel</button>' +
-            '</div>' +
-            '<div class="task-error" id="task-edit-error-' + t.id + '" style="display:none;"></div>' +
-          '</div>';
-      } else {
-        bodyHtml =
-          (t.draft_subject ? '<div class="task-subject">' + esc(t.draft_subject) + '</div>' : '') +
-          (hasDraft
-            ? '<div class="task-draft-body">' + esc(t.draft_body) + '</div>'
-            : '<div class="task-draft-body task-draft-empty">No draft yet — approving will draft and send the reminder.</div>') +
-          '<div class="task-actions">' +
-            '<button class="btn-outline" onclick="approveTask(' + t.id + ', this)"' + (busy ? ' disabled' : '') + '>' + (busy ? '<span class="spinner"></span> Sending…' : '✓ Approve &amp; Send') + '</button>' +
-            '<button class="btn-outline" onclick="startEditTask(' + t.id + ')"' + (busy ? ' disabled' : '') + '>✏️ Edit</button>' +
-            '<button class="btn-reject" onclick="rejectTask(' + t.id + ', this)"' + (busy ? ' disabled' : '') + '>🗑 Reject</button>' +
-          '</div>' +
-          '<div class="task-error" id="task-error-' + t.id + '" style="display:none;"></div>';
-      }
-
-      return (
-        '<div class="task-card" id="task-' + t.id + '">' +
-          '<div class="task-top">' +
-            '<div class="task-customer">' + esc(t.customer_name || 'Unknown customer') + '</div>' +
-            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
-              '<span class="stage-badge st' + t.stage + '">Stage ' + t.stage + '</span>' +
-              statusChipFor(t.status) +
-              pauseReasonChipFor(t) +
-              replyReviewChipFor(t) +
-            '</div>' +
-          '</div>' +
-          '<div class="task-meta">' +
-            '<span>💵 ' + formatMoney(t.amount_cents, t.currency) + '</span>' +
-            '<span>📅 Due ' + formatDate(t.due_date) + '</span>' +
-            '<span>⏰ ' + (t.days_overdue != null ? t.days_overdue + (t.days_overdue === 1 ? ' day' : ' days') + ' overdue' : '—') + '</span>' +
-            '<span>🕒 ' + formatDateTime(t.created_at) + '</span>' +
-          '</div>' +
-          bodyHtml +
-          actionsHtml +
-        '</div>'
-      );
-    }
-
-    function startEditTask(id) { editingTaskId = id; renderInbox(); }
-    function cancelEdit() { editingTaskId = null; renderInbox(); }
-    async function saveEditTask(id) {
-      var errEl = document.getElementById('task-edit-error-' + id);
-      var bodyEl = document.getElementById('edit-body-' + id);
-      var subjEl = document.getElementById('edit-subject-' + id);
-      var btn = document.getElementById('btn-save-' + id);
-      if (!bodyEl || !subjEl) return;
-      var body = bodyEl.value.trim();
-      var subject = subjEl.value.trim();
-      if (!body) {
-        errEl.textContent = 'Draft body cannot be empty.';
-        errEl.style.display = 'block';
-        return;
-      }
-      if (body.length > 10000) {
-        errEl.textContent = 'Draft body exceeds the 10,000 character limit.';
-        errEl.style.display = 'block';
-        return;
-      }
-      if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
-      try {
-        var res = await fetch('/tasks/' + id + '/draft', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ draft_body: body, draft_subject: subject }),
-        });
-        var data = await res.json();
-        if (res.ok) {
-          var updated = data.task || {};
-          for (var i = 0; i < inboxTasks.length; i++) {
-            if (inboxTasks[i].id === id) { inboxTasks[i] = updated; break; }
-          }
-          editingTaskId = null;
-          renderInbox();
-          updateTimestamp();
-          return;
-        }
-        if (res.status === 409) {
-          errEl.textContent = data.error || 'This reminder can no longer be edited.';
-          errEl.style.display = 'block';
-          inboxTasks = inboxTasks.filter(function(t) { return t.id !== id; });
-          setTimeout(function() { editingTaskId = null; renderInbox(); loadStats(); }, 1500);
-          return;
-        }
-        errEl.textContent = data.error || 'Could not save the draft.';
-        errEl.style.display = 'block';
-      } catch (e) {
-        errEl.textContent = 'Network error — could not save the draft.';
-        errEl.style.display = 'block';
-      } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '💾 Save draft'; }
-      }
-    }
-
-    async function approveTask(id, btn) {
-      busyTasks[id] = true;
-      if (btn) { btn.disabled = true; }
-      try {
-        var res = await fetch('/tasks/' + id + '/approve', { method: 'POST' });
-        var data = await res.json();
-        if (res.ok) {
-          inboxTasks = inboxTasks.filter(function(t) { return t.id !== id; });
-          renderInbox();
-          loadStats();
-          updateTimestamp();
-          return;
-        }
-        if (res.status === 402) {
-          // Surface the reason at the click site (under the task card) AND in
-          // the Subscription card — the upgrade prompt alone renders off-viewport
-          // (#sub-error), which made the click look like a no-op in the E2E test.
-          var subMsg = data.message || data.error || 'An active subscription is required to send reminders.';
-          showTaskError(id, subMsg);
-          showUpgradePrompt(subMsg);
-          return;
-        }
-        if (res.status === 409) {
-          showTaskError(id, data.message || data.error || 'This reminder was already sent or cancelled.');
-          inboxTasks = inboxTasks.filter(function(t) { return t.id !== id; });
-          setTimeout(function() { renderInbox(); loadStats(); }, 1500);
-          return;
-        }
-        if (res.status === 502) {
-          showTaskError(id, (data.message || data.error || 'The email could not be sent.') + ' Your draft is kept — you can try again.');
-          return;
-        }
-        showTaskError(id, data.error || 'Could not send the reminder.');
-      } catch (e) {
-        showTaskError(id, 'Network error — could not reach the server.');
-      } finally {
-        delete busyTasks[id];
-        if (btn) btn.disabled = false;
-      }
-    }
-
-    async function rejectTask(id, btn) {
-      if (!confirm('Reject this reminder? It will be cancelled and not sent.')) return;
-      busyTasks[id] = true;
-      if (btn) btn.disabled = true;
-      try {
-        var res = await fetch('/tasks/' + id + '/reject', { method: 'POST' });
-        var data = await res.json();
-        if (res.ok || res.status === 409) {
-          inboxTasks = inboxTasks.filter(function(t) { return t.id !== id; });
-          renderInbox();
-          loadStats();
-          updateTimestamp();
-          return;
-        }
-        showTaskError(id, data.error || 'Could not reject the reminder.');
-      } catch (e) {
-        showTaskError(id, 'Network error — could not reach the server.');
-      } finally {
-        delete busyTasks[id];
-        if (btn) btn.disabled = false;
-      }
-    }
-
-    // ── Pause / resume ──
-    function applyPausedState(paused) {
-      isPaused = !!paused;
-      var banner = document.getElementById('paused-banner');
-      var toggle = document.getElementById('pause-toggle');
-      var label = document.getElementById('pause-label');
-      if (banner) banner.style.display = isPaused ? 'block' : 'none';
-      if (toggle) toggle.checked = isPaused;
-      if (label) label.textContent = isPaused ? 'Resume automatic sending' : 'Pause all automatic sending';
-    }
-
-    (function bindPauseToggle() {
-      var toggle = document.getElementById('pause-toggle');
-      if (!toggle) return;
-      toggle.addEventListener('change', async function() {
-        var want = toggle.checked;
-        toggle.disabled = true;
-        try {
-          var res = await fetch('/settings', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ paused: want }),
-          });
-          var data = await res.json();
-          if (res.ok) {
-            applyPausedState(data.paused);
-            renderInbox();
-            updateTimestamp();
+          var sub = await res.json();
+          renderTrialBanner(sub);
+          renderPricing();
+          if (LAST_STATS) renderStatusBanner(LAST_STATS);
+          var isPro = sub.tier === 'pro' && sub.status === 'active';
+          var isActive = sub.tier && sub.status === 'active';
+          var isDevPro = !!sub.dev_pro;
+          IS_SUB_ACTIVE = isActive;
+          IS_PRO = isPro;
+          IS_DEV_PRO = isDevPro;
+          if (isActive) {
+            var tierName = sub.tier.charAt(0).toUpperCase() + sub.tier.slice(1);
+            var dateStr = sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '—';
+            // The plan card is the single source of truth for plan details
+            // (name + price, since date, Manage Billing). Price is
+            // interval-aware (Phase B): yearly subscribers see their yearly
+            // price. The founding 50% offer was removed (reprice 2026-08-26).
+            var planIv = sub.interval === 'year' ? 'year' : 'month';
+            var planList = PLAN_PRICES[sub.tier] ? PLAN_PRICES[sub.tier][planIv] : (sub.tier === 'pro' ? 15 : 7);
+            var planShown = planList;
+            el('plan-name').textContent = tierName + ' plan — $' + fmtPrice(planShown) + (planIv === 'year' ? '/yr' : '/mo');
+            el('plan-since').textContent = isDevPro
+              ? 'Developer preview — subscribe to manage billing'
+              : 'Since ' + dateStr;
+            if (planCard) planCard.style.display = 'block';
+            if (pricing) pricing.style.display = 'none';
+            if (betaCard) betaCard.style.display = 'none';
+            statusEl.innerHTML = '';
+            // Plan card carries its own Manage Billing button — hide the old one.
+            subActions.style.display = 'none';
+            // Dev preview (dev_pro=1) merchants have no real subscription — the
+            // billing portal has nothing to manage. Hide Manage Billing.
+            var planManageBtn = el('plan-manage-billing');
+            if (planManageBtn) planManageBtn.style.display = isDevPro ? 'none' : '';
+            var planManageHint = el('plan-manage-hint');
+            if (planManageHint) planManageHint.textContent = isDevPro
+              ? 'Subscribe to manage billing and keep reminders running.'
+              : 'Switch or cancel anytime from Manage Billing.';
+            // Same for the free-drafts stat card: drop the /billing/portal link
+            // so the preview can't navigate into a portal that cannot exist.
+            if (isDevPro) {
+              var fdl = el('stat-free-drafts-link');
+              if (fdl) { fdl.removeAttribute('href'); fdl.title = 'Developer preview'; }
+              var fdh = el('stat-free-drafts-hint');
+              if (fdh) fdh.textContent = 'Developer preview';
+            }
+          } else if (sub.status === 'cancelled') {
+            IS_SUB_ACTIVE = false;
+            statusEl.innerHTML =
+              '<div style="display:flex;align-items:center;gap:10px;">' +
+              '<span class="pill-badge badge-draft" style="font-size:0.75rem;">Cancelled</span>' +
+              '<span style="color:var(--muted);">Your subscription has ended. Resubscribe below.</span>' +
+              '</div>';
+            if (planCard) planCard.style.display = 'none';
+            if (pricing) pricing.style.display = 'block';
+            if (betaCard) betaCard.style.display = 'block';
+            subActions.style.display = 'none';
           } else {
-            toggle.checked = !want;
-            alert(data.error || 'Could not update pause setting.');
+            IS_SUB_ACTIVE = false;
+            statusEl.innerHTML =
+              '<p style="color:var(--muted);font-size:0.85rem;">No active subscription. Choose a plan below to get started.</p>';
+            if (planCard) planCard.style.display = 'none';
+            if (pricing) pricing.style.display = 'block';
+            if (betaCard) betaCard.style.display = 'block';
+            subActions.style.display = 'none';
           }
-        } catch (e) {
-          toggle.checked = !want;
-          alert('Network error — could not update pause setting.');
-        } finally {
-          toggle.disabled = false;
         }
-      });
-    })();
+      } catch (e) {
+        console.error('Failed to load subscription:', e);
+      }
+    }
+
+    // -- Free-trial banner (dashboard only) --
+    // Shows ONLY while the merchant is inside its automatic 30-day full-access
+    // free trial. /subscription -> free_trial is false for active subscribers,
+    // trial-expired merchants and dev-preview merchants, so the banner just
+    // toggles off on exactly that flag.
+    function renderTrialBanner(sub) {
+      var elB = el('trial-banner');
+      if (!elB) return;
+      elB.style.display = sub.free_trial ? 'flex' : 'none';
+    }
+    // "Pick a plan" scrolls down to the subscription/pricing card.
+    function scrollToPricing() {
+      var target = el('subscription-card') || el('pricing');
+      if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // -- Beta-code redemption (dev-preview invite) --
+    async function redeemBetaCode() {
+      var input = el('beta-code-input');
+      var msg = el('beta-redeem-msg');
+      var btn = el('beta-redeem-btn');
+      var code = (input && input.value || '').trim();
+      if (!code) {
+        if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--danger)'; msg.textContent = 'Enter your invite code first.'; }
+        return;
+      }
+      if (btn) btn.disabled = true;
+      if (msg) { msg.style.display = 'block'; msg.style.color = 'var(--muted)'; msg.textContent = 'Redeeming…'; }
+      try {
+        var res = await fetch('/api/beta/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: code }),
+        });
+        var data = await res.json();
+        if (res.ok) {
+          if (msg) msg.style.display = 'none';
+          if (input) input.style.display = 'none';
+          if (btn) btn.style.display = 'none';
+          var promptEl = el('beta-refresh-prompt');
+          if (promptEl) promptEl.style.display = 'block';
+        } else {
+          if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = data.error || 'Could not redeem that code.'; }
+        }
+      } catch (e) {
+        if (msg) { msg.style.color = 'var(--danger)'; msg.textContent = 'Something went wrong. Please try again.'; }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    // ── Subscription upgrade prompt (used by weekly-summary 402s) ──
+    function showUpgradePrompt(message) {
+      var errorEl = el('sub-error');
+      if (!errorEl) return;
+      var link = IS_SUB_ACTIVE
+        ? '<a href="#" onclick="manageBilling(event);return false;" style="color:var(--primary);font-weight:600;">Manage Billing</a>'
+        : '<a href="#pricing" style="color:var(--primary);font-weight:600;">View plans</a>';
+      errorEl.innerHTML = (message || 'An active subscription is required.') + ' ' + link;
+      errorEl.style.display = 'block';
+      errorEl.style.color = 'var(--warning)';
+    }
 
     // ── Send weekly summary now ──
     async function sendSummaryNow() {
-      var btn = document.getElementById('summary-btn');
-      var statusEl = document.getElementById('summary-status');
+      var btn = el('summary-btn');
+      var statusEl = el('summary-status');
       if (!btn || !statusEl) return;
       var orig = btn.innerHTML;
       btn.disabled = true;
@@ -2559,51 +1713,15 @@
       updateTimestamp();
     }
 
-    // ── Subscription upgrade prompt ──
-    function showUpgradePrompt(message) {
-      var errorEl = document.getElementById('sub-error');
-      if (!errorEl) return;
-      var link = IS_SUB_ACTIVE
-        ? '<a href="#" onclick="manageBilling(event);return false;" style="color:var(--primary);font-weight:600;">Manage Billing</a>'
-        : '<a href="#pricing" style="color:var(--primary);font-weight:600;">View plans</a>';
-      errorEl.innerHTML = (message || 'An active subscription is required.') + ' ' + link;
-      errorEl.style.display = 'block';
-      errorEl.style.color = 'var(--warning)';
-    }
-    // ── Initialize ──
-    // Surface the billing-error notice when a GET /billing/checkout|portal
-    // navigation bounced back here with ?billing=error.
-    (function () {
-      if (new URLSearchParams(window.location.search).get('billing') === 'error') {
-        var bannerEl = document.getElementById('billing-error-banner');
-        if (bannerEl) bannerEl.style.display = 'block';
-      }
-      // The app cleared a stale/invalid Stripe connection and sent the
-      // merchant here to reconnect (?error=reconnect_required) — show the
-      // friendly banner with the Connect CTA (never the raw Stripe error).
-      if (new URLSearchParams(window.location.search).get('error') === 'reconnect_required') {
-        var reconnectEl = document.getElementById('reconnect-banner');
-        if (reconnectEl) reconnectEl.style.display = 'block';
-        // Drop the param so a refresh doesn't re-show the banner.
-        var url = new URL(window.location.href);
-        url.searchParams.delete('error');
-        url.searchParams.delete('detail');
-        window.history.replaceState({}, '', url);
-      }
-    })();
-    // Data rights: delete the account and ALL stored data immediately
-    // (privacy-page promise "You can request immediate deletion"). Confirm
-    // dialog first; POST /account/delete also cancels any active Stripe
-    // subscription server-side so a deleted account is never billed. On
-    // success the session is gone — redirect to the landing page.
+    // ── Data rights: delete account + ALL stored data ──
     async function deleteAccount() {
       if (!window.confirm(
         'Delete your account and ALL data?\n\nThis is immediate and permanent: ' +
         'every stored invoice, task, email log and subscription is erased, and ' +
         'your Collections Copilot subscription is cancelled. There is no undo.'
       )) return;
-      var statusEl = document.getElementById('account-data-status');
-      var btn = document.getElementById('delete-account-btn');
+      var statusEl = el('account-data-status');
+      var btn = el('delete-account-btn');
       if (statusEl) statusEl.textContent = 'Deleting your account…';
       if (btn) btn.disabled = true;
       try {
@@ -2621,18 +1739,40 @@
       }
     }
 
+    // Update "last updated" timestamp
+    function updateTimestamp() {
+      el('last-updated').textContent =
+        'Last updated: ' + new Date().toLocaleTimeString();
+    }
+
+    // ── Initialize ──
+    // Surface the billing-error notice when a GET /billing/checkout|portal
+    // navigation bounced back here with ?billing=error; likewise the
+    // reconnect-required banner for a cleared invalid Stripe connection.
+    (function () {
+      if (new URLSearchParams(window.location.search).get('billing') === 'error') {
+        var bannerEl = el('billing-error-banner');
+        if (bannerEl) bannerEl.style.display = 'block';
+      }
+      if (new URLSearchParams(window.location.search).get('error') === 'reconnect_required') {
+        var reconnectEl = el('reconnect-banner');
+        if (reconnectEl) reconnectEl.style.display = 'block';
+        // Drop the param so a refresh doesn't re-show the banner.
+        var url = new URL(window.location.href);
+        url.searchParams.delete('error');
+        url.searchParams.delete('detail');
+        window.history.replaceState({}, '', url);
+      }
+    })();
+
     loadSubscription();
     loadSettings();
-    loadInbox();
     loadOverduePanel();
     loadStats();
-    checkHealth();
     updateTimestamp();
 
     // Periodic refresh
-    setInterval(checkHealth, 30000);
     setInterval(loadStats, 60000);
-    setInterval(loadInbox, 60000);
     setInterval(loadOverduePanel, 60000);
     setInterval(updateTimestamp, 10000);
   </script>
