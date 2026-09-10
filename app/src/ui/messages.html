@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Collections Copilot — Messages</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235B4FE9'/%3E%3Ctext x='16' y='22' font-family='Arial, sans-serif' font-size='15' font-weight='bold' fill='white' text-anchor='middle'%3ECC%3C/text%3E%3C/svg%3E">
+  <style>
+    :root {
+      /* ── Design tokens — match marketing site (getcollectionscopilot.com) ── */
+      --bg: #F6F6FB;
+      --surface: #FFF;
+      --card-bg: #FFFFFF;
+      --text: #16162B;
+      --body: #6E7191;
+      --muted: #6E7191;
+      --faint: #A0A0BC;
+      --border: #E7E7F2;
+      --border-strong: #E7E7F2;
+      --brand: #5B4FE9;
+      --brand-dark: #463CC4;
+      --purple-soft: #EFEDFD;
+      --primary: #5B4FE9;
+      --primary-light: #EFEDFD;
+      --primary-hover: #463CC4;
+      --danger: #B3261E;
+      --danger-light: #FCEAE9;
+      --success: #0B6B4F;
+      --success-light: #E3F6EE;
+      --warning: #8A5A00;
+      --warning-light: #FDF3DE;
+      --radius: 12px;              /* rounded-xl */
+      --radius-sm: 8px;            /* rounded-lg */
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      --amber-text: #8A5A00;
+      --amber-bg: #FDF3DE;
+      --green-text: #0B6B4F;
+      --green-bg: #E3F6EE;
+      --red-text: #B3261E;
+      --red-bg: #FCEAE9;
+      --radius-lg: 16px;
+      --tm-draft-bg: #FFFFFF;
+      --badge-draft-bg: #EFEDFD; --badge-draft-text: #5B4FE9;
+      --badge-semi-bg: #EFEDFD;  --badge-semi-text: #5B4FE9;
+      --badge-full-bg: #EFEDFD;  --badge-full-text: #5B4FE9;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-padding-top: 96px; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    /* ── App shell: fixed sidebar 216px + top bar + main (owner 9/9) ── */
+    .cc-shell { display: flex; min-height: 100vh; }
+    .cc-sidebar {
+      width: 216px; flex: 0 0 216px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 14px;
+      position: sticky; top: 0; align-self: flex-start;
+      height: 100vh; max-height: 100vh; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .cc-sidebar .cc-logo { font-weight: 800; font-size: 1rem; color: var(--text); padding: 0 10px 18px; letter-spacing: -0.01em; }
+    .cc-sidebar .cc-logo span { color: var(--brand); }
+    .cc-nav { display: flex; flex-direction: column; gap: 2px; }
+    .cc-nav a {
+      display: block; padding: 9px 12px; border-radius: var(--radius-sm);
+      color: var(--muted); font-size: 0.88rem; font-weight: 600; text-decoration: none;
+    }
+    .cc-nav a:hover { background: var(--bg); color: var(--text); }
+    .cc-nav a.active { background: var(--purple-soft); color: var(--brand-dark); }
+    .cc-main { flex: 1; min-width: 0; }
+    .cc-topbar {
+      display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+      padding: 14px 24px; border-bottom: 1px solid var(--border);
+      background: var(--surface); position: sticky; top: 0; z-index: 5;
+    }
+    .cc-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 9999px;
+      font-size: 0.78rem; font-weight: 600;
+      background: var(--bg); color: var(--muted); white-space: nowrap;
+      border: 1px solid var(--border);
+    }
+    .cc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-text); flex-shrink: 0; }
+    .cc-pill .cc-dot.ok   { background: var(--green-text); }
+    .cc-pill .cc-dot.warn { background: var(--amber-text); }
+    .cc-pill .cc-dot.bad  { background: var(--red-text); }
+    .cc-account-name {
+      font-size: 0.82rem; font-weight: 600; color: var(--muted);
+      max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* ── Page content — FULL viewport width minus the sidebar ── */
+    .cc-page { width: 100%; max-width: none; padding: 28px 32px 72px; }
+    .controls-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap; margin-bottom: 8px;
+    }
+    .controls-header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+    .controls-header .page-subtitle {
+      color: var(--body); font-size: 0.92rem; margin-top: 4px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 { font-size: 1.05rem; font-weight: 700; color: var(--text); letter-spacing: -0.01em; margin: 0; }
+    .card .subtitle { color: var(--body); font-size: 0.85rem; margin: 4px 0 0; line-height: 1.5; }
+    .icon-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--purple-soft); color: var(--brand);
+      flex: 0 0 auto;
+    }
+    .icon-badge svg { width: 18px; height: 18px; display: block; }
+    .section-head { display: flex; align-items: center; gap: 10px; }
+    /* ── Tabs: await approval / sent ── */
+    .msg-tabs {
+      display: flex; gap: 4px; align-items: flex-end;
+      margin: 20px 0 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .msg-tab {
+      padding: 10px 18px 12px;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      font-family: inherit; font-size: 0.88rem; font-weight: 600; color: var(--muted);
+      cursor: pointer; margin-bottom: -1px;
+      border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+      transition: color 0.12s ease, background 0.12s ease;
+    }
+    .msg-tab:hover { color: var(--text); background: var(--bg); }
+    .msg-tab.active { color: var(--brand-dark); border-bottom-color: var(--brand); background: var(--purple-soft); }
+    /* ── Task inbox (same card UI as the dashboard) ── */
+    .task-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+      margin-top: 18px;
+    }
+    .task-top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+    }
+    .task-customer { font-weight: 700; font-size: 1rem; color: var(--text); }
+    .task-meta {
+      display: flex; gap: 14px; flex-wrap: wrap;
+      font-size: 0.78rem; color: var(--muted); margin-bottom: 12px;
+    }
+    .stage-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 9999px;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    }
+    .stage-badge.st1 { background: var(--purple-soft); color: var(--brand-dark); }
+    .stage-badge.st2 { background: var(--purple-soft); color: var(--brand-dark); }
+    .stage-badge.st3 { background: var(--purple-soft); color: var(--brand-dark); }
+    .task-status-chip {
+      display: inline-block; padding: 3px 10px; border-radius: 9999px;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+      background: var(--primary-light); color: var(--primary-hover);
+    }
+    .task-status-chip.chip-drafted { background: var(--tm-draft-bg); color: var(--badge-draft-text); }
+    .task-status-chip.chip-pending { background: var(--bg); color: var(--muted); }
+    .pause-reason-chip {
+      display: inline-block; padding: 3px 10px; border-radius: 9999px;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+    }
+    .pause-reason-chip.reply  { background: var(--amber-bg); color: var(--amber-text); }
+    .pause-reason-chip.dispute { background: var(--amber-bg); color: var(--amber-text); }
+    .pause-reason-chip.paid   { background: var(--green-bg); color: var(--green-text); }
+    .pause-reason-chip.review { background: var(--amber-bg); color: var(--amber-text); }
+    .task-subject { font-weight: 600; font-size: 0.85rem; color: var(--text); margin-bottom: 4px; }
+    .task-draft-body {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      font-size: 0.82rem;
+      color: var(--body);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      line-height: 1.55;
+      max-height: 220px;
+      overflow-y: auto;
+      margin-bottom: 14px;
+    }
+    .task-draft-empty { color: var(--muted); font-style: italic; }
+    .task-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .task-actions button { padding: 8px 16px; font-size: 0.8rem; }
+    .task-actions .btn-reject { background: #fff; color: var(--red-text); border: 1.5px solid var(--border); }
+    .task-actions .btn-reject:hover { background: var(--red-bg); }
+    .task-error {
+      margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
+      background: var(--red-bg); color: var(--red-text);
+      font-size: 0.82rem; border: 1px solid var(--border);
+    }
+    .task-edit label {
+      display: block; font-size: 0.72rem; font-weight: 600; color: var(--muted);
+      margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .task-edit input[type="text"], .task-edit textarea {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm); font-size: 0.85rem; font-family: inherit;
+      color: var(--text); background: #fff;
+    }
+    .task-edit textarea { resize: vertical; line-height: 1.5; }
+    .task-edit input:focus, .task-edit textarea:focus {
+      outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(91,79,233,0.12);
+    }
+    .inbox-note {
+      margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
+      background: var(--warning-light); border: 1px solid rgba(138, 90, 0, 0.3);
+      color: var(--warning); font-size: 0.82rem;
+    }
+    /* ── Buttons ── */
+    button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 12px 24px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover { background: var(--primary-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.btn-outline {
+      background: #fff;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+    }
+    button.btn-outline:hover { background: var(--primary-light); }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+    .loading-placeholder { animation: pulse 1.6s ease-in-out infinite; }
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+      color: var(--body);
+      padding: 14px 16px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-top: 16px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+    /* ── Sent-reminder table (same markup + styles as the old /reminders page) ── */
+    .table-wrap { overflow-x: auto; }
+    .sent-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .sent-table thead th {
+      text-align: left; font-size: 0.7rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+      padding: 14px 16px; border-bottom: 1px solid var(--border);
+      background: var(--bg); white-space: nowrap;
+    }
+    .sent-table th.sortable { cursor: pointer; user-select: none; }
+    .sent-table th.sortable:hover { color: var(--text); background: var(--primary-light); }
+    .sort-indicator { display: inline-block; min-width: 0.9em; margin-left: 2px; font-size: 0.65rem; color: var(--primary); }
+    .sent-table tbody td { padding: 13px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .sent-table tbody tr:last-child td { border-bottom: none; }
+    .sent-table tbody tr:hover { background: var(--primary-light); }
+    .cell-strong { font-weight: 600; color: var(--text); }
+    .cell-muted { color: var(--muted); }
+    .cell-amount { font-weight: 600; color: var(--text); white-space: nowrap; }
+    .chip {
+      display: inline-block; padding: 3px 10px; border-radius: 9999px;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .chip-overdue { background: var(--red-bg); color: var(--red-text); }
+    .chip-sent { background: var(--success-light); color: var(--success); }
+    .chip-stub { background: var(--purple-soft); color: var(--muted); }
+    .chip-stage { background: var(--badge-draft-bg); color: var(--badge-draft-text); }
+    .chip-stage.st2 { background: var(--badge-semi-bg); color: var(--badge-semi-text); }
+    .chip-stage.st3 { background: var(--badge-full-bg); color: var(--badge-full-text); }
+    .chip-engagement { background: var(--bg); color: var(--muted); }
+    .chip-engagement-opened { background: var(--purple-soft); color: var(--brand-dark); }
+    .chip-engagement-clicked { background: var(--brand); color: #fff; }
+    .chip-engagement-none { background: var(--bg); color: var(--faint); }
+    .pill {
+      display: inline-block; padding: 2px 8px; margin-left: 6px;
+      border-radius: 9999px; border: 1px solid var(--border);
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.3px;
+      text-transform: uppercase; white-space: nowrap; vertical-align: middle;
+    }
+    .pill-muted { background: var(--bg); color: var(--muted); }
+    .cell-toggle { width: 1%; white-space: nowrap; }
+    .email-toggle {
+      display: inline-block; padding: 5px 12px; border-radius: 9999px;
+      border: 1px solid var(--border-strong); background: #fff;
+      font-size: 0.72rem; font-weight: 700; color: var(--primary);
+      cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    .email-toggle:hover { background: var(--primary-light); border-color: var(--primary); }
+    .email-body {
+      margin-top: 10px; padding: 12px 14px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      min-width: 420px;
+    }
+    .email-meta { margin-bottom: 10px; }
+    .meta-row { display: flex; gap: 10px; font-size: 0.78rem; padding: 3px 0; }
+    .meta-row dt { color: var(--muted); font-weight: 700; min-width: 74px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.68rem; padding-top: 1px; }
+    .meta-row dd { color: var(--text); word-break: break-all; }
+    .email-pre {
+      margin: 0; padding: 12px 14px;
+      background: #fff; border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem; line-height: 1.55; color: var(--text);
+      white-space: pre-wrap; word-break: break-word;
+    }
+    tr.row-test { display: none; }
+    .empty {
+      padding: 48px 24px; text-align: center; color: var(--muted); font-size: 0.9rem;
+    }
+    .empty strong { color: var(--text); display: block; margin-bottom: 4px; font-size: 1rem; }
+    /* ── Responsive ── */
+    @media (max-width: 720px) {
+      .cc-sidebar { width: 100%; flex: none; height: auto; position: static; flex-direction: row; align-items: center; padding: 12px; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); }
+      .cc-sidebar .cc-logo { padding: 0 10px 0 0; white-space: nowrap; }
+      .cc-nav { flex-direction: row; }
+      .cc-nav a { white-space: nowrap; }
+      .cc-topbar { justify-content: flex-start; padding: 10px 16px; }
+      .cc-page { padding: 20px 16px 64px; }
+      .msg-tabs { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="cc-shell">
+    <aside class="cc-sidebar" aria-label="Dashboard navigation">
+      <div class="cc-logo">Collections <span>Copilot</span></div>
+      <nav class="cc-nav">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/past-due">Invoices</a>
+        <a href="/messages#sent">Sequences</a>
+        <a href="/messages" class="active">Messages</a>
+        <a href="/copilot-controls">Copilot Controls</a>
+      </nav>
+    </aside>
+    <div class="cc-main">
+      <div class="cc-topbar">
+        <span class="cc-account-name" id="cc-account-name"></span>
+        <span class="cc-pill" id="cc-conn-pill"><span class="cc-dot"></span><span id="cc-conn-pill-text">Checking connection&hellip;</span></span>
+      </div>
+      <div class="cc-page">
+        <!-- Page header: icon badge + heading + subtitle; account name +
+             connection pill live top-right in the topbar above. -->
+        <header class="controls-header">
+          <div>
+            <div class="section-head">
+              <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span>
+              <h1>Messages</h1>
+            </div>
+            <p class="page-subtitle">Drafts awaiting your review, and every reminder we've sent.</p>
+          </div>
+        </header>
+        <div class="msg-tabs" role="tablist" aria-label="Messages">
+          <button type="button" class="msg-tab active" id="tab-approval" data-tab="approval" role="tab" aria-selected="true" aria-controls="pane-approval">Awaiting your approval</button>
+          <button type="button" class="msg-tab" id="tab-sent" data-tab="sent" role="tab" aria-selected="false" aria-controls="pane-sent">Sent</button>
+        </div>
+        <!-- Tab: Awaiting your approval — the approval-task inbox (GET /tasks) -->
+        <section class="card msg-pane" id="pane-approval" role="tabpanel" aria-labelledby="tab-approval">
+          <div class="section-head">
+            <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span>
+            <h2>Awaiting your approval</h2>
+          </div>
+          <p class="subtitle">
+            Emails drafted and ready for you. Approve to send, edit the draft, or reject.
+            Customer replies pause that invoice's sequence and wait here for your response.
+          </p>
+          <div id="msg-upgrade-banner" class="inbox-note" style="display:none;"></div>
+          <div id="inbox-full-auto" style="display:none;">
+            <div class="status-bar">
+              <span class="status-dot"></span>
+              <span>Copilot Mode is running — no approvals needed.</span>
+            </div>
+          </div>
+          <div id="inbox-empty" style="display:none;color:var(--muted);font-size:0.9rem;padding:8px 0;">
+            No emails waiting on you — you're all caught up.
+          </div>
+          <div id="inbox-paused-note" class="inbox-note" style="display:none;">
+            Collections are paused — but manual approvals still work normally.
+          </div>
+          <div id="inbox-list">
+            <p class="loading-placeholder" style="color: var(--muted); font-size: 0.85rem;">Loading your inbox...</p>
+          </div>
+        </section>
+        <!-- Tab: Sent — the reminder send-log history (fragment from
+             GET /reminders/rows, same payload as the old /reminders page) -->
+        <section class="card msg-pane" id="pane-sent" role="tabpanel" aria-labelledby="tab-sent" hidden>
+          <div class="section-head">
+            <span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></span>
+            <h2>Sent reminders</h2>
+          </div>
+          <p class="subtitle">Reminder emails sent to your customers, newest first. Open any row to see the full email exactly as sent.</p>
+          <div id="sent-list">
+            <p class="loading-placeholder" style="color: var(--muted); font-size: 0.85rem;">Loading sent reminders...</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+  <script>
+    // ── Session handoff (identical to the dashboard): a Railway-host-only
+    // cookie (merchants who connected before /oauth/session shipped) gets
+    // handed to the www host on the first 401 via <BASE_URL>/oauth/handoff.
+    var HANDOFF_URL = '__CC_HANDOFF_URL__';
+    function handoffIf401(res) {
+      if (!res || res.status !== 401) return false;
+      var guard;
+      try { guard = sessionStorage.getItem('cc_handoff'); } catch (e) { return false; }
+      if (guard) return false;
+      try { sessionStorage.setItem('cc_handoff', '1'); } catch (e) { /* attempt the handoff anyway */ }
+      window.location.href = HANDOFF_URL;
+      return true;
+    }
+    function el(id) { return document.getElementById(id); }
+    // ── Helpers (same as the dashboard) ──
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function formatMoney(cents, currency) {
+      var c = String(currency || 'USD').toUpperCase();
+      var n = (Number(cents) || 0) / 100;
+      try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: c }).format(n); }
+      catch (e) { return '$' + n.toFixed(2); }
+    }
+    function formatDate(s) {
+      if (!s) return '—';
+      var d = new Date(s);
+      return isNaN(d.getTime()) ? String(s) : d.toLocaleDateString();
+    }
+    function formatDateTime(s) {
+      if (!s) return '—';
+      var d = new Date(s);
+      return isNaN(d.getTime()) ? String(s) : d.toLocaleString();
+    }
+    // ── Task inbox (ported from the dashboard; same endpoints) ──
+    var inboxTasks = [];
+    var editingTaskId = null;
+    var busyTasks = {};
+    var currentTrustMode = 'draft';
+    var isPaused = false;
+    var IS_SUB_ACTIVE = false;
+    function statusChipFor(status) {
+      var map = { reviewed: 'Ready to send', drafted: 'Drafted', pending: 'Queued' };
+      var cls = status === 'reviewed' ? '' : status === 'drafted' ? ' chip-drafted' : status === 'pending' ? ' chip-pending' : '';
+      return '<span class="task-status-chip' + cls + '">' + esc(map[status] || status) + '</span>';
+    }
+    function hasReplyPause(t) {
+      return !!(t && (t.reply_paused_at || t.reply_status || t.status === 'reply_paused'));
+    }
+    function pauseReasonChipFor(t) {
+      if (hasReplyPause(t)) {
+        var flag = t && t.reply_action_flag ? ' — ' + esc(t.reply_action_flag) : '';
+        return '<span class="pause-reason-chip reply">Reply received' + flag + '</span>';
+      }
+      if (t && t.dispute_id) {
+        return '<span class="pause-reason-chip dispute">Dispute</span>';
+      }
+      if (t && (t.invoice_status === 'paid' || t.status === 'paid')) {
+        return '<span class="pause-reason-chip paid">Payment received</span>';
+      }
+      return '';
+    }
+    function replyReviewChipFor(t) {
+      if (hasReplyPause(t) && t && (t.awaiting_approval || t.status === 'reviewed' || t.status === 'drafted')) {
+        return '<span class="pause-reason-chip review">Reply draft awaiting review</span>';
+      }
+      return '';
+    }
+    function showTaskError(id, message) {
+      var errEl = el('task-error-' + id);
+      if (!errEl) return;
+      errEl.textContent = message;
+      errEl.style.display = 'block';
+    }
+    // 402 upgrade prompt: no subscription card lives on this page, so the
+    // message renders in a banner at the top of the approval tab instead of
+    // scrolling to a #sub-error box (null-guarded either way).
+    function showUpgradePrompt(message) {
+      var bannerEl = el('msg-upgrade-banner');
+      if (!bannerEl) return;
+      var link = IS_SUB_ACTIVE
+        ? '<a href="/billing/portal" style="color:var(--primary);font-weight:600;">Manage billing</a>'
+        : '<a href="/billing/checkout?tier=standard" style="color:var(--primary);font-weight:600;">View plans</a>';
+      bannerEl.innerHTML = esc(message || 'An active subscription is required to send reminders.') + ' ' + link;
+      bannerEl.style.display = 'block';
+    }
+    async function loadInbox() {
+      if (editingTaskId != null || Object.keys(busyTasks).length > 0) return;
+      var listEl = el('inbox-list');
+      try {
+        var res = await fetch('/tasks');
+        if (handoffIf401(res)) return;
+        if (!res.ok) {
+          listEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load tasks (HTTP ' + res.status + ').</p>';
+          return;
+        }
+        inboxTasks = await res.json();
+        renderInbox();
+      } catch (e) {
+        listEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load tasks — check your connection.</p>';
+        console.error('Failed to load tasks:', e);
+      }
+    }
+    function renderInbox() {
+      var fullAutoEl = el('inbox-full-auto');
+      var emptyEl = el('inbox-empty');
+      var listEl = el('inbox-list');
+      var pausedNote = el('inbox-paused-note');
+      if (!fullAutoEl || !emptyEl || !listEl || !pausedNote) return;
+      pausedNote.style.display = isPaused ? 'block' : 'none';
+      if (currentTrustMode === 'full') {
+        listEl.style.display = 'none';
+        emptyEl.style.display = 'none';
+        fullAutoEl.style.display = 'block';
+        return;
+      }
+      fullAutoEl.style.display = 'none';
+      listEl.style.display = 'block';
+      var visible = inboxTasks.filter(function(t) {
+        return currentTrustMode === 'semi' ? t.stage >= 2 : true;
+      });
+      if (visible.length === 0) {
+        emptyEl.style.display = 'block';
+        listEl.innerHTML = '';
+        return;
+      }
+      emptyEl.style.display = 'none';
+      listEl.innerHTML = visible.map(renderTaskCard).join('');
+    }
+    function renderTaskCard(t) {
+      var editing = editingTaskId === t.id;
+      var busy = !!busyTasks[t.id];
+      var hasDraft = t.draft_body && String(t.draft_body).trim() !== '';
+      var bodyHtml = '';
+      var actionsHtml = '';
+      if (editing) {
+        bodyHtml =
+          '<div class="task-edit">' +
+            '<label for="edit-subject-' + t.id + '">Subject</label>' +
+            '<input type="text" id="edit-subject-' + t.id + '" maxlength="500" value="' + esc(t.draft_subject || '') + '">' +
+            '<label for="edit-body-' + t.id + '">Email body</label>' +
+            '<textarea id="edit-body-' + t.id + '" rows="8" maxlength="10000">' + esc(t.draft_body || '') + '</textarea>' +
+            '<div class="task-actions" style="margin-top:12px;">' +
+              '<button id="btn-save-' + t.id + '" onclick="saveEditTask(' + t.id + ')">💾 Save draft</button>' +
+              '<button class="btn-outline" onclick="cancelEdit()">Cancel</button>' +
+            '</div>' +
+            '<div class="task-error" id="task-edit-error-' + t.id + '" style="display:none;"></div>' +
+          '</div>';
+      } else {
+        bodyHtml =
+          (t.draft_subject ? '<div class="task-subject">' + esc(t.draft_subject) + '</div>' : '') +
+          (hasDraft
+            ? '<div class="task-draft-body">' + esc(t.draft_body) + '</div>'
+            : '<div class="task-draft-body task-draft-empty">No draft yet — approving will draft and send the reminder.</div>') +
+          '<div class="task-actions">' +
+            '<button class="btn-outline" onclick="approveTask(' + t.id + ', this)"' + (busy ? ' disabled' : '') + '>' + (busy ? '<span class="spinner"></span> Sending…' : '✓ Approve &amp; Send') + '</button>' +
+            '<button class="btn-outline" onclick="startEditTask(' + t.id + ')"' + (busy ? ' disabled' : '') + '>✏️ Edit</button>' +
+            '<button class="btn-reject" onclick="rejectTask(' + t.id + ', this)"' + (busy ? ' disabled' : '') + '>🗑 Reject</button>' +
+          '</div>' +
+          '<div class="task-error" id="task-error-' + t.id + '" style="display:none;"></div>';
+      }
+      return (
+        '<div class="task-card" id="task-' + t.id + '">' +
+          '<div class="task-top">' +
+            '<div class="task-customer">' + esc(t.customer_name || 'Unknown customer') + '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+              '<span class="stage-badge st' + t.stage + '">Stage ' + t.stage + '</span>' +
+              statusChipFor(t.status) +
+              pauseReasonChipFor(t) +
+              replyReviewChipFor(t) +
+            '</div>' +
+          '</div>' +
+          '<div class="task-meta">' +
+            '<span>💵 ' + formatMoney(t.amount_cents, t.currency) + '</span>' +
+            '<span>📅 Due ' + formatDate(t.due_date) + '</span>' +
+            '<span>⏰ ' + (t.days_overdue != null ? t.days_overdue + (t.days_overdue === 1 ? ' day' : ' days') + ' overdue' : '—') + '</span>' +
+            '<span>🕒 ' + formatDateTime(t.created_at) + '</span>' +
+          '</div>' +
+          bodyHtml +
+          actionsHtml +
+        '</div>'
+      );
+    }
+    function startEditTask(id) { editingTaskId = id; renderInbox(); }
+    function cancelEdit() { editingTaskId = null; renderInbox(); }
+    async function saveEditTask(id) {
+      var errEl = el('task-edit-error-' + id);
+      var bodyEl = el('edit-body-' + id);
+      var subjEl = el('edit-subject-' + id);
+      var btn = el('btn-save-' + id);
+      if (!bodyEl || !subjEl || !errEl) return;
+      var body = bodyEl.value.trim();
+      var subject = subjEl.value.trim();
+      if (!body) {
+        errEl.textContent = 'Draft body cannot be empty.';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (body.length > 10000) {
+        errEl.textContent = 'Draft body exceeds the 10,000 character limit.';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+      try {
+        var res = await fetch('/tasks/' + id + '/draft', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_body: body, draft_subject: subject }),
+        });
+        var data = await res.json();
+        if (res.ok) {
+          var updated = data.task || {};
+          for (var i = 0; i < inboxTasks.length; i++) {
+            if (inboxTasks[i].id === id) { inboxTasks[i] = updated; break; }
+          }
+          editingTaskId = null;
+          renderInbox();
+          return;
+        }
+        if (res.status === 409) {
+          errEl.textContent = data.error || 'This reminder can no longer be edited.';
+          errEl.style.display = 'block';
+          inboxTasks = inboxTasks.filter(function(t) { return t.id !== id; });
+          setTimeout(function() { editingTaskId = null; renderInbox(); }, 1500);
+          return;
+        }
+        errEl.textContent = data.error || 'Could not save the draft.';
+        errEl.style.display = 'block';
+      } catch (e) {
+        errEl.textContent = 'Network error — could not save the draft.';
+        errEl.style.display = 'block';
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '💾 Save draft'; }
+      }
+    }
+    async function approveTask(id, btn) {
+      busyTasks[id] = true;
+      if (btn) { btn.disabled = true; }
+      try {
+        var res = await fetch('/tasks/' + id + '/approve', { method: 'POST' });
+        var data = await res.json();
+        if (res.ok) {
+          inboxTasks = inboxTasks.filter(function(t) { return t.id !== id; });
+          renderInbox();
+          loadSent(false);   // keep the Sent tab current in the background
+          return;
+        }
+        if (res.status === 402) {
+          var subMsg = data.message || data.error || 'An active subscription is required to send reminders.';
+          showTaskError(id, subMsg);
+          showUpgradePrompt(subMsg);
+          return;
+        }
+        if (res.status === 409) {
+          showTaskError(id, data.message || data.error || 'This reminder was already sent or cancelled.');
+          inboxTasks = inboxTasks.filter(function(t) { return t.id !== id; });
+          setTimeout(function() { renderInbox(); }, 1500);
+          return;
+        }
+        if (res.status === 502) {
+          showTaskError(id, (data.message || data.error || 'The email could not be sent.') + ' Your draft is kept — you can try again.');
+          return;
+        }
+        showTaskError(id, data.error || 'Could not send the reminder.');
+      } catch (e) {
+        showTaskError(id, 'Network error — could not reach the server.');
+      } finally {
+        delete busyTasks[id];
+        if (btn) btn.disabled = false;
+      }
+    }
+    async function rejectTask(id, btn) {
+      if (!confirm('Reject this reminder? It will be cancelled and not sent.')) return;
+      busyTasks[id] = true;
+      if (btn) btn.disabled = true;
+      try {
+        var res = await fetch('/tasks/' + id + '/reject', { method: 'POST' });
+        var data = await res.json();
+        if (res.ok || res.status === 409) {
+          inboxTasks = inboxTasks.filter(function(t) { return t.id !== id; });
+          renderInbox();
+          return;
+        }
+        showTaskError(id, data.error || 'Could not reject the reminder.');
+      } catch (e) {
+        showTaskError(id, 'Network error — could not reach the server.');
+      } finally {
+        delete busyTasks[id];
+        if (btn) btn.disabled = false;
+      }
+    }
+    // ── Top bar: connection pill (/stats) + account name (/settings) ──
+    function renderConnPill(s) {
+      var pill = el('cc-conn-pill');
+      var txt = el('cc-conn-pill-text');
+      if (!pill || !txt || !s) return;
+      var dot = pill.querySelector('.cc-dot');
+      if (!s.stripeConnected) {
+        txt.textContent = s.stripeDisconnected ? 'Stripe disconnected \u2014 reconnect' : 'Not connected to Stripe';
+        if (dot) dot.className = 'cc-dot ' + (s.stripeDisconnected ? 'bad' : 'warn');
+      } else if (s.stripe_livemode === false || s.stripe_livemode === 0) {
+        txt.textContent = 'Healthy \u00b7 Test mode';
+        if (dot) dot.className = 'cc-dot ok';
+      } else {
+        txt.textContent = 'Healthy';
+        if (dot) dot.className = 'cc-dot ok';
+      }
+    }
+    async function loadStats() {
+      try {
+        var res = await fetch('/stats');
+        if (handoffIf401(res)) return;
+        if (res.ok) {
+          var s = await res.json();
+          renderConnPill(s);
+        }
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+      }
+    }
+    async function loadSubscription() {
+      try {
+        var res = await fetch('/subscription');
+        if (handoffIf401(res)) return;
+        if (res.ok) {
+          var sub = await res.json();
+          IS_SUB_ACTIVE = !!(sub.tier && sub.status === 'active');
+        }
+      } catch (e) {
+        console.error('Failed to load subscription:', e);
+      }
+    }
+    async function loadSettings() {
+      try {
+        var res = await fetch('/settings');
+        if (handoffIf401(res)) return;
+        if (res.ok) {
+          var data = await res.json();
+          currentTrustMode = data.trust_mode || 'draft';
+          isPaused = !!data.paused;
+          var nameEl = el('cc-account-name');
+          if (nameEl) nameEl.textContent = data.sender_name || data.email || '';
+          renderInbox();
+        }
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+      }
+    }
+    // ── Sent tab: same payload as the old /reminders page, injected from
+    // GET /reminders/rows (session-protected HTML fragment, capped at 200). ──
+    async function loadSent(showLoading) {
+      var listEl = el('sent-list');
+      if (!listEl) return;
+      if (showLoading) {
+        listEl.innerHTML = '<p class="loading-placeholder" style="color: var(--muted); font-size: 0.85rem;">Loading sent reminders...</p>';
+      }
+      try {
+        var res = await fetch('/reminders/rows');
+        if (handoffIf401(res)) return;
+        if (!res.ok) {
+          listEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load sent reminders (HTTP ' + res.status + ').</p>';
+          return;
+        }
+        listEl.innerHTML = await res.text();
+      } catch (e) {
+        listEl.innerHTML = '<p style="color:var(--danger);font-size:0.85rem;">Failed to load sent reminders — check your connection.</p>';
+        console.error('Failed to load sent reminders:', e);
+      }
+    }
+    // Client-side sorting for the sent table (same logic as the list pages):
+    // sortable headers carry data-sort-key; each row cell carries its raw
+    // sort value in data-sort (server-rendered).
+    (function () {
+      "use strict";
+      var state = { key: null, dir: "asc" };
+      function cellValue(cell) {
+        if (!cell) return null;
+        var raw = cell.getAttribute("data-sort");
+        return raw === null || raw === "" ? null : raw;
+      }
+      function compareValues(a, b) {
+        var an = parseFloat(a), bn = parseFloat(b);
+        if (!isNaN(an) && !isNaN(bn)) return an - bn;
+        return a < b ? -1 : a > b ? 1 : 0;
+      }
+      function sortTable(table, key, dir) {
+        var headerRow = table.tHead ? table.tHead.rows[0] : null;
+        var idx = -1;
+        if (headerRow) {
+          for (var i = 0; i < headerRow.cells.length; i++) {
+            if (headerRow.cells[i].getAttribute("data-sort-key") === key) { idx = i; break; }
+          }
+        }
+        var tbody = table.tBodies[0];
+        if (idx < 0 || !tbody) return;
+        var rows = Array.prototype.slice.call(tbody.rows);
+        rows.sort(function (ra, rb) {
+          var va = cellValue(ra.cells[idx]);
+          var vb = cellValue(rb.cells[idx]);
+          if (va === null && vb === null) return 0;
+          if (va === null) return 1;
+          if (vb === null) return -1;
+          var r = compareValues(va, vb);
+          return dir === "asc" ? r : -r;
+        });
+        for (var j = 0; j < rows.length; j++) tbody.appendChild(rows[j]);
+        if (headerRow) {
+          for (var k = 0; k < headerRow.cells.length; k++) {
+            var th = headerRow.cells[k];
+            var ind = th.querySelector(".sort-indicator");
+            var isActive = th.getAttribute("data-sort-key") === key;
+            if (ind) ind.textContent = isActive ? (dir === "asc" ? "\u25B2" : "\u25BC") : "";
+            if (isActive) th.setAttribute("aria-sort", dir === "asc" ? "ascending" : "descending");
+            else th.removeAttribute("aria-sort");
+          }
+        }
+      }
+      document.addEventListener("click", function (e) {
+        var target = e.target;
+        var th = target && target.closest ? target.closest("th[data-sort-key]") : null;
+        if (!th) return;
+        var table = th.closest("table");
+        if (!table) return;
+        var key = th.getAttribute("data-sort-key");
+        if (state.key === key) state.dir = state.dir === "asc" ? "desc" : "asc";
+        else { state.key = key; state.dir = "asc"; }
+        sortTable(table, key, state.dir);
+      });
+    })();
+    // Email viewer on the sent table: "View email" toggles the hidden detail
+    // panel (full subject / From / Reply-To / body with CAN-SPAM footer).
+    (function () {
+      "use strict";
+      document.addEventListener("click", function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest(".email-toggle") : null;
+        if (!btn) return;
+        var id = btn.getAttribute("data-id");
+        if (!id) return;
+        var panel = document.getElementById("emailbody-" + id);
+        if (!panel) return;
+        var open = panel.hidden;
+        panel.hidden = !open;
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        btn.textContent = open ? "Hide email" : "View email";
+      });
+    })();
+    // ── Tabs (client-side only; #sent deep-links to the Sent tab) ──
+    function selectTab(name) {
+      var approvalPane = el('pane-approval');
+      var sentPane = el('pane-sent');
+      var tabApproval = el('tab-approval');
+      var tabSent = el('tab-sent');
+      var isSent = name === 'sent';
+      if (approvalPane) approvalPane.hidden = isSent;
+      if (sentPane) sentPane.hidden = !isSent;
+      if (tabApproval) tabApproval.classList.toggle('active', !isSent);
+      if (tabSent) tabSent.classList.toggle('active', isSent);
+      if (tabApproval) tabApproval.setAttribute('aria-selected', isSent ? 'false' : 'true');
+      if (tabSent) tabSent.setAttribute('aria-selected', isSent ? 'true' : 'false');
+      if (isSent) loadSent(true);
+      try { history.replaceState(null, '', isSent ? '#sent' : window.location.pathname); } catch (e) {}
+    }
+    (function bindTabs() {
+      var tabApproval = el('tab-approval');
+      var tabSent = el('tab-sent');
+      if (tabApproval) tabApproval.addEventListener('click', function() { selectTab('approval'); });
+      if (tabSent) tabSent.addEventListener('click', function() { selectTab('sent'); });
+    })();
+    // ── Initialize ──
+    selectTab(window.location.hash === '#sent' ? 'sent' : 'approval');
+    loadInbox();
+    loadSettings();
+    loadStats();
+    loadSubscription();
+  </script>
+</body>
+</html>
