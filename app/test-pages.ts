@@ -387,7 +387,7 @@ async function main(): Promise<void> {
   // Per-invoice Copilot toggle (two-state, owner 9/10): "Following <global
   // mode>" <-> "Paused \u00b7 manual only", wired to the real endpoints
   // POST /tasks/pause | /tasks/resume. (Source contains the \u00b7 escape.)
-  check("dashboard: per-invoice Copilot toggle (Following <global mode> / Paused) wired to /tasks pause+resume", dash.includes("toggleInvoicePause") && dash.includes("Paused \\u00b7 manual only") && dash.includes("Following ") && dash.includes("fetch('/tasks/'"), "");
+  check("dashboard: per-invoice Copilot toggle (Following <global mode> / Paused) wired to /tasks pause+resume", dash.includes("toggleInvoicePause") && dash.includes("Paused \\u2014 manual only") && dash.includes("Following ") && dash.includes("fetch('/tasks/'"), "");
   check("dashboard: connection pill starts neutral (no fake 'Connected to Stripe \u00b7 Live' flash)", dash.includes("Checking connection") && !dash.includes("Connected to Stripe &middot; Live"), "");
   // Reply-pause machinery moved with the inbox onto /messages.
   check("messages: pause-reason chips renderer present (reply/dispute/paid)", messages.includes("pauseReasonChipFor") && messages.includes("Reply received") && messages.includes("Dispute") && messages.includes("Payment received"), "");
