@@ -149,6 +149,10 @@
       border: 1px solid var(--border);
     }
     .cc-pill .cc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-text); flex-shrink: 0; }
+    /* Disconnected reconnect affordance inside the pill (owner 9/11): the
+       anchor inherits the pill's look — no underline unless hover. */
+    .cc-pill .cc-pill-link { color: inherit; text-decoration: none; }
+    .cc-pill .cc-pill-link:hover { text-decoration: underline; }
     /* ── Purple hero risk card ── */
     .cc-hero {
       background: var(--purple-soft);
@@ -760,7 +764,9 @@
          truth — "Not connected to Stripe" + Connect CTA, "Connected to Stripe —
          subscription required" + Subscribe Standard/Pro CTAs, or
          "Connected to Stripe · Live." with a Test/Live badge from the connection's
-         mode. -->
+         mode. Disconnected (deauthorized) renders NOTHING here — the top-right
+         connection pill is the reconnect affordance (owner 9/11); the one-shot
+         #reconnect-banner (?error=reconnect_required) is a separate element. -->
     <div class="status-banner" id="status-banner">
       <div style="display:flex;align-items:center;gap:10px;">
         <span class="status-banner-dot" id="status-banner-dot"></span>
@@ -1100,7 +1106,14 @@
       if (!pill || !txt || !s) return;
       var dot = pill.querySelector('.cc-dot');
       if (!s.stripeConnected) {
-        txt.textContent = s.stripeDisconnected ? 'Stripe disconnected \u2014 reconnect' : 'Not connected to Stripe';
+        // Disconnected (deauthorized): the pill IS the reconnect affordance
+        // (owner 9/11) — the status banner no longer renders in this state, so
+        // the one-click reconnect lives here, anchored to /stripe/connect.
+        if (s.stripeDisconnected) {
+          txt.innerHTML = '<a href="/stripe/connect" class="cc-pill-link">Stripe disconnected \u2014 reconnect</a>';
+        } else {
+          txt.textContent = 'Not connected to Stripe';
+        }
         if (dot) dot.className = 'cc-dot ' + (s.stripeDisconnected ? 'bad' : 'warn');
         return;
       }
@@ -1112,6 +1125,11 @@
     // ── Connection + subscription status banner ──
     // The ONE Stripe connection banner on the page (card-level Stripe pill
     // removed 9/10). Rendered from /stats only — no duplicated logic:
+    //   • disconnected    → NO banner (owner 9/11): the top-right
+    //                        connection pill carries the reconnect affordance,
+    //                        so the redundant full-width disconnected banner is
+    //                        gone (the one-shot #reconnect-banner after a
+    //                        failed OAuth return is a separate element)
     //   • not connected    → warn "Not connected to Stripe" + Connect CTA
     //   • connected, no    → warn "Connected to Stripe — subscription
     //     active plan        required" + Subscribe Standard/Pro CTAs
@@ -1126,19 +1144,20 @@
       var title = el('status-banner-title');
       var sub = el('status-banner-sub');
       var actions = el('status-banner-actions');
+      // Disconnected (deauthorized): suppress the banner entirely — the
+      // top-right connection pill is the reconnect affordance (owner 9/11).
+      if (s.stripeDisconnected) {
+        banner.style.display = 'none';
+        return;
+      }
       banner.style.display = 'flex';
       banner.className = 'status-banner';
       if (!s.stripeConnected) {
         banner.classList.add('banner-warn');
         dot.className = 'status-banner-dot warn';
-        title.textContent = s.stripeDisconnected
-          ? 'Stripe connection lost — reconnect to keep reminders running'
-          : 'Not connected to Stripe';
-        sub.textContent = s.stripeDisconnected
-          ? 'Your Stripe account was deauthorized. Reconnect to keep Collections Copilot watching for overdue invoices.'
-          : 'Connect your Stripe account so Collections Copilot can watch for overdue invoices and send payment reminders.';
-        actions.innerHTML = '<a class="connect-banner-btn" href="/stripe/connect">' +
-          (s.stripeDisconnected ? 'Reconnect Stripe &rarr;' : 'Connect Stripe &rarr;') + '</a>';
+        title.textContent = 'Not connected to Stripe';
+        sub.textContent = 'Connect your Stripe account so Collections Copilot can watch for overdue invoices and send payment reminders.';
+        actions.innerHTML = '<a class="connect-banner-btn" href="/stripe/connect">Connect Stripe &rarr;</a>';
       } else if (s.free_trial) {
         // 30-day full-access free trial (active merchant, no paid subscription
         // yet). Full access, so do NOT block with the "subscription required"
