@@ -65,7 +65,7 @@ function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-[55fr_45fr] gap-12 items-center">
           <div className="text-left">
             <div className="mb-6 flex flex-wrap gap-x-5 gap-y-2">
-              <TrustBadge label="Stripe-native." />
+              <TrustBadge label="Stripe-native" />
               <TrustBadge label="No credit card required" />
               <TrustBadge label="Cancel anytime" />
             </div>
@@ -76,16 +76,23 @@ function Home() {
               another awkward reminder.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-4">
-              <a href={INSTALL_URL} className={BTN_PRIMARY}>
-                Try it free →
-              </a>
-              <a href="/demo" className={BTN_SECONDARY}>
-                See the demo
-              </a>
+              <div className="flex flex-col items-center sm:items-start">
+                <a href={INSTALL_URL} className={BTN_PRIMARY}>
+                  Download from Stripe Marketplace
+                </a>
+                <p className="mt-3 text-[13px] text-muted">
+                  Connects to your real Stripe account
+                </p>
+              </div>
+              <div className="flex flex-col items-center sm:items-start">
+                <a href="/demo" className={BTN_SECONDARY}>
+                  See the demo
+                </a>
+                <p className="mt-3 text-[13px] text-muted">
+                  No Stripe connection needed
+                </p>
+              </div>
             </div>
-            <p className="mt-3 text-[13px] text-muted">
-              See it in action — no Stripe connection needed.
-            </p>
           </div>
 
           {/* Right: real invoice example card */}
