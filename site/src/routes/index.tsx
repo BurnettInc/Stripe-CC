@@ -257,25 +257,37 @@ function Home() {
                   <tr className="border-b border-hairline text-left">
                     <th
                       scope="col"
-                      className="px-5 py-3 font-medium text-muted"
+                      className="px-5 py-3 text-[11px] font-bold uppercase tracking-[0.06em] text-muted"
                     >
                       Customer
                     </th>
                     <th
                       scope="col"
-                      className="px-3 py-3 font-medium text-muted"
+                      className="px-3 py-3 text-[11px] font-bold uppercase tracking-[0.06em] text-muted"
                     >
                       Amount
                     </th>
                     <th
                       scope="col"
-                      className="px-3 py-3 font-medium text-muted"
+                      className="px-3 py-3 text-[11px] font-bold uppercase tracking-[0.06em] text-muted"
+                    >
+                      Days overdue
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3 text-[11px] font-bold uppercase tracking-[0.06em] text-muted"
+                    >
+                      Stage
+                    </th>
+                    <th
+                      scope="col"
+                      className="px-3 py-3 text-[11px] font-bold uppercase tracking-[0.06em] text-muted"
                     >
                       Status
                     </th>
                     <th
                       scope="col"
-                      className="px-5 py-3 text-right font-medium text-muted"
+                      className="px-5 py-3 text-right text-[11px] font-bold uppercase tracking-[0.06em] text-muted"
                     >
                       Copilot
                     </th>
@@ -283,10 +295,42 @@ function Home() {
                 </thead>
                 <tbody className="divide-y divide-hairline">
                   {[
-                    { name: "Acme Design Co.", amount: "$450", late: "14 days late" },
-                    { name: "Brightworks Studio", amount: "$230", late: "9 days late" },
-                    { name: "Northwind Traders", amount: "$1,180", late: "6 days late" },
-                    { name: "Harbor & Finch", amount: "$75", late: "3 days late" },
+                    {
+                      name: "Acme Design Co.",
+                      amount: "$450",
+                      days: "24 days",
+                      stage: 3,
+                      status: "24 days overdue",
+                      critical: true,
+                      copilot: "Auto",
+                    },
+                    {
+                      name: "Brightworks Studio",
+                      amount: "$230",
+                      days: "14 days",
+                      stage: 2,
+                      status: "Needs attention",
+                      critical: false,
+                      copilot: "Draft Mode",
+                    },
+                    {
+                      name: "Northwind Traders",
+                      amount: "$1,180",
+                      days: "6 days",
+                      stage: 1,
+                      status: "Needs attention",
+                      critical: false,
+                      copilot: "Semi-Auto",
+                    },
+                    {
+                      name: "Harbor & Finch",
+                      amount: "$75",
+                      days: "3 days",
+                      stage: 1,
+                      status: "Needs attention",
+                      critical: false,
+                      copilot: "Auto",
+                    },
                   ].map((row) => (
                     <tr key={row.name}>
                       <td className="px-5 py-3 font-medium text-ink whitespace-nowrap">
@@ -295,19 +339,52 @@ function Home() {
                       <td className="px-3 py-3 font-display font-semibold text-ink whitespace-nowrap">
                         {row.amount}
                       </td>
+                      <td className="px-3 py-3 text-muted whitespace-nowrap">
+                        {row.days}
+                      </td>
                       <td className="px-3 py-3 whitespace-nowrap">
-                        <span className="inline-block rounded-full bg-warn-bg px-2.5 py-0.5 text-[13px] font-medium text-warn-text">
-                          {row.late}
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-[3px] text-[0.68rem] font-bold uppercase tracking-[0.4px] ${
+                            row.stage === 3
+                              ? "bg-danger-bg text-danger-text"
+                              : row.stage === 2
+                                ? "bg-[#FEF3C7] text-[#92400E]"
+                                : "bg-[#DBEAFE] text-[#1E40AF]"
+                          }`}
+                        >
+                          Stage {row.stage}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-right">
+                      <td className="px-3 py-3 whitespace-nowrap">
                         <span
-                          className="inline-flex h-6 w-11 items-center rounded-full bg-brand px-0.5"
-                          role="switch"
-                          aria-checked="true"
-                          aria-label={`Copilot on for ${row.name}`}
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-[13px] font-medium ${
+                            row.critical
+                              ? "bg-danger-bg text-danger-text"
+                              : "bg-warn-bg text-warn-text"
+                          }`}
                         >
-                          <span className="ml-auto h-5 w-5 rounded-full bg-white" />
+                          {row.status}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-right whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 rounded-md border border-hairline bg-white py-1 pl-2.5 pr-1.5 text-[12.5px] font-medium text-ink select-none">
+                          {row.copilot}
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 12 12"
+                            fill="none"
+                            aria-hidden="true"
+                            className="shrink-0"
+                          >
+                            <path
+                              d="M2.5 4.5 6 8l3.5-3.5"
+                              stroke="#62626B"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
                         </span>
                       </td>
                     </tr>
