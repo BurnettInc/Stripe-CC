@@ -693,6 +693,17 @@
     .status-banner-btn:hover { border-color: var(--primary); color: var(--primary); }
     .status-banner-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff !important; }
     .status-banner-btn-primary:hover { background: var(--primary-hover); }
+    /* Dashboard card link to the dedicated /copilot-controls page (owner
+       9/10: Trust Mode + merchant settings moved off the dashboard). */
+    .controls-cta {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 18px; border-radius: var(--radius-sm);
+      background: var(--primary); color: #fff;
+      font-size: 0.85rem; font-weight: 600; text-decoration: none;
+      white-space: nowrap; border: none; cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .controls-cta:hover { background: var(--primary-hover); color: #fff; }
 
     /* -- Free-trial banner (home screen only) --
        Small, non-intrusive strip shown ONLY while the merchant is inside its
@@ -956,7 +967,7 @@
         <a href="/past-due">Invoices</a>
         <a href="/reminders">Sequences</a>
         <a href="/dashboard#inbox-section">Messages</a>
-        <a href="/dashboard#settings-card">Copilot Controls</a>
+        <a href="/copilot-controls">Copilot Controls</a>
       </nav>
     </aside>
     <div class="cc-main">
@@ -1104,150 +1115,21 @@
       </div>
     </div>
 
-    <!-- Trust Mode -->
-    <div class="card">
-      <h2 class="section-head"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span><span>Trust Mode</span></h2>
-      <p class="subtitle">
-        Control how autonomous the Copilot is when handling overdue invoices.
-      </p>
-      <div class="trust-pills" id="trust-mode-group">
-        <label class="trust-pill selected" data-mode="draft">
-          <input type="radio" name="trust_mode" value="draft" checked>
-          <div class="pill-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
-          <div class="pill-label">Draft Mode</div>
-          <span class="pill-badge badge-draft">Safe</span>
-          <div class="pill-desc">AI writes emails. You review and send manually. Full control.</div>
-        </label>
-        <label class="trust-pill" data-mode="semi">
-          <input type="radio" name="trust_mode" value="semi">
-          <div class="pill-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18"><path d="M12 3v18"/><path d="M8 21h8"/><path d="M3 7h18"/><path d="M6 7 4 12h4L6 7z"/><path d="m18 7-2 5h4l-2-5z"/></svg></div>
-          <div class="pill-label">Semi-Auto</div>
-          <span class="pill-badge badge-semi">Balanced</span>
-          <div class="pill-desc">Stage 1 auto-sends. Stage 2+ needs your approval.</div>
-        </label>
-        <label class="trust-pill" data-mode="full">
-          <input type="radio" name="trust_mode" value="full">
-          <div class="pill-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/><path d="M9 17h6"/></svg></div>
-          <div class="pill-label">Copilot Mode</div>
-          <span class="pill-badge badge-full">Autonomous</span>
-          <div class="pill-desc">End-to-end: drafts, reviews, and sends automatically.</div>
-        </label>
-      </div>
-      <div style="margin-top: 20px;">
-        <button id="save-btn" onclick="saveSettings()">Save Settings</button>
-        <span id="save-status"></span>
-      </div>
-      <!-- Pause/resume toggle — works for every merchant, not gated -->
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
-        <div>
-          <strong id="pause-label" style="font-size:0.95rem;">Pause all automatic sending</strong>
-          <p style="font-size:0.8rem;color:var(--muted);margin:2px 0 0;">Stops all automatic emails. Manual approvals and your drafts are unaffected.</p>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="pause-toggle" aria-label="Pause automatic sending">
-          <span class="slider"></span>
-        </label>
-      </div>
-    </div>
-
-    <!-- Merchant Settings — sender identity (Standard+), escalation timing + late fee (Pro) -->
+    <!-- Copilot Controls (owner 9/10): Autonomy (Trust Mode), sender
+         identity, escalation timing and late-fee automation moved to a
+         dedicated full-width page at /copilot-controls. This card keeps the
+         non-duplicated Account data (export/delete) and links to that page. -->
     <div class="card" id="settings-card">
-      <h2 class="section-head"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></span><span>Copilot Controls</span></h2>
-      <p class="subtitle">
-        Sender identity, escalation timing, and late-fee automation for your reminder emails.
-      </p>
-
-      <!-- Custom sender identity — any active paid plan (Standard+) -->
-      <div style="margin-top:16px;">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <strong style="font-size:0.95rem;">Sender identity</strong>
-          <span class="pill-badge badge-standard" id="branding-badge" style="margin-top:0;">Standard</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <div>
+          <h2 class="section-head"><span class="icon-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></span><span>Copilot Controls</span></h2>
+          <p class="subtitle" style="margin-bottom:0;">Autonomy, sender identity, escalation timing, and late-fee automation live on the dedicated controls page.</p>
         </div>
-        <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 2px;">
-          Your name appears as the sender of reminder emails.
-          The from-address stays on our verified domain.
-        </p>
-        <div id="branding-fields">
-          <label class="settings-label" for="sender-name">Sender name</label>
-          <input type="text" id="sender-name" class="settings-input" maxlength="80" placeholder="e.g. Acme Billing" autocomplete="off">
-        </div>
-        <div class="settings-locked" id="branding-locked" style="display:none;">
-          <span class="pill-badge badge-standard" style="margin-top:0;">Standard</span>
-          Sender identity is included with Standard and Pro. Upgrade to customize.
-        </div>
+        <a href="/copilot-controls" class="controls-cta">Manage Copilot Controls &rarr;</a>
       </div>
-
-      <!-- Custom escalation timing — Pro -->
-      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <strong style="font-size:0.95rem;">Escalation timing</strong>
-          <span class="pill-badge badge-pro" id="timing-badge" style="margin-top:0;">Pro</span>
-        </div>
-        <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 2px;" id="timing-desc">
-          Stage 1: Day 1–6 &middot; Stage 2: Day 7–20 &middot; Stage 3: Day 21+
-        </p>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
-          <div>
-            <label class="settings-label" for="stage1-days">Stage 1 (days)</label>
-            <div class="input-with-suffix">
-              <input type="number" id="stage1-days" class="settings-input settings-input-sm" min="1" max="89" step="1">
-              <span class="input-suffix" aria-hidden="true">days</span>
-            </div>
-          </div>
-          <div>
-            <label class="settings-label" for="stage2-days">Stage 2 (days)</label>
-            <div class="input-with-suffix">
-              <input type="number" id="stage2-days" class="settings-input settings-input-sm" min="2" max="90" step="1">
-              <span class="input-suffix" aria-hidden="true">days</span>
-            </div>
-          </div>
-        </div>
-        <div class="settings-locked" id="timing-locked" style="display:none;">
-          <span class="pill-badge badge-pro" style="margin-top:0;">Pro</span>
-          Custom escalation timing requires a Pro subscription.
-        </div>
-      </div>
-
-      <!-- Late-fee automation — Pro, informational only -->
-      <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <strong style="font-size:0.95rem;">Late-fee automation</strong>
-          <span class="pill-badge badge-pro" id="latefee-badge" style="margin-top:0;">Pro</span>
-        </div>
-        <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 2px;">
-          Mentioned softly in Stage 2–3 reminders. Informational only — nothing is ever charged.
-        </p>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
-          <div>
-            <label class="settings-label" for="late-fee-type">Type</label>
-            <select id="late-fee-type" class="settings-input settings-input-sm">
-              <option value="none">No late fee</option>
-              <option value="flat">Flat fee ($)</option>
-              <option value="percent">Percent (%)</option>
-            </select>
-          </div>
-          <div>
-            <label class="settings-label" for="late-fee-value">Value</label>
-            <input type="number" id="late-fee-value" class="settings-input settings-input-sm" min="0" max="100" step="0.01" placeholder="e.g. 25">
-          </div>
-        </div>
-        <div class="settings-locked" id="latefee-locked" style="display:none;">
-          <span class="pill-badge badge-pro" style="margin-top:0;">Pro</span>
-          Late-fee automation requires a Pro subscription.
-        </div>
-      </div>
-
-      <div class="save-settings-row">
-        <button id="save-settings-btn" onclick="saveMerchantSettings()">Save Settings</button>
-        <span id="save-settings-status"></span>
-      </div>
-
-      <!-- Account data — data-rights (privacy-page promises: export a copy of
-           stored data, request immediate deletion; cancelled subscriptions are
-           deleted within 30 days). Export is a plain download link; delete
-           goes through a confirm dialog and POST /account/delete, which also
-           cancels any active Stripe subscription so a deleted account is never
-           billed. -->
+      <!-- Account data (untouched by the move — not duplicated on
+           /copilot-controls). Export = plain download link; delete = confirm
+           dialog + POST /account/delete (cancels any active subscription). -->
       <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
         <strong style="font-size:0.95rem;">Account data</strong>
         <p style="font-size:0.8rem;color:var(--muted);margin:4px 0 10px;">

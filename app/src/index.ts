@@ -30,6 +30,10 @@ const START_TIME = Date.now();
 
 // Load the dashboard HTML once at startup
 const dashboardHtml = readFileSync(join(import.meta.dirname, "ui", "dashboard.html"), "utf-8");
+// Load the Copilot Controls page once at startup (owner 9/10: settings moved
+// out of the dashboard's single-column settings card onto a dedicated
+// full-width page — /copilot-controls reuses the dashboard's app shell).
+const copilotControlsHtml = readFileSync(join(import.meta.dirname, "ui", "copilot-controls.html"), "utf-8");
 
 // ── Marketing site integration ──
 // The ENTIRE product runs as one Railway service: the backend serves its own
@@ -267,6 +271,19 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/dashboard" && req.method === "GET") {
         const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
         const served = dashboardHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
+        return new Response(served, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+
+      // GET /copilot-controls — the dedicated full-width settings page
+      // (Autonomy mode picker + sender identity + escalation timing + late-fee
+      // automation, with a sticky Save/Discard bar). Same serve pattern as
+      // /dashboard: static HTML with the __CC_HANDOFF_URL__ placeholder
+      // replaced at serve time so the session handoff works identically.
+      if (path === "/copilot-controls" && req.method === "GET") {
+        const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+        const served = copilotControlsHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
         return new Response(served, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
