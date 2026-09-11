@@ -330,6 +330,19 @@ const DEMO_MODE_SNIPPET = `
 })();
 `;
 
+/* Demo-only iframe sizing fix: the REAL dashboard legitimately fills the
+ * viewport (body/.cc-shell min-height:100vh, pinned .cc-sidebar), but inside
+ * the <iframe srcdoc> those vh units resolve against the iframe's OWN height,
+ * so documentElement.scrollHeight never drops below the current frame height
+ * and the frame stays pinned at its initial size — leaving a large empty band
+ * under the last card. Neutralize the vh stretch in the demo copy only; the
+ * real /dashboard CSS (app/src/ui/dashboard.html) is untouched. */
+const DEMO_IFRAME_FIX =
+  "<!-- demo-only: neutralize the dashboard's viewport-height stretch inside the iframe so the parent can measure true content height --><style>\n" +
+  "      body { min-height: 0 !important; }\n" +
+  "      .cc-shell { min-height: 0 !important; }\n" +
+  "      .cc-sidebar { height: auto !important; max-height: none !important; }\n" +
+  "    </style>";
 /* Strip the dashboard's own visit-tracking beacon: its POST to /api/track
  * is real page-view tracking for the LIVE dashboard. In the demo, the
  * marketing site's own beacon (site __root.tsx) already records the /demo
@@ -340,14 +353,16 @@ const DASHBOARD_DOC = RAW_DASHBOARD.replace(
 ).replace(
   "var HANDOFF_URL = '__CC_HANDOFF_URL__';",
   `${DEMO_MODE_SNIPPET}\n    var HANDOFF_URL = '__CC_HANDOFF_URL__';`,
-);
+).replace("</head>", DEMO_IFRAME_FIX + "</head>");
 
 export const Route = createFileRoute("/demo")({
   component: Demo,
 });
 
 function Demo() {
-  const [height, setHeight] = useState(3400);
+  /* Start modest — the embedded doc's postMessage (pulses every 3s) settles
+   * the real content height; a tall initial value would flash a huge band. */
+  const [height, setHeight] = useState(650);
   const [resetKey, setResetKey] = useState(0);
 
   useEffect(() => {
