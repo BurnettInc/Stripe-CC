@@ -417,7 +417,7 @@ async function main(): Promise<void> {
   // recovery report card moved INTO the grid under the controls summary.
   check("dashboard: moved cards no longer render (account/subscription)", !dash.includes('id="account-card"') && !dash.includes('id="subscription-card"') && !dash.includes('id="plan-card"') && !dash.includes('id="pricing"') && !dash.includes("deleteAccount") && !dash.includes("redeemBetaCode"), "");
   check("dashboard: report card sits in the grid under the controls summary (same column)", (function () {
-    const g = dash.slice(dash.indexOf('class="dash-grid"'), dash.indexOf('class="card footer-card"'));
+    const g = dash.slice(dash.indexOf('class="dash-grid"'), dash.indexOf('<!-- /.cc-main -->'));
     return g.includes('id="controls-summary-card"') && g.includes('id="report-card"') && g.indexOf('id="controls-summary-card"') < g.indexOf('id="report-card"');
   })(), "");
   check("dashboard: shell nav includes the Account link (five shell links)", dash.includes('href="/account">Account') && dash.includes('href="/copilot-controls">Copilot Controls'), "");
@@ -444,6 +444,55 @@ async function main(): Promise<void> {
   check("messages: pause-reason chips renderer present (reply/dispute/paid)", messages.includes("pauseReasonChipFor") && messages.includes("Reply received") && messages.includes("Dispute") && messages.includes("Payment received"), "");
   check("messages: reply-draft-awaiting-review chip + inbox copy present", messages.includes("Reply draft awaiting review") && messages.includes("Customer replies pause that invoice's sequence and wait here for your response."), "");
   check("messages: chip keys documented defensively (reply_paused_at/dispute_id/invoice_status)", messages.includes("reply_paused_at") && messages.includes("dispute_id") && messages.includes("invoice_status"), "");
+
+  // ── UNIFIED SIDEBAR FOOTER (owner 9/10) ──
+  // One footer lives in the sidebar of every shell page (dashboard, messages,
+  // copilot-controls, account, and both list pages), byte-identical markup,
+  // replacing the old per-page footers (footer-card on dashboard/account,
+  // footer-note on list pages). It pins to the bottom of the flex sidebar
+  // (margin-top:auto) and hides in the mobile top-bar media query.
+  const shellPages: Record<string, string> = {
+    "/dashboard": dash,
+    "/messages": messages,
+    "/copilot-controls": controls,
+    "/account": accountPage,
+    "/past-due": base,
+    "/reminders": remAll,
+  };
+  const footerInsideSidebar = (html: string): boolean => {
+    const i = html.indexOf('<aside class="cc-sidebar"');
+    const end = i < 0 ? -1 : html.indexOf("</aside>", i);
+    if (i < 0 || end < 0) return false;
+    const aside = html.slice(i, end);
+    return aside.includes('<div class="cc-sidebar-footer">')
+      && aside.includes('<a href="/support">Support</a>')
+      && aside.includes('<a href="/terms">Terms</a>')
+      && aside.includes('<a href="/privacy">Privacy</a>')
+      && aside.includes('<span class="footer-sep">·</span>')
+      && aside.includes("Collections Copilot v2.0")
+      && aside.includes('id="last-updated"');
+  };
+  for (const [name, html] of Object.entries(shellPages)) {
+    check(`${name}: sidebar footer (Support/Terms/Privacy + v2.0 + last-updated) lives in the sidebar`, footerInsideSidebar(html), "");
+    check(`${name}: no per-page footer remnants (footer-card/footer-note)`, !html.includes('class="card footer-card"') && !html.includes('class="footer-note"'), "");
+  }
+  const footerBlock = (html: string): string => {
+    const i = html.indexOf('<div class="cc-sidebar-footer">');
+    if (i < 0) return "";
+    const asideEnd = html.indexOf("</aside>", i);
+    if (asideEnd < 0) return "";
+    const close = html.lastIndexOf("</div>", asideEnd);
+    return close < 0 ? "" : html.slice(i, close + 6);
+  };
+  const blocks = Object.values(shellPages).map(footerBlock);
+  check("sidebar footer markup is byte-identical across all shell pages", blocks.every((b) => b === blocks[0] && b.length > 0), `lens=${blocks.map((b) => b.length).join(",")}`);
+  check("dashboard has exactly one last-updated element (no dupes)", (dash.match(/id="last-updated"/g) || []).length === 1, `n=${(dash.match(/id="last-updated"/g) || []).length}`);
+  check("sidebar footer CSS pins to the sidebar bottom (margin-top:auto) on every page", Object.values(shellPages).every((html) => {
+    const i = html.indexOf(".cc-sidebar-footer {");
+    return i >= 0 && /margin-top:\s*auto/.test(html.slice(i, i + 120));
+  }), "");
+  check("sidebar footer hidden in the mobile top-bar media query on every page", Object.values(shellPages).every((html) => html.includes(".cc-sidebar-footer { display: none; }")), "");
+  check("updateTimestamp defined + init on the previously-footerless pages", (messages.match(/function updateTimestamp/g) || []).length === 1 && (messages.match(/updateTimestamp\(\);/g) || []).length >= 1 && (controls.match(/function updateTimestamp/g) || []).length === 1 && (controls.match(/updateTimestamp\(\);/g) || []).length >= 1 && (base.match(/function updateTimestamp/g) || []).length === 1 && (base.match(/updateTimestamp\(\);/g) || []).length >= 1, "");
 
   console.log(failures === 0 ? "ALL PASS" : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);
