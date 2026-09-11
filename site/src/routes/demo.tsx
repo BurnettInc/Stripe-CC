@@ -1,9 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { SiteNav } from "../components/SiteNav";
-import { SiteFooter } from "../components/SiteFooter";
-import { DemoTabs } from "../components/DemoListPage";
-import { BTN_PRIMARY, BTN_SECONDARY } from "../components/ui";
+import { buildDemoDoc, HANDOFF_ANCHOR, DemoPageShell } from "../components/demoShim";
 
 /* The LIVE dashboard file (served at /dashboard) is the single source of
  * truth — bundled in verbatim so the demo renders pixel-identical. */
@@ -14,17 +10,15 @@ import dashboardHtml from "../../../app/src/ui/dashboard.html?raw";
  *
  *  Single source of truth: the LIVE dashboard file served at /dashboard
  *  (app/src/ui/dashboard.html) is bundled in at build time via vite ?raw
- *  (same markup, CSS and JS — pixel-identical). The demo route then:
- *    1. strips the dashboard's own visit-tracking beacon (its POST to
- *       /api/track must NOT fire from inside the demo),
- *    2. injects a DEMO_MODE shim at the top of the dashboard's inline
- *       script — every fetch('/stats'|'/settings'|'/tasks'|'/subscription'
- *       |'/health'|...) is answered from fictional in-memory seed data,
- *       so there is no network call, no database, no Stripe, no email,
- *    3. renders the resulting document in a same-origin <iframe srcdoc>
- *       so the dashboard's own page-level CSS (body background etc.) can
- *       never collide with the marketing site, then dynamically resizes
- *       the frame to fit (postMessage).
+ *  (same markup, CSS and JS — pixel-identical). The shared demo shim
+ *  (components/demoShim.tsx) then: strips the visit beacon, injects the
+ *  DEMO_MODE fetch table (fictional seeds, no network), maps every internal
+ *  app link (/dashboard /past-due /reminders /messages /copilot-controls
+ *  /account) to its /demo* route (explorable sandbox, no popups), blocks
+ *  real-account actions (/stripe/connect /oauth/ /billing/* /account/export)
+ *  with the honest notice, and keeps the parent <iframe> sized. This file
+ *  only adds the dashboard-specific demo boot: the pipeline stage strip,
+ *  live Trust-Mode line, and honest stat labels.
  *
  *  Zero persistence: all demo state lives in the iframe's memory and
  *  refreshes reset to the seed. The conversion CTA links to the REAL
@@ -33,129 +27,21 @@ import dashboardHtml from "../../../app/src/ui/dashboard.html?raw";
  *  All customer/invoice/email data below the header is fictional.
  * ------------------------------------------------------------------ */
 
-// Demo attribution rides INSIDE state (the install link has no free query
-// slot): the client attribution script replaces the CC_VID placeholder with
-// `cc_vid=<vid>&src=demo` (URL-encoded as the whole state value), or `src=demo`
-// when no cc_vid exists. The backend parses state as URLSearchParams and
-// falls back to treating the whole state as the raw cc_vid.
-const SIGNUP_URL =
-  "https://marketplace.stripe.com/apps/install/link/com.stripecollectionscopilot.app?redirect_uri=https%3A%2F%2Fstripe-cc-production.up.railway.app%2Foauth%2Fcallback&state=src%3Ddemo";
-
 const RAW_DASHBOARD = dashboardHtml;
 
-/* ── DEMO_MODE shim ────────────────────────────────────────────────────
- * Inserted at the TOP of the dashboard's main inline <script>, so it runs
- * before the dashboard's own init calls (loadStats/loadSettings/loadInbox/
- * loadSubscription/checkHealth). window.fetch is replaced with a route
- * table over fictional seeds; anything not on the table fails closed. */
-const DEMO_MODE_SNIPPET = `
-// ─────────────────────────────────────────────────────────────────────
-// DEMO_MODE (injected by site/src/routes/demo.tsx) — this copy of the
-// dashboard runs against fictional in-memory seed data only. No network,
-// no DB, no Stripe, no email. Refreshing the page resets everything.
-// ─────────────────────────────────────────────────────────────────────
+/* ── Dashboard-specific demo boot ─────────────────────────────────────
+ * Runs from the shared shim's __demoBoot hook (window.__demoExtraBoot),
+ * after the dashboard's own script has initialized. Everything here is
+ * dashboard-only: the injected pipeline strip, live counts, mode line,
+ * renderInbox/saveSettings/loadStats wraps, honest stat labels, and the
+ * recovery-report demo copy patch. The fetch route table, click
+ * neutralizer, handoff patch and iframe height push all live in
+ * components/demoShim.tsx. */
+const DASHBOARD_DEMO_BOOT = `
+// Dashboard-specific demo boot (site/src/routes/demo.tsx, via the shared
+// shim's __demoExtraBoot hook): pipeline strip, live counts, honest labels.
 (function () {
-  function json(body, status) {
-    return Promise.resolve(new Response(JSON.stringify(body), { status: status || 200, headers: { 'Content-Type': 'application/json' } }));
-  }
-  function halt(msg) {
-    return Promise.resolve(new Response(JSON.stringify({ error: msg }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
-  }
-  var D = new Date();
-  var iso = function (daysAgo) { var t = new Date(D.getTime() - (daysAgo * 86400000)); return t.toISOString(); };
-
-  // ── Fictional seed data (9 sample invoices across all four stages) ──
-  var seedTasks = [
-    // Watch — newly overdue, not drafted yet (stages will draft automatically)
-    { id: 11, customer_name: 'Avery Chen', company: 'Chen Studio', stage: 1, status: 'pending', amount_cents: 45000, currency: 'usd', due_date: iso(5), days_overdue: 5, created_at: iso(5), draft_subject: '', draft_body: '', invoice_status: 'open' },
-    { id: 12, customer_name: 'Leo Fischer', company: 'Fischer Studio', stage: 1, status: 'pending', amount_cents: 72000, currency: 'usd', due_date: iso(3), days_overdue: 3, created_at: iso(3), draft_subject: '', draft_body: '', invoice_status: 'open' },
-    // Draft — AI-drafted, waiting on the merchant
-    { id: 13, customer_name: 'Marcus Webb', company: 'Webb Digital', stage: 1, status: 'drafted', amount_cents: 125000, currency: 'usd', due_date: iso(6), days_overdue: 6, created_at: iso(6), draft_subject: 'Quick nudge — invoice #1053', draft_body: 'Hi Marcus,\\n\\nHope the site relaunch went well this week. Just a quick nudge that invoice #1053 ($1,250) slipped past its due date — no rush if it has been a busy one.\\n\\nIf it is already on its way, no need to reply. Cheers!', invoice_status: 'open' },
-    { id: 14, customer_name: 'Sofia Reyes', company: 'Reyes Collective', stage: 2, status: 'drafted', amount_cents: 64000, currency: 'usd', due_date: iso(9), days_overdue: 9, created_at: iso(9), draft_subject: 'Following up — invoice #1062', draft_body: 'Hi Sofia,\\n\\nFollowing up on invoice #1062 ($640) — it is now a few days past due. If it is already on its way, you can ignore this; if there is a hiccup on your end, happy to work something out.\\n\\nLet me know either way?', invoice_status: 'open' },
-    { id: 15, customer_name: 'Priya Natarajan', company: 'Natarajan Design', stage: 2, status: 'drafted', amount_cents: 280000, currency: 'usd', due_date: iso(18), days_overdue: 18, created_at: iso(18), draft_subject: 'Overdue — invoice #1047', draft_body: 'Hi Priya,\\n\\nI wanted to check in personally about invoice #1047 ($2,800), which is now 18 days past its due date. We are past the friendly-reminder stage, so I would really appreciate it if you could arrange payment this week.\\n\\nIf there is a billing question or a specific blocker, reply and I will sort it out right away — otherwise our standard reminders will keep running.', invoice_status: 'open' },
-    // Review — final-stage drafts ready for sign-off
-    { id: 16, customer_name: 'Elena Petrova', company: 'Petrova Creative', stage: 3, status: 'reviewed', amount_cents: 198000, currency: 'usd', due_date: iso(34), days_overdue: 34, created_at: iso(34), draft_subject: 'Final notice — invoice #1039', draft_body: 'Hi Elena,\\n\\nThis is the final notice for invoice #1039 ($1,980), now 34 days overdue. Two reminders have gone out with no payment received, and per our payment terms this invoice needs to be settled without further delay.\\n\\nPlease arrange payment now — and if there is a dispute or a hardship, contact us today so we can find a solution before any further steps are taken.', invoice_status: 'open' },
-    { id: 17, customer_name: 'James Okafor', company: 'Okafor Consulting', stage: 3, status: 'reviewed', amount_cents: 340000, currency: 'usd', due_date: iso(47), days_overdue: 47, created_at: iso(47), draft_subject: 'Final notice before escalation — invoice #1058', draft_body: 'Hi James,\\n\\nInvoice #1058 ($3,400) is now 47 days overdue. Our earlier reminders have gone unanswered, and this is the final notice before we consider next steps under our payment terms, including pausing future work.\\n\\nIf this was an oversight, one quick payment settles it. If there is a reason, reply today — we would much rather sort it out than escalate it.', invoice_status: 'open' }
-  ];
-  // Emails already "sent" in the sample account (fictional — shown in the
-  // pipeline strip's Send column and reflected in the stats).
-  var seedSentEmails = [
-    { customer: 'Maya Thompson', stage: 2, subject: 'Following up — invoice #1044', daysAgo: 3 },
-    { customer: 'Daniel Kim', stage: 1, subject: 'Quick nudge — invoice #1055', daysAgo: 41 },
-    { customer: 'Daniel Kim', stage: 2, subject: 'Following up — invoice #1055', daysAgo: 28 },
-    { customer: 'Daniel Kim', stage: 3, subject: 'Final notice — invoice #1055', daysAgo: 14 }
-  ];
-
-  var demoState = {
-    stats: { totalInvoices: 9, paidInvoices: 0, overdueInvoices: 9, remindersSent: seedSentEmails.length, emailsSent: seedSentEmails.length, stripeConnected: true, stripeDisconnected: false, stripeAccountId: 'acct_demo_sample', stripe_livemode: true, free_trial: false, sub_status: 'active', plan: 'pro', overInvoiceLimit: false },
-    settings: { trust_mode: 'draft', paused: false, sender_name: 'Your Studio', stage1_days: 6, stage2_days: 20, late_fee_type: 'none', late_fee_value: 0 },
-    sub: { tier: 'pro', status: 'active', interval: 'month', created_at: iso(12), free_trial: false, dev_pro: false },
-    tasks: seedTasks.slice(),
-    sentEmails: seedSentEmails.slice()
-  };
-
-  // ── fetch route table (no network) ──
-  window.fetch = function (url, opts) {
-    var u = String(url || '');
-    var method = ((opts && opts.method) || 'GET').toUpperCase();
-    var approve = /^\\/tasks\\/([^/]+)\\/approve$/.exec(u);
-    var reject = /^\\/tasks\\/([^/]+)\\/reject$/.exec(u);
-    var draft = /^\\/tasks\\/([^/]+)\\/draft$/.exec(u);
-    if (u === '/health') return json({ status: 'ok' });
-    if (u === '/stats') return json(demoState.stats);
-    if (u === '/subscription') return json(demoState.sub);
-    if (u === '/settings' && method === 'GET') return json(demoState.settings);
-    if (u === '/settings' && method === 'PUT') {
-      var put = {};
-      try { put = JSON.parse((opts && opts.body) || '{}'); } catch (e) { /* ignore */ }
-      for (var k in put) { if (Object.prototype.hasOwnProperty.call(put, k)) { demoState.settings[k] = put[k]; } }
-      if ('trust_mode' in put) { try { window.currentTrustMode = put.trust_mode; } catch (e) {} }
-      return json(demoState.settings);
-    }
-    if (u === '/tasks' && method === 'GET') return json(demoState.tasks);
-    // Overdue-invoice panel source (owner 9/9 item 2): the dashboard's
-    // #overdue-tbody renders from GET /overdue/summary, same as /past-due.
-    // Derive the same invoice-shaped rows from the seed tasks so the demo
-    // panel lists every overdue invoice even though the seeds carry no
-    // separate invoice table.
-    if (u === '/overdue/summary' && method === 'GET') return json({ counts: { total: demoState.tasks.length, active: demoState.tasks.length, paused: 0, awaiting_approval: 0 }, invoices: demoState.tasks.map(function (t) { return { id: t.id, customer_name: t.customer_name, amount_due: t.amount_cents, currency: t.currency, days_overdue: t.days_overdue, stage: t.stage, status: 'active', pause_reason: null }; }), recent_reminders: [] });
-    if (approve) {
-      var id = Number(approve[1]);
-      demoState.tasks = demoState.tasks.filter(function (t) { return t.id !== id; });
-      demoState.sentEmails.push({ customer: 'sample', stage: 1, subject: 'Reminder approved & sent (demo)', daysAgo: 0 });
-      demoState.stats.remindersSent += 1;
-      demoState.stats.emailsSent += 1;
-      return json({ ok: true });
-    }
-    if (reject) {
-      var rj = Number(reject[1]);
-      demoState.tasks = demoState.tasks.filter(function (t) { return t.id !== rj; });
-      return json({ ok: true });
-    }
-    if (draft) {
-      var df = Number(draft[1]);
-      var body = {};
-      try { body = JSON.parse((opts && opts.body) || '{}'); } catch (e) { /* ignore */ }
-      var updated = null;
-      demoState.tasks = demoState.tasks.map(function (t) {
-        if (t.id === df) { t.draft_body = body.draft_body || t.draft_body; t.draft_subject = body.draft_subject || t.draft_subject; t.status = 'drafted'; updated = t; }
-        return t;
-      });
-      return json({ task: updated || {} });
-    }
-    if (u === '/summary/send') return json({ skipped: true });
-    if (u.indexOf('/billing/') === 0 || u === '/account/delete' || u === '/api/beta/redeem') {
-      window.setTimeout(function () { window.alert('Demo Mode: this needs a real Stripe account — nothing here is live. Connect your Stripe account on the real app to do this.'); }, 0);
-      return halt('Demo Mode blocks this action.');
-    }
-    return halt('Demo Mode: network calls are disabled in the demo.');
-  };
-
-  // ── Boot (runs after the dashboard script has initialized) ──
-  function __demoBoot() {
-    // Re-assert (the dashboard's own declarations run later in the script).
-    try { window.handoffIf401 = function () { return false; }; } catch (e) {}
-
+  window.__demoExtraBoot = function __dashExtraBoot() {
     // Pipeline stage strip — Watch / Draft / Review / Send with live counts.
     var inboxCard = document.getElementById('inbox-section');
     if (inboxCard && !document.getElementById('demo-pipeline-strip')) {
@@ -191,14 +77,14 @@ const DEMO_MODE_SNIPPET = `
 
     function __demoCounts() {
       var watch = 0, draft = 0, review = 0;
-      demoState.tasks.forEach(function (t) {
+      window.__demoState.tasks.forEach(function (t) {
         var hasDraft = t.draft_body && String(t.draft_body).trim() !== '';
         if (t.status === 'reviewed') review += 1;
         else if (hasDraft && t.status === 'drafted') draft += 1;
         else if (hasDraft) draft += 1;
         else watch += 1;
       });
-      return { watch: watch, draft: draft, review: review, send: demoState.sentEmails.length };
+      return { watch: watch, draft: draft, review: review, send: window.__demoState.sentEmails.length };
     }
     function __demoRenderChips() {
       if (!chipsEl || !myChips.watch) return;
@@ -248,57 +134,20 @@ const DEMO_MODE_SNIPPET = `
         return r;
       };
     } catch (e) {}
-    // Neutralize links inside the replica that would take a visitor into the
-    // REAL app: the shell tab bar (/dashboard, /past-due, /messages,
-    // /copilot-controls, /account), stat-card drill-downs (/past-due,
-    // /reminders), billing portal, account export — all are served by the
-    // live backend/site. In the demo they get a friendly alert instead (the
-    // dashboard footer links to /support /terms /privacy which the marketing
-    // site itself serves — those are fine, but keeping every internal link
-    // read-only is simpler and still matches the replica: no demo visitor
-    // reaches a real app page).
-    try {
-      document.addEventListener('click', function (ev) {
-        var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
-        if (!a) return;
-        var href = (a.getAttribute('href') || '').trim();
-        if (href.indexOf('/') === 0 && ['/dashboard', '/past-due', '/reminders', '/messages', '/copilot-controls', '/account', '/billing/portal', '/billing/checkout', '/account/export', '/stripe/connect', '/oauth/'].some(function (p) { return href.indexOf(p) === 0; })) {
-          ev.preventDefault();
-          window.alert('Demo Mode: this takes you to the real app — nothing here is live. Connect your Stripe account on the real app to see these.\\n\\n(To keep the demo self-contained, this link is disabled.)');
-        }
-      });
-    } catch (e) {}
     // Keep the stats honest for the demo ("X demo sends (fictional)" — the
     // dashboard's own label says "real sends", which would be untrue here).
     function __demoPatchLabels() {
       var el = document.getElementById('stat-emails');
-      if (el) el.textContent = demoState.sentEmails.length + ' demo sends (fictional)';
+      if (el) el.textContent = window.__demoState.sentEmails.length + ' demo sends (fictional)';
       var paid = document.getElementById('stat-paid');
-      if (paid) paid.textContent = '0 paid · ' + demoState.stats.overdueInvoices + ' overdue (sample data)';
+      if (paid) paid.textContent = '0 paid · ' + window.__demoState.stats.overdueInvoices + ' overdue (sample data)';
       var inv = document.getElementById('stat-invoices');
       if (inv) inv.textContent = String(9);
-      // Stat cards all point at the REAL app pages; in demo mode they become
-      // plain status cards (no dead links — matches the replica visually while
-      // never leaving the demo).
-      ['stat-invoices', 'stat-reminders', 'stat-free-drafts', 'stat-stripe-card'].forEach(function (id) {
-        var card = document.getElementById(id);
-        if (card) {
-          card.className = 'stat-card stat-status';
-          var link = card.querySelector && card.querySelector('a');
-          if (link) {
-            link.removeAttribute('href');
-            link.style.cursor = 'default';
-            var hint = link.querySelector('.stat-sub-hint');
-            if (hint) hint.style.display = 'none';
-          }
-        }
-      });
-      // Free-drafts card is a "status" too: keep the link title from sending
-      // visitors toward checkout.
-      var fdl = document.getElementById('stat-free-drafts-link');
-      if (fdl) { fdl.removeAttribute('href'); fdl.title = 'Demo — unlimited drafts on the Pro plan (sample)'; }
-      var fdh = document.getElementById('stat-free-drafts-hint');
-      if (fdh) fdh.textContent = 'Draft Mode is free forever';
+      // NOTE: stat-card LINKS are intentionally left intact — the shared
+      // click neutralizer maps them to the matching /demo* view, so drill-
+      // downs work inside the sandbox. The free-drafts card points at
+      // /billing/checkout, which is a real-account action and keeps the
+      // honest notice (matching the real app's upgrade path).
     }
     try {
       var _ls = window.loadStats;
@@ -312,148 +161,57 @@ const DEMO_MODE_SNIPPET = `
     __demoRenderChips();
     __demoModeLine();
 
-    // Keep the parent <iframe> sized to the full dashboard height.
-    function __demoPushHeight() {
-      try {
-        var h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight, 600);
-        parent.postMessage({ type: 'cc-demo-height', h: h }, '*');
-      } catch (e) {}
-    }
-    window.setTimeout(__demoPushHeight, 200);
-    window.setTimeout(__demoPushHeight, 800);
-    window.setInterval(__demoPushHeight, 3000);
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { window.setTimeout(__demoBoot, 0); });
-  } else {
-    window.setTimeout(__demoBoot, 0);
-  }
+    // Weekly recovery report card: the shared shim answers /summary/send
+    // with {skipped:true}, so the real handler says "not sent". Replace that
+    // with demo-specific copy so no visitor thinks a real email went out.
+    try {
+      var _ssn = window.sendSummaryNow;
+      window.sendSummaryNow = function () {
+        var btn0 = document.getElementById('summary-btn');
+        var origHtml = btn0 ? btn0.innerHTML : '';
+        var r = _ssn ? _ssn.apply(this, arguments) : undefined;
+        var tries = 0;
+        var t = window.setInterval(function () {
+          tries += 1;
+          var statusEl = document.getElementById('summary-status');
+          if (statusEl && statusEl.textContent && statusEl.textContent.indexOf('Weekly summary') === 0 && tries > 2) {
+            statusEl.textContent = 'Note: this is sample data — no summary email is sent from the demo. In the real app, this emails your weekly recovery report on demand.';
+            statusEl.style.color = 'var(--warning)';
+            if (btn0) { btn0.disabled = false; btn0.innerHTML = origHtml; }
+            window.clearInterval(t);
+          }
+          if (tries > 50) window.clearInterval(t);
+        }, 60);
+        return r;
+      };
+    } catch (e) {}
+  };
 })();
 `;
 
-/* Demo-only iframe sizing fix: the REAL dashboard legitimately fills the
- * viewport (body/.cc-shell min-height:100vh, pinned .cc-sidebar), but inside
- * the <iframe srcdoc> those vh units resolve against the iframe's OWN height,
- * so documentElement.scrollHeight never drops below the current frame height
- * and the frame stays pinned at its initial size — leaving a large empty band
- * under the last card. Neutralize the vh stretch in the demo copy only; the
- * real /dashboard CSS (app/src/ui/dashboard.html) is untouched. */
-const DEMO_IFRAME_FIX =
-  "<!-- demo-only: neutralize the dashboard's viewport-height stretch inside the iframe so the parent can measure true content height --><style>\n" +
-  "      body { min-height: 0 !important; }\n" +
-  "      .cc-shell { min-height: 0 !important; }\n" +
-  "      .cc-sidebar { height: auto !important; max-height: none !important; }\n" +
-  "    </style>";
-/* Strip the dashboard's own visit-tracking beacon: its POST to /api/track
- * is real page-view tracking for the LIVE dashboard. In the demo, the
- * marketing site's own beacon (site __root.tsx) already records the /demo
- * page view — the embedded dashboard must not double-fire a network call. */
-const DASHBOARD_DOC = RAW_DASHBOARD.replace(
-  /<script>\s*\(function\(\)\{try\{var p=location\.pathname;[\s\S]*?<\/script>/,
-  "<!-- demo: dashboard visit-tracking beacon removed (no /api/track from inside the demo) -->",
-).replace(
-  "var HANDOFF_URL = '__CC_HANDOFF_URL__';",
-  `${DEMO_MODE_SNIPPET}\n    var HANDOFF_URL = '__CC_HANDOFF_URL__';`,
-).replace("</head>", DEMO_IFRAME_FIX + "</head>");
+const DASHBOARD_DOC = (() => {
+  const doc = buildDemoDoc(RAW_DASHBOARD, HANDOFF_ANCHOR);
+  // Inject the dashboard-specific extra boot right after the shared shim.
+  return doc.replace(
+    HANDOFF_ANCHOR,
+    `${DASHBOARD_DEMO_BOOT}\n    ${HANDOFF_ANCHOR}`,
+  );
+})();
 
 export const Route = createFileRoute("/demo")({
   component: Demo,
 });
 
 function Demo() {
-  /* Start modest — the embedded doc's postMessage (pulses every 3s) settles
-   * the real content height; a tall initial value would flash a huge band. */
-  const [height, setHeight] = useState(650);
-  const [resetKey, setResetKey] = useState(0);
-
-  useEffect(() => {
-    function onMsg(e: MessageEvent) {
-      const d = e.data as { type?: string; h?: number } | null;
-      if (d && d.type === "cc-demo-height" && typeof d.h === "number") {
-        setHeight(Math.max(600, d.h));
-      }
-    }
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, []);
-
   return (
-    <div className="min-h-dvh bg-white">
-      <SiteNav />
-
-      {/* ── Custom header (owner's copy, verbatim) ── */}
-      <section className="bg-gray-900 text-white">
-        <div className="max-w-5xl mx-auto px-6 py-12 text-center">
-          <div className="mb-5 flex flex-wrap items-center justify-center gap-3">
-            <span className="inline-block rounded-full border border-amber-300/50 bg-amber-400/10 px-4 py-1.5 text-xs font-bold tracking-wide text-amber-300">
-              ⚠ Demo Mode — sample data only, nothing sends, nothing is saved
-            </span>
-            <button
-              onClick={() => setResetKey((k) => k + 1)}
-              className="inline-block rounded-full border border-gray-600 px-4 py-1.5 text-xs font-semibold text-gray-300 transition-colors hover:border-gray-400 hover:text-white"
-            >
-              ↺ Reset demo
-            </button>
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            See the collections pipeline in action
-          </h1>
-          <p className="mx-auto mt-4 max-w-3xl leading-relaxed text-gray-300">
-            This is what an overdue-invoice queue looks like inside Collections
-            Copilot. Every customer, invoice, and email below is made-up sample
-            data — nothing here is real, nothing sends, and nothing is saved.
-            Click an invoice to open it, then try the Trust Mode toggle to see
-            how each mode behaves.
-          </p>
-          <DemoTabs active="pipeline" />
-        </div>
-      </section>
-
-      {/* ── Middle: exact replica of the real dashboard (DEMO_MODE) ── */}
-      <div className="bg-[#F9FAFB]">
-        <iframe
-          key={resetKey}
-          title="Collections Copilot dashboard demo (exact replica)"
-          srcDoc={DASHBOARD_DOC}
-          className="block w-full border-0"
-          style={{ height }}
-          scrolling="no"
-          tabIndex={-1}
-        />
-      </div>
-
-      {/* ── Footer: conversion CTA + the site footer ── */}
-      <section className="bg-gray-900 py-16 text-white">
-        <div className="mx-auto max-w-3xl px-6 text-center">
-          <h2 className="text-3xl font-bold tracking-tight">
-            Ready to see it with your own invoices?
-          </h2>
-          <p className="mx-auto mt-4 max-w-lg text-gray-400">
-            The demo above is sample data. Connect your Stripe account and
-            Collections Copilot watches your real overdue invoices in the same
-            pipeline — read-only at first, and nothing sends without your
-            approval.
-          </p>
-          <div className="mt-8 flex flex-col items-center gap-4">
-            <a
-              href={SIGNUP_URL}
-              className={BTN_PRIMARY}
-              style={{ display: "inline-flex" }}
-            >
-              Connect your Stripe account to start free
-            </a>
-            <a href="/how-it-works" className={BTN_SECONDARY}>
-              How it works
-            </a>
-          </div>
-          <p className="mt-4 text-xs text-gray-500">
-            No card required · cancel anytime · your first month is free
-          </p>
-        </div>
-      </section>
-
-      <SiteFooter />
-    </div>
+    <DemoPageShell
+      banner="⚠ Demo Mode — sample data only, nothing sends, nothing is saved"
+      heading="See the collections pipeline in action"
+      body="This is what an overdue-invoice queue looks like inside Collections Copilot. Every customer, invoice, and email below is made-up sample data — nothing here is real, nothing sends, and nothing is saved. Click an invoice to open it, then try the Trust Mode toggle to see how each mode behaves. Every tab and drill-down below is a working demo — only actions that need a real Stripe account (billing, Stripe connect, export) are disabled."
+      activeTab="dashboard"
+      frameTitle="Collections Copilot dashboard demo (exact replica)"
+      srcDoc={DASHBOARD_DOC}
+      minHeight={650}
+    />
   );
 }
