@@ -249,18 +249,20 @@ const DEMO_MODE_SNIPPET = `
       };
     } catch (e) {}
     // Neutralize links inside the replica that would take a visitor into the
-    // REAL app: stat-card drill-downs (/past-due, /reminders), billing portal,
-    // account export — all are served by the live backend/site. In the demo
-    // they get a friendly alert instead (the dashboard footer links to
-    // /support /terms /privacy which the marketing site itself serves — those
-    // are fine, but keeping every internal link read-only is simpler and
-    // still matches the replica: no demo visitor reaches a real app page).
+    // REAL app: the shell tab bar (/dashboard, /past-due, /messages,
+    // /copilot-controls, /account), stat-card drill-downs (/past-due,
+    // /reminders), billing portal, account export — all are served by the
+    // live backend/site. In the demo they get a friendly alert instead (the
+    // dashboard footer links to /support /terms /privacy which the marketing
+    // site itself serves — those are fine, but keeping every internal link
+    // read-only is simpler and still matches the replica: no demo visitor
+    // reaches a real app page).
     try {
       document.addEventListener('click', function (ev) {
         var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
         if (!a) return;
         var href = (a.getAttribute('href') || '').trim();
-        if (href.indexOf('/') === 0 && ['/past-due', '/reminders', '/billing/portal', '/billing/checkout', '/account/export', '/stripe/connect', '/oauth/'].some(function (p) { return href.indexOf(p) === 0; })) {
+        if (href.indexOf('/') === 0 && ['/dashboard', '/past-due', '/reminders', '/messages', '/copilot-controls', '/account', '/billing/portal', '/billing/checkout', '/account/export', '/stripe/connect', '/oauth/'].some(function (p) { return href.indexOf(p) === 0; })) {
           ev.preventDefault();
           window.alert('Demo Mode: this takes you to the real app — nothing here is live. Connect your Stripe account on the real app to see these.\\n\\n(To keep the demo self-contained, this link is disabled.)');
         }

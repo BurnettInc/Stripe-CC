@@ -482,7 +482,7 @@ const DEMO_MODE_SNIPPET = `
     var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
     if (!a) return;
     var href = (a.getAttribute('href') || '').trim();
-    if (href === '/dashboard' || href.indexOf('/past-due') === 0 || href.indexOf('/reminders') === 0) {
+    if (href === '/dashboard' || href.indexOf('/past-due') === 0 || href.indexOf('/reminders') === 0 || href.indexOf('/messages') === 0 || href.indexOf('/copilot-controls') === 0 || href.indexOf('/account') === 0) {
       ev.preventDefault();
       _alert('Demo Mode: this link is disabled so the demo stays self-contained — nothing here is live. Connect your Stripe account on the real app to see this.');
     }
