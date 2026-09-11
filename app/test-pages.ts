@@ -494,6 +494,43 @@ async function main(): Promise<void> {
   check("sidebar footer hidden in the mobile top-bar media query on every page", Object.values(shellPages).every((html) => html.includes(".cc-sidebar-footer { display: none; }")), "");
   check("updateTimestamp defined + init on the previously-footerless pages", (messages.match(/function updateTimestamp/g) || []).length === 1 && (messages.match(/updateTimestamp\(\);/g) || []).length >= 1 && (controls.match(/function updateTimestamp/g) || []).length === 1 && (controls.match(/updateTimestamp\(\);/g) || []).length >= 1 && (base.match(/function updateTimestamp/g) || []).length === 1 && (base.match(/updateTimestamp\(\);/g) || []).length >= 1, "");
 
+  // ── MOBILE DASHBOARD/SHELL BUGFIXES (owner 9/12 — 3 reported bugs) ──
+  // BUG 1: the mobile shell previously turned the sidebar into a horizontal
+  // top bar (flex row + overflow-x:auto) that clipped nav items like
+  // "Messages" at the screen edge with no scroll affordance. Fixed with a
+  // proper mobile pattern: a BOTTOM TAB BAR — .cc-nav becomes position:fixed
+  // at the viewport bottom inside the 720px media query (same five links,
+  // active state still the sidebar's purple pill), and the sidebar keeps just
+  // the logo on top. Desktop sidebar untouched (base rules unchanged).
+  const mobileBlock = (html: string): string => {
+    const i = html.indexOf("@media (max-width: 720px)");
+    if (i < 0) return "";
+    const j = html.indexOf("\n    }\n", i);
+    return j < 0 ? "" : html.slice(i, j);
+  };
+  const mobileMb = Object.fromEntries(Object.entries(shellPages).map(([k, v]) => [k, mobileBlock(v)]));
+  const bottomTabBar = (m: string) =>
+    m.includes(".cc-nav {") && m.includes("position: fixed;") && m.includes("bottom: 0;") && m.includes("z-index: 30;") &&
+    m.includes("flex: 1 1 0;") && m.includes("env(safe-area-inset-bottom");
+  check("mobile nav is a bottom tab bar (position:fixed) on every shell page", Object.values(mobileMb).every(bottomTabBar), "");
+  check("mobile sidebar no longer scrolls horizontally (old overflow-x top-bar removed on every shell page)", Object.values(mobileMb).every((m) => !m.includes(".cc-sidebar { width: 100%; flex: none; height: auto; position: static; flex-direction: row; align-items: center; padding: 12px; overflow-x: auto;") && !m.includes(".cc-nav { flex-direction: row; }")), "");
+  check("desktop sidebar/nav rules untouched (216px sidebar, column nav outside the media query)", Object.values(shellPages).every((html) => html.includes(".cc-sidebar {\n      width: 216px;") && html.includes(".cc-nav { display: flex; flex-direction: column;")), "");
+  // BUG 2 + BUG 3 (dashboard only): the two-column dash-grid used
+  // minmax(0,1.65fr) + minmax(300px,1fr). Below ~720px the 300px hard minimum
+  // makes the grid overflow, the negative fr space collapses the FIRST column
+  // to ~0 (overdue card squeezed to a ~50px sliver), and the columns overlap —
+  // col-1 text/table painted into the same pixels as the col-2 cards
+  // (bleed-through) and .overdue-more's link wrapped one word per line inside
+  // the 0-width track. Fixed: the media query stacks the grid to 1fr (full
+  // width, no overflow, no overlap) and gives each grid card its own paint
+  // layer (position:relative + z-index isolation) as belt-and-braces.
+  check("dashboard mobile grid stacks to 1fr (full-width reflow, no column overflow)", mobileMb["/dashboard"].includes(".dash-grid { grid-template-columns: 1fr; gap: 0; }"), "");
+  check("dashboard grid cards have stacking isolation (position:relative + z-index)", mobileMb["/dashboard"].includes(".dash-grid .card { position: relative; z-index: 1; }"), "");
+  check("dashboard desktop grid rule untouched (two-column minmax outside the media query)", (function () {
+    const i = dash.indexOf(".dash-grid {");
+    const j = dash.indexOf(".dash-col");
+    return i >= 0 && j > i && dash.slice(i, j).includes("minmax(0, 1.65fr) minmax(300px, 1fr)");
+  })(), "");
   console.log(failures === 0 ? "ALL PASS" : `${failures} FAILURES`);
   process.exit(failures === 0 ? 0 : 1);
 }
