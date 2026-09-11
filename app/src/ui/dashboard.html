@@ -695,15 +695,41 @@
     /* ── Responsive ── */
     @media (max-width: 720px) {
       .cc-shell { flex-direction: column; }
-      .cc-sidebar { width: 100%; flex: none; height: auto; position: static; flex-direction: row; align-items: center; padding: 12px; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); }
-      .cc-sidebar .cc-logo { padding: 0 10px 0 0; white-space: nowrap; }
-      .cc-nav { flex-direction: row; }
-      .cc-nav a { white-space: nowrap; }
+      .cc-sidebar { width: 100%; flex: none; height: auto; position: static; align-items: center; padding: 10px 16px; border-right: none; border-bottom: 1px solid var(--border); }
+      .cc-sidebar .cc-logo { padding: 0; white-space: nowrap; }
+      /* Mobile nav pattern (owner 9/12): the five shell links move out of the
+         top bar into a BOTTOM TAB BAR fixed to the viewport, so no item clips
+         at the screen edge and no horizontal scroll is needed. The sidebar
+         keeps just the logo on top. Desktop sidebar is untouched — these
+         rules live only inside this media query. */
+      .cc-nav {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+        flex-direction: row; align-items: stretch;
+        background: var(--surface); border-top: 1px solid var(--border);
+        padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+      }
+      .cc-nav a {
+        flex: 1 1 0; min-width: 0; text-align: center;
+        padding: 7px 2px; font-size: 0.72rem; line-height: 1.2;
+      }
       /* Sidebar footer is pinned to the desktop sidebar (margin-top:auto) —
-         hidden on the mobile top-bar layout so the bar stays a single row. */
+         hidden on mobile; the bottom tab bar replaces it there. */
       .cc-sidebar-footer { display: none; }
 
       .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+      /* Dashboard two-column grid (owner 9/12 bugfix): the desktop tracks
+         minmax(0,1.65fr) + minmax(300px,1fr) cannot fit below ~720px — the
+         300px hard minimum makes the grid overflow, the negative free space
+         collapses the first column to ~0, and the two columns overlap (card
+         bleed-through + the "View all N overdue invoices" link wrapping one
+         word per line inside the 0-width track). Stack full-width on mobile;
+         desktop keeps the two-column grid untouched. */
+      .dash-grid { grid-template-columns: 1fr; gap: 0; }
+      /* Stacking isolation for the stacked cards: each card paints above any
+         residual sibling overflow (position + z-index create an isolated
+         paint layer per card) so no underlying text/edges show through. */
+      .dash-grid .card { position: relative; z-index: 1; }
       header { flex-direction: column; align-items: flex-start; }
       /* Tighten the gap between the last settings input and Save Settings */
       .save-settings-row { margin-top: 12px; }
