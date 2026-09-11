@@ -380,45 +380,45 @@
     .billing-toggle-save { font-size: 0.7rem; font-weight: 700; color: var(--success); }
     .price-sub { font-size: 0.8rem; color: var(--muted); margin: 0 0 14px; }
 
-    /* ── Footer ── */
-    .footer-card {
-      text-align: center;
-      padding: 24px;
-      background: transparent;
-      border: none;
-      box-shadow: none;
+    /* ── Sidebar footer (owner 9/10) — ONE unified footer in every shell
+       page's sidebar (Support · Terms · Privacy + version + last-updated).
+       margin-top:auto pins it to the bottom of the flex sidebar so it never
+       scrolls with page content; hidden on the mobile top-bar layout. ── */
+    .cc-sidebar-footer {
+      margin-top: auto;
+      padding-top: 16px;
       border-top: 1px solid var(--border);
-      border-radius: 0;
-      margin-bottom: 0;
+      text-align: center;
     }
-    .footer-card p {
-      font-size: 0.8rem;
+    .cc-sidebar-footer .footer-links {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .cc-sidebar-footer .footer-links a {
       color: var(--muted);
+      font-size: 0.8rem;
+      text-decoration: none;
+    }
+    .cc-sidebar-footer .footer-links a:hover {
+      color: var(--primary);
+      text-decoration: underline;
+    }
+    .cc-sidebar-footer .footer-links .footer-sep {
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+    .cc-sidebar-version {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin: 0;
     }
     .updated-at {
       font-size: 0.75rem;
       color: var(--muted);
       margin-top: 4px;
-    }
-    .footer-links {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-    .footer-links a {
-      color: var(--muted);
-      font-size: 0.8rem;
-      text-decoration: none;
-    }
-    .footer-links a:hover {
-      color: var(--primary);
-      text-decoration: underline;
-    }
-    .footer-links .footer-sep {
-      color: var(--muted);
-      font-size: 0.8rem;
     }
 
     /* ── Loading states ── */
@@ -453,6 +453,9 @@
       .cc-sidebar .cc-logo { padding: 0 10px 0 0; white-space: nowrap; }
       .cc-nav { flex-direction: row; }
       .cc-nav a { white-space: nowrap; }
+      /* Sidebar footer is pinned to the desktop sidebar (margin-top:auto) —
+         hidden on the mobile top-bar layout so the bar stays a single row. */
+      .cc-sidebar-footer { display: none; }
       .cc-topbar { justify-content: flex-start; padding: 10px 16px; }
       .cc-page { padding: 20px 16px 64px; }
       .mode-cards { grid-template-columns: 1fr; }
@@ -472,6 +475,17 @@
         <a href="/copilot-controls">Copilot Controls</a>
         <a href="/account" class="active">Account</a>
       </nav>
+      <div class="cc-sidebar-footer">
+        <div class="footer-links">
+          <a href="/support">Support</a>
+          <span class="footer-sep">·</span>
+          <a href="/terms">Terms</a>
+          <span class="footer-sep">·</span>
+          <a href="/privacy">Privacy</a>
+        </div>
+        <p class="cc-sidebar-version">Collections Copilot v2.0</p>
+        <div class="updated-at" id="last-updated">Loading...</div>
+      </div>
     </aside>
     <div class="cc-main">
       <div class="cc-topbar">
@@ -595,18 +609,6 @@
       </div>
     </div>
 
-    <!-- Footer / Meta -->
-    <div class="card footer-card">
-      <div class="footer-links">
-        <a href="/support">Support</a>
-        <span class="footer-sep">·</span>
-        <a href="/terms">Terms</a>
-        <span class="footer-sep">·</span>
-        <a href="/privacy">Privacy</a>
-      </div>
-      <p>Collections Copilot v2.0</p>
-      <div class="updated-at" id="last-updated">Loading...</div>
-    </div>
 
       </div><!-- /.cc-page -->
     </div><!-- /.cc-main -->
