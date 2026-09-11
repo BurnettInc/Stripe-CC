@@ -46,6 +46,19 @@ const SIGNUP_URL =
   "https://marketplace.stripe.com/apps/install/link/com.stripecollectionscopilot.app?redirect_uri=https%3A%2F%2Fstripe-cc-production.up.railway.app%2Foauth%2Fcallback&state=src%3Ddemo";
 
 const LISTPAGE_HTML = listPageHtml;
+/* Demo-only iframe sizing fix (same rationale as /demo): the real list pages
+ * legitimately fill the viewport (body/.cc-shell min-height:100vh, pinned
+ * .cc-sidebar), but inside the <iframe srcdoc> 100vh = the iframe's own
+ * height, so scrollHeight can never drop below the current frame size and the
+ * frame stays pinned at its initial height (empty band under the last row).
+ * Neutralize the vh stretch in the demo copy only; the real list-page CSS
+ * (app/src/ui/list-page.html) is untouched. */
+const DEMO_IFRAME_FIX =
+  "<!-- demo-only: neutralize the list page's viewport-height stretch inside the iframe so the parent can measure true content height --><style>\n" +
+  "      body { min-height: 0 !important; }\n" +
+  "      .cc-shell { min-height: 0 !important; }\n" +
+  "      .cc-sidebar { height: auto !important; max-height: none !important; }\n" +
+  "    </style>";
 
 export type DemoListKind = "pastdue" | "reminders";
 export type DemoTabKey = "pipeline" | "reminders" | "pastdue";
@@ -502,7 +515,8 @@ function buildDoc(kind: DemoListKind): string {
     .replace(
       "  <script>\n    // Client-side table sorting",
       `  <script>\n    ${DEMO_MODE_SNIPPET}\n    // Client-side table sorting`
-    );
+    )
+    .replace("</head>", DEMO_IFRAME_FIX + "</head>");
 }
 
 /* ── Marketing-page chrome (mirrors /demo) ─────────────────────────── */
@@ -521,7 +535,9 @@ const PAGE_COPY: Record<DemoListKind, { heading: string; body: string; banner: s
 };
 
 function DemoListPage({ kind }: { kind: DemoListKind }) {
-  const [height, setHeight] = useState(kind === "pastdue" ? 1100 : 1400);
+  /* Start modest — the embedded doc's postMessage (pulses every 3s) settles
+   * the real content height; a tall initial value would flash a huge band. */
+  const [height, setHeight] = useState(kind === "pastdue" ? 600 : 700);
   const [resetKey, setResetKey] = useState(0);
 
   useEffect(() => {
