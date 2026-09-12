@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
-import { SiteNav } from "./SiteNav";
-import { SiteFooter } from "./SiteFooter";
-import { BTN_PRIMARY, BTN_SECONDARY } from "./ui";
+import {
+  buildDemoDoc,
+  LIST_PAGE_SCRIPT_ANCHOR,
+  DemoPageShell,
+  DemoTabs,
+  DemoTabKey,
+} from "./demoShim";
 
 /* The LIVE list-page template (served at /reminders and /past-due by the
  * backend) is the single source of truth — bundled in verbatim so the
@@ -21,14 +24,14 @@ import listPageHtml from "../../../app/src/ui/list-page.html?raw";
  *       (summary chips, sortable headers with data-sort-key/data-sort,
  *       per-row stage controls, email toggles, engagement pills, CAN-SPAM
  *       footers) but from fictional in-memory seeds,
- *    2. strips the list page's own visit-tracking beacon (its POST to
- *       /api/track must NOT fire from inside the demo),
- *    3. injects a DEMO_MODE shim at the top of the page's inline script —
- *       every fetch fails closed with a friendly alert, the stage-override
- *       PUT is neutered, internal links (/dashboard, /past-due?status=…)
- *       that would exit into the real app/site get a friendly alert, and
- *       the parent <iframe> is kept sized via postMessage,
- *    4. renders the result in a same-origin <iframe srcDoc> (page-level
+ *    2. delegates DEMO_MODE to the shared shim (components/demoShim.tsx):
+ *       visit beacon stripped, every fetch answered from the fictional
+ *       route table (including the /settings + /stats the top bar calls),
+ *       internal links (/dashboard /past-due /reminders /messages
+ *       /copilot-controls /account) navigate the top page to the matching
+ *       /demo* view, real-account actions stay blocked with the notice,
+ *       and the parent <iframe> stays sized,
+ *    3. renders the result in a same-origin <iframe srcDoc> (page-level
  *       CSS can never collide with the marketing site).
  *
  *  Zero persistence: refresh resets. The conversion CTA links to the REAL
@@ -37,58 +40,11 @@ import listPageHtml from "../../../app/src/ui/list-page.html?raw";
  *  $150–$4,500, 3–62 days overdue; 4 sent reminders + 5 AI drafts).
  * ------------------------------------------------------------------ */
 
-// Demo attribution rides INSIDE state (the install link has no free query
-// slot): the client attribution script replaces the CC_VID placeholder with
-// `cc_vid=<vid>&src=demo` (URL-encoded as the whole state value), or `src=demo`
-// when no cc_vid exists. The backend parses state as URLSearchParams and
-// falls back to treating the whole state as the raw cc_vid.
-const SIGNUP_URL =
-  "https://marketplace.stripe.com/apps/install/link/com.stripecollectionscopilot.app?redirect_uri=https%3A%2F%2Fstripe-cc-production.up.railway.app%2Foauth%2Fcallback&state=src%3Ddemo";
-
 const LISTPAGE_HTML = listPageHtml;
-/* Demo-only iframe sizing fix (same rationale as /demo): the real list pages
- * legitimately fill the viewport (body/.cc-shell min-height:100vh, pinned
- * .cc-sidebar), but inside the <iframe srcdoc> 100vh = the iframe's own
- * height, so scrollHeight can never drop below the current frame size and the
- * frame stays pinned at its initial height (empty band under the last row).
- * Neutralize the vh stretch in the demo copy only; the real list-page CSS
- * (app/src/ui/list-page.html) is untouched. */
-const DEMO_IFRAME_FIX =
-  "<!-- demo-only: neutralize the list page's viewport-height stretch inside the iframe so the parent can measure true content height --><style>\n" +
-  "      body { min-height: 0 !important; }\n" +
-  "      .cc-shell { min-height: 0 !important; }\n" +
-  "      .cc-sidebar { height: auto !important; max-height: none !important; }\n" +
-  "    </style>";
 
 export type DemoListKind = "pastdue" | "reminders";
-export type DemoTabKey = "pipeline" | "reminders" | "pastdue";
-
-/* ── Demo-mode sub-nav shared by all three demo pages ── */
-export function DemoTabs({ active }: { active: DemoTabKey }) {
-  const tabs: Array<{ key: DemoTabKey; href: string; label: string }> = [
-    { key: "pipeline", href: "/demo", label: "Pipeline" },
-    { key: "reminders", href: "/demo-reminders", label: "Reminders" },
-    { key: "pastdue", href: "/demo-pastdue", label: "Past due" },
-  ];
-  return (
-    <div className="mx-auto mt-7 inline-flex flex-wrap justify-center rounded-full border border-gray-700 bg-gray-800/60 p-1 text-sm font-semibold">
-      {tabs.map((t) => (
-        <a
-          key={t.key}
-          href={t.href}
-          aria-current={active === t.key ? "page" : undefined}
-          className={`rounded-full px-5 py-2 transition-colors ${
-            active === t.key
-              ? "bg-indigo-600 text-white"
-              : "text-gray-300 hover:text-white"
-          }`}
-        >
-          {t.label}
-        </a>
-      ))}
-    </div>
-  );
-}
+export type { DemoTabKey };
+export { DemoTabs };
 
 /* ══════════════════════════════════════════════════════════════════
  *  Fictional seed data — the SAME sample account as /demo.
@@ -444,178 +400,53 @@ function remindersPayload(): { title: string; subtitle: string; summary: string;
   };
 }
 
-/* ── DEMO_MODE shim ──────────────────────────────────────────────────
- * Inserted at the TOP of the list page's inline <script>, so it runs before
- * the page's own stage-override handler. window.fetch is replaced with a
- * fail-closed stub (the list page never fetches on load — only the stage
- * override PUT and the visit beacon, which is stripped above). */
-const DEMO_MODE_SNIPPET = `
-// DEMO_MODE (injected by site/src/components/DemoListPage.tsx) — this copy
-// of the list page runs against fictional in-memory seed data only. No
-// network, no DB, no Stripe, no email. Refreshing the page resets it.
-(function () {
-  function halt(msg) {
-    return Promise.resolve(new Response(JSON.stringify({ error: msg }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
-  }
-  // Every network call fails closed in the demo.
-  window.fetch = function () {
-    window.setTimeout(function () {
-      window.alert('Demo Mode: network calls are disabled in the demo — nothing here is live, nothing is saved, and nothing sends.');
-    }, 0);
-    return halt('Demo Mode blocks network calls.');
-  };
-  // The stage-override handler in list-page.html calls alert("Could not
-  // update the escalation stage.") when its PUT fails — translate that into
-  // an honest demo message instead of looking like a product bug.
-  var _alert = window.alert;
-  window.alert = function (m) {
-    if (typeof m === 'string' && m.indexOf('Could not update the escalation stage') === 0) {
-      _alert('Demo Mode: this is sample data — stage overrides are not saved here. Connect your Stripe account on the real app to manage real invoices.');
-    } else {
-      _alert(m);
-    }
-  };
-  // Neutralize links inside the replica that would exit into the REAL app or
-  // the marketing site's 404s (/dashboard, /past-due?status=…): a friendly
-  // alert instead of navigating away from the demo.
-  document.addEventListener('click', function (ev) {
-    var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
-    if (!a) return;
-    var href = (a.getAttribute('href') || '').trim();
-    if (href === '/dashboard' || href.indexOf('/past-due') === 0 || href.indexOf('/reminders') === 0 || href.indexOf('/messages') === 0 || href.indexOf('/copilot-controls') === 0 || href.indexOf('/account') === 0) {
-      ev.preventDefault();
-      _alert('Demo Mode: this link is disabled so the demo stays self-contained — nothing here is live. Connect your Stripe account on the real app to see this.');
-    }
-  });
-  // Keep the parent <iframe> sized to the full page height.
-  function pushH() {
-    try {
-      var h = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight, 400);
-      parent.postMessage({ type: 'cc-demo-height', h: h }, '*');
-    } catch (e) {}
-  }
-  window.setTimeout(pushH, 100);
-  window.setTimeout(pushH, 400);
-  window.setInterval(pushH, 3000);
-})();
-`;
+/* ── Build the demo document: fill placeholders + shared DEMO_MODE shim
+ * (components/demoShim.tsx handles beacon strip, fetch table, internal
+ * navigation, real-account blocking, iframe height). ── */
 
-/* Strip the list page's own visit-tracking beacon (POST to /api/track) —
- * the marketing site's own beacon already records the /demo* page view. */
-const BEACON_RE = /<script>\s*\(function\(\)\{try\{var p=location\.pathname;[\s\S]*?<\/script>/;
-
-function buildDoc(kind: DemoListKind): string {
+export function buildDemoListDoc(kind: DemoListKind): string {
   const payload = kind === "pastdue" ? pastDuePayload() : remindersPayload();
-  return LISTPAGE_HTML
-    .replace(BEACON_RE, "<!-- demo: list-page visit-tracking beacon removed (no /api/track from inside the demo) -->")
-    .replaceAll("{{TITLE}}", esc(payload.title))
-    .replaceAll("{{SUBTITLE}}", esc(payload.subtitle))
-    .replaceAll("{{SUMMARY}}", payload.summary)
-    .replaceAll("{{CONTENT}}", payload.content)
-    .replace(
-      "  <script>\n    // Client-side table sorting",
-      `  <script>\n    ${DEMO_MODE_SNIPPET}\n    // Client-side table sorting`
-    )
-    .replace("</head>", DEMO_IFRAME_FIX + "</head>");
+  return buildDemoDoc(
+    LISTPAGE_HTML
+      .replaceAll("{{TITLE}}", esc(payload.title))
+      .replaceAll("{{SUBTITLE}}", esc(payload.subtitle))
+      .replaceAll("{{SUMMARY}}", payload.summary)
+      .replaceAll("{{CONTENT}}", payload.content),
+    LIST_PAGE_SCRIPT_ANCHOR,
+  );
 }
 
-/* ── Marketing-page chrome (mirrors /demo) ─────────────────────────── */
+/* ── Marketing-page chrome (shared DemoPageShell from demoShim) ────── */
 
-const PAGE_COPY: Record<DemoListKind, { heading: string; body: string; banner: string }> = {
+const PAGE_COPY: Record<DemoListKind, { heading: string; body: string; banner: string; activeTab: DemoTabKey; title: string }> = {
   pastdue: {
     heading: "See the past-due list in action",
-    body: "Every customer, invoice, and email below is made-up sample data — nothing here is real, nothing sends, and nothing is saved. This is the same overdue-invoice list a merchant sees after drilling in from the dashboard: each invoice's amount, how long it is overdue, its escalation stage, and how many reminders have gone out.",
+    body: "Every customer, invoice, and email below is made-up sample data — nothing here is real, nothing sends, and nothing is saved. This is the same overdue-invoice list a merchant sees after drilling in from the dashboard: each invoice's amount, how long it is overdue, its escalation stage, and how many reminders have gone out. Every tab and drill-down below is a working demo — only actions that need a real Stripe account are disabled.",
     banner: "⚠ Demo Mode — sample data only, nothing sends, nothing is saved",
+    activeTab: "invoices",
+    title: "Collections Copilot past-due invoices demo (exact replica)",
   },
   reminders: {
     heading: "See the sent-reminder history in action",
-    body: "Every customer, invoice, and email below is made-up sample data — nothing here is real, nothing sends, and nothing is saved. This is the same reminder history a merchant sees once Collections Copilot has drafted and sent follow-ups — open any row to read the full email exactly as it was sent.",
+    body: "Every customer, invoice, and email below is made-up sample data — nothing here is real, nothing sends, and nothing is saved. This is the same reminder history a merchant sees once Collections Copilot has drafted and sent follow-ups — open any row to read the full email exactly as it was sent. Every tab and drill-down below is a working demo — only actions that need a real Stripe account are disabled.",
     banner: "⚠ Demo Mode — sample data only, nothing sends, nothing is saved",
+    activeTab: "reminders",
+    title: "Collections Copilot sent-reminder history demo (exact replica)",
   },
 };
 
 function DemoListPage({ kind }: { kind: DemoListKind }) {
-  /* Start modest — the embedded doc's postMessage (pulses every 3s) settles
-   * the real content height; a tall initial value would flash a huge band. */
-  const [height, setHeight] = useState(kind === "pastdue" ? 600 : 700);
-  const [resetKey, setResetKey] = useState(0);
-
-  useEffect(() => {
-    function onMsg(e: MessageEvent) {
-      const d = e.data as { type?: string; h?: number } | null;
-      if (d && d.type === "cc-demo-height" && typeof d.h === "number") {
-        setHeight(Math.max(600, d.h));
-      }
-    }
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, []);
-
-  const doc = buildDoc(kind);
   const copy = PAGE_COPY[kind];
-
   return (
-    <div className="min-h-dvh bg-white">
-      <SiteNav />
-
-      {/* ── Custom header (Demo Mode banner + owner-style copy) ── */}
-      <section className="bg-gray-900 text-white">
-        <div className="max-w-5xl mx-auto px-6 py-12 text-center">
-          <div className="mb-5 flex flex-wrap items-center justify-center gap-3">
-            <span className="inline-block rounded-full border border-amber-300/50 bg-amber-400/10 px-4 py-1.5 text-xs font-bold tracking-wide text-amber-300">
-              {copy.banner}
-            </span>
-            <button
-              onClick={() => setResetKey((k) => k + 1)}
-              className="inline-block rounded-full border border-gray-600 px-4 py-1.5 text-xs font-semibold text-gray-300 transition-colors hover:border-gray-400 hover:text-white"
-            >
-              ↺ Reset demo
-            </button>
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{copy.heading}</h1>
-          <p className="mx-auto mt-4 max-w-3xl leading-relaxed text-gray-300">{copy.body}</p>
-          <DemoTabs active={kind === "pastdue" ? "pastdue" : "reminders"} />
-        </div>
-      </section>
-
-      {/* ── Middle: exact replica of the real list page (DEMO_MODE) ── */}
-      <div className="bg-[#F9FAFB]">
-        <iframe
-          key={resetKey}
-          title={`Collections Copilot ${kind === "pastdue" ? "past-due" : "sent-reminders"} demo (exact replica)`}
-          srcDoc={doc}
-          className="block w-full border-0"
-          style={{ height }}
-          scrolling="no"
-          tabIndex={-1}
-        />
-      </div>
-
-      {/* ── Footer: conversion CTA + the site footer ── */}
-      <section className="bg-gray-900 py-16 text-white">
-        <div className="mx-auto max-w-3xl px-6 text-center">
-          <h2 className="text-3xl font-bold tracking-tight">Ready to see it with your own invoices?</h2>
-          <p className="mx-auto mt-4 max-w-lg text-gray-400">
-            The demo above is sample data. Connect your Stripe account and Collections Copilot watches your
-            real overdue invoices in the same pipeline — read-only at first, and nothing sends without your
-            approval.
-          </p>
-          <div className="mt-8 flex flex-col items-center gap-4">
-            <a href={SIGNUP_URL} className={BTN_PRIMARY} style={{ display: "inline-flex" }}>
-              Connect your Stripe account to start free
-            </a>
-            <a href="/how-it-works" className={BTN_SECONDARY}>
-              How it works
-            </a>
-          </div>
-          <p className="mt-4 text-xs text-gray-500">
-            No card required · cancel anytime · your first month is free
-          </p>
-        </div>
-      </section>
-
-      <SiteFooter />
-    </div>
+    <DemoPageShell
+      banner={copy.banner}
+      heading={copy.heading}
+      body={copy.body}
+      activeTab={copy.activeTab}
+      frameTitle={copy.title}
+      srcDoc={buildDemoListDoc(kind)}
+      minHeight={kind === "pastdue" ? 600 : 700}
+    />
   );
 }
 
