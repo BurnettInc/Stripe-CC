@@ -282,7 +282,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
         const served = dashboardHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
         return new Response(served, {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
         });
       }
 
@@ -295,7 +295,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
         const served = copilotControlsHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
         return new Response(served, {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
         });
       }
 
@@ -307,7 +307,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
         const served = accountHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
         return new Response(served, {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
         });
       }
 
@@ -319,7 +319,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
         const served = messagesHtml.replaceAll("__CC_HANDOFF_URL__", `${baseUrl}/oauth/handoff`);
         return new Response(served, {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
         });
       }
       // GET /reminders/rows — the Sent-tab fragment for /messages: the same
@@ -329,7 +329,7 @@ async function handleRequest(req: Request): Promise<Response> {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
         return new Response(remindersRowsHtml(db, auth.merchant_id), {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
         });
       }
       // GET /health — health check endpoint
