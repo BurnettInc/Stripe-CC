@@ -503,6 +503,9 @@ function Home() {
         <p className={`mt-4 text-center ${TYPE.bodyLg}`}>
           Start free. Upgrade when you&apos;re ready. No hidden fees.
         </p>
+        <p className="mt-3 text-center text-[13px] text-muted">
+          Every plan starts with a free 30-day trial — full access, no card required.
+        </p>
         <div className="mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
           {/* Free */}
           <div className="flex flex-col rounded-[14px] border border-hairline bg-white p-7 shadow-sm">
