@@ -541,6 +541,9 @@ function Home() {
           {/* Standard */}
           <div className="flex flex-col rounded-[14px] border border-hairline bg-white p-7 shadow-sm">
             <h3 className="text-base font-semibold text-ink">Standard</h3>
+            <span className="mt-3 inline-block w-fit rounded-full border border-hairline bg-band px-2.5 py-0.5 text-xs font-medium text-ink">
+              First 30 days free — no card
+            </span>
             <p className="mt-3 font-display text-[30px] font-semibold text-ink leading-none">
               $7<span className="font-sans text-[15px] font-normal text-muted">/mo</span>
             </p>
@@ -574,6 +577,9 @@ function Home() {
               Most popular
             </span>
             <h3 className="mt-2.5 text-base font-semibold text-ink">Pro</h3>
+            <span className="mt-3 inline-block w-fit rounded-full border border-hairline bg-band px-2.5 py-0.5 text-xs font-medium text-ink">
+              First 30 days free — no card
+            </span>
             <p className="mt-3 font-display text-[30px] font-semibold text-ink leading-none">
               $15<span className="font-sans text-[15px] font-normal text-muted">/mo</span>
             </p>
