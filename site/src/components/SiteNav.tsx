@@ -44,6 +44,9 @@ export function SiteNav({ businessName = "" }: { businessName?: string }) {
         <a href="/demo" className={BTN_SECONDARY_NAV}>
           See the demo
         </a>
+        <span className="hidden md:inline-flex items-center rounded-full border border-hairline bg-band px-3 py-1 text-xs font-medium text-ink">
+          30 days free
+        </span>
         <a href={INSTALL_URL} className={BTN_PRIMARY_NAV}>
           Get started
         </a>
