@@ -29,7 +29,7 @@ import { isActiveProSubscriber } from "../db";
 
 const template = readFileSync(join(import.meta.dirname, "..", "ui", "list-page.html"), "utf-8");
 
-const htmlHeaders = { "Content-Type": "text/html; charset=utf-8" };
+const htmlHeaders = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" };
 
 /** Escape a value for safe embedding in HTML (attribute + text contexts). */
 function esc(v: unknown): string {
