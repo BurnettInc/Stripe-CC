@@ -54,7 +54,8 @@
  *   SCHEDULER_PURGE_INTERVAL_MS       — 86400000 (24 h)
  */
 import type { Database } from "bun:sqlite";
-import { syncMerchantInvoices } from "../routes/oauth-app-install";
+import { getAppOAuthTokens, refreshAppAccessToken, syncMerchantInvoices } from "../routes/oauth-app-install";
+import { getStripeConnectionFor } from "../middleware/auth";
 import { createTaskForOverdueInvoice } from "./watcher";
 import { generateWeeklySummary } from "./summary";
 import { formatSummaryEmail } from "./summary-email";
@@ -269,6 +270,71 @@ function reconcileInvoiceStatuses(
   }
 }
 
+/**
+ * A live invoice pull that answers HTTP 401 does NOT necessarily mean the
+ * merchant deauthorized the app. Access tokens expire ~1h and the stored
+ * `expires_at` is written from OUR clock AFTER the exchange round-trip, so it
+ * over-estimates Stripe's real expiry by the request latency: a sync tick that
+ * lands inside that gap sends a token Stripe has already invalidated and is
+ * answered with a 401. (Production incident 2026-10-09: merchant 7 — the first
+ * real paying merchant — was marked disconnected 4 seconds past the app's own
+ * expiry, and because every pass excludes disconnected merchants, no code path
+ * ever retried the refresh: the account stayed dark for 25 h with a perfectly
+ * valid rolling refresh token on file. The customer voided the invoice and
+ * retried "reconnect" into a flow that cannot work for a marketplace install.)
+ *
+ * Self-heal: force-refresh the rolling token pair through the app's own OAuth
+ * helper and retry the pull ONCE. Returns the retry result when the connection
+ * is usable again, or null when the pair really is dead (no refresh token, the
+ * refresh itself failed, or the retry still 401s) — only then may the caller
+ * mark the merchant disconnected. Never throws: any error inside the heal path
+ * is logged and returns null, leaving the caller's existing semantics intact.
+ */
+async function retryAfterForcedTokenRefresh(
+  db: Database,
+  merchantId: number,
+  syncInvoices: NonNullable<SchedulerDeps["syncInvoices"]>,
+  log: (msg: string) => void,
+): Promise<{ inserted: number; synced: boolean; reason?: string } | null> {
+  try {
+    const tok = db
+      .query("SELECT stripe_user_id FROM oauth_tokens WHERE merchant_id = ? AND livemode = 1 ORDER BY updated_at DESC LIMIT 1")
+      .get(merchantId) as { stripe_user_id: string } | null;
+    if (!tok?.stripe_user_id) return null;
+    const refreshed = await refreshAppAccessToken(db, tok.stripe_user_id, true);
+    if (!refreshed.ok) {
+      log(`[scheduler] invoice-sync: merchant ${merchantId} live token rejected and the forced refresh failed (${refreshed.error})`);
+      return null;
+    }
+    // Mirror the fresh decrypted pair into the legacy stripe_connections row,
+    // exactly like syncMerchantInvoices does on a refresh, so every other
+    // consumer sees the current token rather than the stale mirror.
+    const fresh = getAppOAuthTokens(db, tok.stripe_user_id);
+    const conn = getStripeConnectionFor(db, merchantId, 1);
+    if (fresh?.access_token && conn) {
+      db.run("UPDATE stripe_connections SET access_token=?, refresh_token=?, updated_at=? WHERE id=?", [
+        fresh.access_token,
+        fresh.refresh_token,
+        new Date().toISOString(),
+        conn.id,
+      ]);
+    }
+    const retry = await syncInvoices(db, merchantId, { livemode: 1 });
+    if (retry.synced && !(retry.reason ?? "").includes("HTTP 401")) {
+      log(`[scheduler] invoice-sync: merchant ${merchantId} live token rejected (HTTP 401) — forced a token refresh and the retry succeeded; merchant stays connected`);
+      return retry;
+    }
+    // Disconnected mid-flight (concurrent deauthorize webhook): the retry
+    // correctly no-ops; do not treat it as cause to re-mark the merchant.
+    if (!retry.synced && retry.reason === "disconnected") return retry;
+    log(`[scheduler] invoice-sync: merchant ${merchantId} still failing after a forced token refresh (${retry.reason ?? "no reason"})`);
+    return null;
+  } catch (err) {
+    log(`[scheduler] invoice-sync: forced token refresh for merchant ${merchantId} failed: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 // ── Pass 1: invoice sync ──
 
 export interface InvoiceSyncPassResult {
@@ -368,10 +434,22 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
       if (!sync.synced && sync.reason === "disconnected") continue;
       // Dead token pair (HTTP 401 — platform_api_key_expired): mirror
       // application.deauthorized semantics — mark disconnected + stop
-      // sequences. LIVE mode only: a dead TEST token must never stop a
-      // merchant's live collections — log it as an error instead.
-      if (!sync.synced || (sync.reason ?? "").includes("HTTP 401")) {
-        if ((sync.reason ?? "").includes("HTTP 401") && livemode === 1) {
+      // sequences — but ONLY after a real attempt to heal the connection.
+      // A live 401 can be a stale-token race (the stored expires_at is written
+      // after the exchange round-trip and over-estimates Stripe's real expiry),
+      // and a false "disconnected" is unrecoverable in-process: every pass
+      // skips disconnected merchants, so the rolling refresh token on file is
+      // never used again. Force a refresh + one retry first; only a pair that
+      // cannot be refreshed (or still 401s with a fresh token) is treated as
+      // dead. LIVE mode only: a dead TEST token must never stop live
+      // collections — that stays logged as an error.
+      const rejected401 = (sync.reason ?? "").includes("HTTP 401");
+      const healedSync =
+        rejected401 && livemode === 1
+          ? await retryAfterForcedTokenRefresh(db, merchantId, syncInvoices, log)
+          : null;
+      if ((!sync.synced || rejected401) && !healedSync) {
+        if (rejected401 && livemode === 1) {
           markDisconnected(db, merchantId);
           result.disconnected.push(String(merchantId));
           log(`[scheduler] invoice-sync: merchant ${merchantId} live token rejected (HTTP 401) — marked disconnected, sequences stopped`);
@@ -379,6 +457,12 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
           result.errors.push(`merchant ${merchantId} (livemode=${livemode}): ${sync.reason}`);
         }
         continue;
+      }
+      if (healedSync) {
+        result.invoicesUpserted += healedSync.inserted || 0;
+        // The heal path refreshed the token and the retry still could not pull
+        // with it (e.g. a concurrent deauthorize) — nothing to reconcile.
+        if (!healedSync.synced) continue;
       }
       // Funnel: this merchant got a real invoice pull from Stripe (idempotent
       // per merchant — recorded once even though sync runs on a cadence).
