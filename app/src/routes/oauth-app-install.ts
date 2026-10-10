@@ -890,6 +890,19 @@ export function getAppOAuthTokens(db: Database, stripeUserId: string): AppOAuthT
 }
 
 /**
+ * Safety margin for the proactive refresh below (minutes). `expires_at` is
+ * written from OUR clock AFTER the exchange round-trip, so it over-estimates
+ * Stripe's real token expiry by the request latency; a caller that only
+ * refreshes once `expires_at` has passed can therefore send a token Stripe has
+ * already invalidated. Refreshing inside this margin keeps every API call on a
+ * token with life left in it. Production incident 2026-10-09: merchant 7's
+ * invoice sync hit a live 401 four seconds past the app's own expiry and the
+ * scheduler marked the paying merchant disconnected (dark for 25 h) even
+ * though the rolling refresh token on file was still perfectly valid.
+ */
+export const TOKEN_REFRESH_MARGIN_MINUTES = 10;
+
+/**
  * Refresh a stored token pair (grant_type=refresh_token). Access tokens expire
  * ~1h; refresh tokens expire ~1yr and ROLL on every exchange — the new pair is
  * stored, so the caller always has the latest. Returns the fresh access token.
@@ -897,6 +910,7 @@ export function getAppOAuthTokens(db: Database, stripeUserId: string): AppOAuthT
  * call is made. Used by any backend code that needs to act on the user's
  * behalf (e.g. reading invoices with the merchant's own credentials).
  */
+
 export async function refreshAppAccessToken(
   db: Database,
   stripeUserId: string,
@@ -906,9 +920,11 @@ export async function refreshAppAccessToken(
   if (!row) return { ok: false, error: "No stored tokens for this Stripe user." };
 
   if (!force) {
+    // Proactive refresh: treat the pair as expiring inside the safety margin
+    // (not only once it is already past) — see TOKEN_REFRESH_MARGIN_MINUTES.
     const stillValid = db
-      .query("SELECT 1 AS ok FROM oauth_tokens WHERE stripe_user_id = ? AND expires_at > datetime('now')")
-      .get(stripeUserId);
+      .query("SELECT 1 AS ok FROM oauth_tokens WHERE stripe_user_id = ? AND expires_at > datetime('now', ?)")
+      .get(stripeUserId, `+${TOKEN_REFRESH_MARGIN_MINUTES} minutes`);
     if (stillValid) return { ok: true, access_token: row.access_token, refreshed: false };
   }
 
