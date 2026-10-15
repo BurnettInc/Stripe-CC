@@ -10,7 +10,7 @@
  * creation and never advanced, weekly recovery reports were never sent, and
  * the 30-day deletion clock had no consumer.
  *
- * Four guarded passes, started at server boot (Bun setInterval — Railway runs
+ * Five guarded passes, started at server boot (Bun setInterval — Railway runs
  * one Bun service; no external cron):
  *
  *   1. INVOICE SYNC PASS (default every 15 min) — for each connected merchant
@@ -37,6 +37,13 @@
  *   4. DAILY PURGE PASS (default daily) — merchants whose
  *      deletion_scheduled_at has passed are purged via purgeMerchantData
  *      (idempotent, transactional); log counts.
+ *   5. DAILY OWNER REVENUE DIGEST (default daily) — read this app's OWN Stripe
+ *      account (the account behind STRIPE_SECRET_KEY, read-only) and email the
+ *      owner a compact revenue summary: balance, last-24h net
+ *      (payments − refunds − fees), active subscribers, MRR, and one line per
+ *      payment/subscription event. Internal owner alert only — it is addressed
+ *      to OWNER_NOTIFY_EMAIL, never to a customer, and the pass no-ops when
+ *      that variable is unset (see pipeline/owner-digest.ts).
  *
  * Every pass is factored as a pure-ish (db, deps) function — deps.now() and
  * deps.log() are injectable so tests drive the passes with seeded data and
@@ -52,6 +59,7 @@
  *   SCHEDULER_ADVANCE_INTERVAL_MS     — 86400000 (24 h)
  *   SCHEDULER_SUMMARY_INTERVAL_MS     — 86400000 (24 h)
  *   SCHEDULER_PURGE_INTERVAL_MS       — 86400000 (24 h)
+ *   SCHEDULER_OWNER_DIGEST_INTERVAL_MS — 86400000 (24 h)
  */
 import type { Database } from "bun:sqlite";
 import { getAppOAuthTokens, refreshAppAccessToken, syncMerchantInvoices } from "../routes/oauth-app-install";
@@ -62,6 +70,7 @@ import { formatSummaryEmail } from "./summary-email";
 import { sendEmailForReal } from "./sender";
 import { isPlaceholderMerchant, notifyMerchant } from "./notify";
 import { getEscalationStage } from "./escalation";
+import { runDailyOwnerDigest } from "./owner-digest";
 import { recordFunnelEvent } from "../funnel";
 import {
   cancelTasksForInvoice,
@@ -762,6 +771,20 @@ export async function runPurgePass(db: Database, deps: SchedulerDeps = {}): Prom
   return result;
 }
 
+// ── Pass 5: daily owner revenue digest ──
+
+/**
+ * Email the owner a compact daily revenue summary read from the app's OWN
+ * Stripe account (owner request 2026-10-12). The pass itself lives in
+ * pipeline/owner-digest.ts — same never-throw discipline as the other passes,
+ * and a pure no-op (no Stripe call, no send) when OWNER_NOTIFY_EMAIL is unset.
+ *
+ * Re-exported here so the scheduler module stays the single entry point for
+ * every pass (tests and manual triggers may import it from either module).
+ */
+export { runDailyOwnerDigest } from "./owner-digest";
+export type { OwnerDigestData, OwnerDigestResult } from "./owner-digest";
+
 // ── Boot wiring ──
 
 export interface SchedulerConfig {
@@ -769,6 +792,7 @@ export interface SchedulerConfig {
   advanceIntervalMs: number;
   summaryIntervalMs: number;
   purgeIntervalMs: number;
+  ownerDigestIntervalMs: number;
   /** First tick of the daily passes after boot (lets the HTTP server come up). */
   startDelayMs: number;
   /** First sync tick after boot — invoices created while the server was down
@@ -781,6 +805,7 @@ export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
   advanceIntervalMs: 24 * 60 * 60 * 1000,
   summaryIntervalMs: 24 * 60 * 60 * 1000,
   purgeIntervalMs: 24 * 60 * 60 * 1000,
+  ownerDigestIntervalMs: 24 * 60 * 60 * 1000,
   startDelayMs: 60 * 1000,
   syncInitialDelayMs: 30 * 1000,
 };
@@ -791,7 +816,7 @@ export interface SchedulerHandle {
 }
 
 /**
- * Start the four passes at boot. Intervals are env-configurable
+ * Start the five passes at boot. Intervals are env-configurable
  * (SCHEDULER_*_MS) with the sane defaults above; each pass is single-flight
  * and fully guarded — a failing tick logs and never crashes the server.
  */
@@ -805,6 +830,7 @@ export function startScheduler(
     advanceIntervalMs: envMs("SCHEDULER_ADVANCE_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.advanceIntervalMs),
     summaryIntervalMs: envMs("SCHEDULER_SUMMARY_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.summaryIntervalMs),
     purgeIntervalMs: envMs("SCHEDULER_PURGE_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.purgeIntervalMs),
+    ownerDigestIntervalMs: envMs("SCHEDULER_OWNER_DIGEST_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.ownerDigestIntervalMs),
     startDelayMs: envMs("SCHEDULER_START_DELAY_MS", DEFAULT_SCHEDULER_CONFIG.startDelayMs),
     syncInitialDelayMs: envMs("SCHEDULER_SYNC_INITIAL_DELAY_MS", DEFAULT_SCHEDULER_CONFIG.syncInitialDelayMs),
     ...config,
@@ -824,10 +850,16 @@ export function startScheduler(
   schedule(cfg.startDelayMs, cfg.advanceIntervalMs, singleFlightPass("escalation-advance", () => runEscalationAdvancePass(db, deps), log));
   schedule(cfg.startDelayMs, cfg.summaryIntervalMs, singleFlightPass("weekly-summary", () => runWeeklySummaryPass(db, deps), log));
   schedule(cfg.startDelayMs, cfg.purgeIntervalMs, singleFlightPass("purge", () => runPurgePass(db, deps), log));
+  // Daily owner revenue digest (owner request 2026-10-12) — reads the app's own
+  // Stripe account and emails the owner. Registered exactly like the other
+  // daily passes: 24h interval, first tick at startDelayMs, single-flight
+  // wrapper, so it logs `[scheduler] owner-digest pass …` like the rest.
+  schedule(cfg.startDelayMs, cfg.ownerDigestIntervalMs, singleFlightPass("owner-digest", () => runDailyOwnerDigest(db, deps), log));
 
   log(
     `[scheduler] started: invoice-sync every ${cfg.syncIntervalMs}ms (first in ${cfg.syncInitialDelayMs}ms), ` +
-      `escalation-advance every ${cfg.advanceIntervalMs}ms, weekly-summary every ${cfg.summaryIntervalMs}ms, purge every ${cfg.purgeIntervalMs}ms`
+      `escalation-advance every ${cfg.advanceIntervalMs}ms, weekly-summary every ${cfg.summaryIntervalMs}ms, purge every ${cfg.purgeIntervalMs}ms, ` +
+      `owner-digest every ${cfg.ownerDigestIntervalMs}ms`
   );
 
   return { stop: () => { for (const t of timers) clearTimeout(t); } };
