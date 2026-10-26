@@ -23,6 +23,14 @@
  *   (f) a capped balance-history page is disclosed in the body;
  *   (g) plan-name mapping (price nickname wins, else the live $7/$15/$50/$100
  *       catalog, else a neutral "Paid plan").
+ *   (h) scheduler wiring (24h interval, exported for manual runs).
+ *   (i) free-trial merchants (owner visibility 2026-10-26): only real
+ *       merchants inside the strict 30-day window are listed (exactly 30 days
+ *       is OUT, dev_pro / .local placeholders and active subscribers are
+ *       excluded), days-left is ceil()'d (a 5-day-old merchant reads "25 days
+ *       left", a 29-day-old one "1 day left"), oldest first, one body line per
+ *       merchant "email · N days left", the section is ALWAYS rendered even at
+ *       zero, and the scheduled log line carries the trial count.
  *
  * Run: cd app && bun run test-owner-digest.ts
  */
@@ -158,7 +166,7 @@ check("(a) body: internal-only note", body.includes("Internal owner alert; never
 const rows = digestLogRows();
 check("(a) send logged as owner_digest success", rows.length === 1 && rows[0].status === "success", JSON.stringify(rows));
 check("(a) log line parses like the other passes",
-  logLines().some((l) => l.startsWith("[scheduler] owner-digest pass: 2 subscriber(s), MRR $19.17/mo, net 24h -$0.74, 3 event(s) — sent")),
+  logLines().some((l) => l.startsWith("[scheduler] owner-digest pass: 2 subscriber(s), MRR $19.17/mo, net 24h -$0.74, 3 event(s), 0 in trial — sent")),
   JSON.stringify(logLines()));
 
 // ── (b) OWNER_NOTIFY_EMAIL unset → no network, no send ──
@@ -200,10 +208,12 @@ check("(d) activity still reported", partialBody.includes("Payment received · $
 const empty = digest.buildOwnerDigestEmail({
   date: "2026-10-12", windowEnd: "2026-10-12 09:00 UTC",
   availableCents: 0, pendingCents: 0, netCents: 0, paymentsCents: 0, refundsCents: 0, feesCents: 0,
-  activeSubscribers: 0, mrrCents: 0, events: [], historyTruncated: false, errors: [],
+  activeSubscribers: 0, mrrCents: 0, events: [], trialMerchants: [], historyTruncated: false, errors: [],
 });
 check("(e) zeros render as $0.00", empty.body.includes("Balance available:   $0.00") && empty.body.includes("Revenue last 24h:    $0.00") && empty.body.includes("MRR:                 $0.00/mo"), empty.body);
 check("(e) no activity is stated, not invented", empty.body.includes("(no payments, refunds or new subscriptions in the last 24h)"), empty.body);
+check("(e) trial section is ALWAYS present (explicit zero, never omitted)",
+  empty.body.includes("Merchants in free trial (0):") && empty.body.includes("(none — no merchant is inside the 30-day trial right now)"), empty.body);
 check("(e) unavailable renders honestly", digest.buildOwnerDigestEmail({ ...emptyDataNulls() }).body.includes("Balance available:   unavailable"));
 check("(e) money helper negative", digest.formatUsd(-74) === "-$0.74", digest.formatUsd(-74));
 
@@ -225,6 +235,66 @@ check("(g) $7/$50 → Standard", digest.planNameForPrice({ unit_amount: 700, rec
 check("(g) $15/$100 → Pro", digest.planNameForPrice({ unit_amount: 1500, recurring: { interval: "month" } }) === "Pro" && digest.planNameForPrice({ unit_amount: 10000, recurring: { interval: "year" } }) === "Pro");
 check("(g) unknown amount is neutral", digest.planNameForPrice({ unit_amount: 1234, recurring: { interval: "month" } }) === "Paid plan");
 
+// ── (i) free-trial merchants (owner visibility 2026-10-26) ──
+// NEW merchant rows are aged relative to SQLite's OWN clock
+// (datetime('now','-N days')) because isWithinFreeTrial compares created_at
+// against datetime('now') — the injected NOW above only drives the Stripe 24h
+// window. That keeps the boundary assertions exact without faking time.
+function addMerchant(email: string, ageDays: number): number {
+  const info = db.run(
+    "INSERT INTO merchants (stripe_account_id, email, trust_mode, created_at) VALUES (?, ?, 'draft', datetime('now', ?))",
+    [`acct_trial_${email.replace(/[^a-z0-9]/gi, "_")}`, email, `-${ageDays} days`]
+  );
+  return Number(info.lastInsertRowid);
+}
+addMerchant("trial5@example.com", 5); // 25 days left
+addMerchant("trial1@example.com", 29); // 1 day left (singular)
+addMerchant("trial-done@example.com", 31); // expired
+addMerchant("trial-boundary@example.com", 30); // exactly 30 days → OUT (strict <)
+addMerchant("devonly@install.local", 2); // .local placeholder → dev/test
+const trialDevPro = addMerchant("devpro@example.com", 2); // dev_pro flag → excluded
+db.run("UPDATE merchants SET dev_pro = 1 WHERE id = ?", [trialDevPro]);
+const trialPaying = addMerchant("paying@example.com", 2); // active subscriber → not "in trial"
+db.run(
+  "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (?, 'sub_trial_paying', 'pro', 'active')",
+  [trialPaying]
+);
+
+resetStub();
+seedStripe();
+captured.length = 0;
+const trialRun = await digest.runDailyOwnerDigest(db, deps);
+const trials = trialRun.data!.trialMerchants;
+check("(i) digest still sent with the trial section", trialRun.success === true, trialRun.message);
+check(
+  "(i) only real in-trial merchants listed",
+  trials.length === 2 && trials.every((m) => m.email === "trial5@example.com" || m.email === "trial1@example.com"),
+  JSON.stringify(trials)
+);
+check("(i) days-left = 25 for a 5-day-old merchant", trials.find((m) => m.email === "trial5@example.com")?.daysLeft === 25, JSON.stringify(trials));
+check("(i) days-left = 1 for a 29-day-old merchant", trials.find((m) => m.email === "trial1@example.com")?.daysLeft === 1, JSON.stringify(trials));
+check("(i) oldest first — closest to expiring leads", trials[0]?.email === "trial1@example.com", JSON.stringify(trials));
+check("(i) exactly 30 days is OUT (strict boundary)", !trials.some((m) => m.email === "trial-boundary@example.com"), JSON.stringify(trials));
+check("(i) expired merchant not listed", !trials.some((m) => m.email === "trial-done@example.com"), JSON.stringify(trials));
+check(
+  "(i) dev/test placeholders + dev_pro excluded",
+  !trials.some((m) => m.email.endsWith(".local") || m.email === "devpro@example.com"),
+  JSON.stringify(trials)
+);
+check("(i) an active subscriber is never 'in trial'", !trials.some((m) => m.email === "paying@example.com"), JSON.stringify(trials));
+const trialBody = digest.buildOwnerDigestEmail(trialRun.data!).body;
+check("(i) body: header carries the count", trialBody.includes("Merchants in free trial (2):"), trialBody);
+check(
+  "(i) body: one line per merchant 'email · N days left'",
+  trialBody.includes("trial5@example.com · 25 days left") && trialBody.includes("trial1@example.com · 1 day left"),
+  trialBody
+);
+check(
+  "(i) log line carries the trial count",
+  logLines().some((l) => l.includes("3 event(s), 2 in trial — sent")),
+  JSON.stringify(logLines())
+);
+
 // ── (h) scheduler wiring: the pass is registered under the owner-digest name ──
 const cfg = sched.DEFAULT_SCHEDULER_CONFIG;
 check("(h) 24h interval registered", cfg.ownerDigestIntervalMs === 86400000, String(cfg.ownerDigestIntervalMs));
@@ -240,6 +310,6 @@ function emptyDataNulls(): Parameters<typeof digest.buildOwnerDigestEmail>[0] {
   return {
     date: "2026-10-12", windowEnd: "2026-10-12 09:00 UTC",
     availableCents: null, pendingCents: null, netCents: null, paymentsCents: null, refundsCents: null, feesCents: null,
-    activeSubscribers: null, mrrCents: null, events: [], historyTruncated: false, errors: [],
+    activeSubscribers: null, mrrCents: null, events: [], trialMerchants: [], historyTruncated: false, errors: [],
   };
 }
