@@ -51,6 +51,9 @@
     .pill.yes { background: #0B2E22; color: #34D399; }
     .pill.no { background: #23272F; color: #6B7280; }
     .pill.conv { background: #273B2A; color: #86EFAC; }
+    /* free-trial badge — only rendered while the merchant is inside the
+       30-day automatic full-access trial (in_trial), e.g. "TRIAL · 21 days left" */
+    .pill.trial { background: #0E2E33; color: #5EEAD4; }
     .error { background: #3A1D1D; color: #FCA5A5; border: 1px solid #7F1D1D; border-radius: var(--radius); padding: 20px; text-align: center; }
     .empty { color: var(--muted); padding: 18px; text-align: center; }
     .one-liner { color: var(--body); font-size: 13px; line-height: 1.6; padding: 14px 16px; }
@@ -198,6 +201,25 @@
               <tbody id="visits"></tbody>
             </table></div>
           </div>
+        </div>
+      </div>
+    </section>
+    <!-- (d) MERCHANTS — every connected merchant, incl. the free-trial badge -->
+    <section class="section" id="merchantsSec" style="display:none;">
+      <div class="sec-head"><h2>Merchants</h2><span class="sec-note" id="merchantsHint">— plan, subscription, free trial</span></div>
+      <div class="panel">
+        <div class="scroll"><table>
+          <thead><tr><th>#</th><th>Email</th><th>Stripe account</th><th>Plan</th><th>Subscription</th><th>Trial</th><th>Connected</th><th>Invoices</th><th>Drafts</th><th>Last activity</th></tr></thead>
+          <tbody id="merchants"></tbody>
+        </table></div>
+        <div class="srcnote">
+          <b>Trial</b> is the automatic 30-day full-access free trial
+          (<code>FREE_TRIAL_DAYS</code>, anchored to the merchant's connect
+          time), shown as <b>TRIAL · N days left</b> — whole days, rounded up,
+          so any hours left reads 1 day. It comes from the same shared helper
+          the daily owner digest uses, so the two can never disagree. Active
+          paid subscribers and dev-flagged merchants are never in trial, so
+          their Trial cell stays empty.
         </div>
       </div>
     </section>
@@ -402,6 +424,42 @@
     document.getElementById("dvToggle14").addEventListener("click",function(){dvDays=14;renderDailyVisits();});
     document.getElementById("dvToggle30").addEventListener("click",function(){dvDays=30;renderDailyVisits();});
 
+    // ── Merchants + free-trial badge ──
+    // in_trial / trial_days_left come from the backend's shared db.ts helper
+    // (freeTrialDaysRemaining) — the same one the daily owner digest renders,
+    // so the badge and the digest can never disagree. Not in trial → no badge.
+    var merchantsAll=[];
+    function planPill(v){ return pill(v, (/^(pro|standard|free)$/.test(v)?v:"none")); }
+    function subPill(v){ return pill(v, (/^(active|past_due|cancelled|none)$/.test(v)?v:"none")); }
+    function trialPill(m){
+      if(!m.in_trial) return "";
+      var n=Number(m.trial_days_left);
+      if(!isFinite(n)||n<1) return "";
+      return '<span class="pill trial" title="Automatic 30-day full-access free trial">TRIAL · '+esc(n)+' day'+(n===1?"":"s")+' left</span>';
+    }
+    function renderMerchants(){
+      var rows=merchantsAll||[];
+      var tb=document.getElementById("merchants");
+      var inTrial=rows.filter(function(m){return !!m.in_trial;}).length;
+      document.getElementById("merchantsHint").textContent="— "+rows.length+" merchant"+(rows.length===1?"":"s")+" · "+inTrial+" in free trial";
+      if(!rows.length){ tb.innerHTML='<tr><td colspan="10" class="empty">No merchants connected yet</td></tr>'; return; }
+      tb.innerHTML="";
+      rows.forEach(function(m){
+        var tr=document.createElement("tr");
+        tr.innerHTML="<td>"+esc(m.id)+"</td>"+
+          "<td>"+esc(m.email||"<none>")+(m.placeholder?' <span class="muted">(placeholder)</span>':"")+"</td>"+
+          "<td><code>"+esc(trunc(m.stripe_account_id,24))+"</code></td>"+
+          "<td>"+planPill(m.plan)+"</td>"+
+          "<td>"+subPill(m.sub_status)+"</td>"+
+          "<td>"+trialPill(m)+"</td>"+
+          "<td>"+localT(m.created_at)+"</td>"+
+          "<td>"+esc(m.invoice_count)+"</td>"+
+          "<td>"+esc(m.draft_count)+"</td>"+
+          "<td>"+localT(m.last_activity)+"</td>";
+        tb.appendChild(tr);
+      });
+    }
+
     fetch("/admin/data?token="+encodeURIComponent(TOKEN))
       .then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d};});})
       .then(function(res){
@@ -415,6 +473,9 @@
         recentAll=(d.visits)||[]; recentConv=(d.conversions)||{}; renderRecent();
         dvAll=(d.visits_by_day&&d.visits_by_day.data)||[];
         renderDailyVisits();
+        merchantsAll=(d.merchants)||[]; renderMerchants();
+        document.getElementById("merchantsSec").style.display="";
+        labelAll(document.getElementById("merchantsSec"));
         document.getElementById("includeBots").addEventListener("change",function(){ includeBots=this.checked; renderRecent(); });
         document.getElementById("growthSec").style.display="";
         labelAll(document.getElementById("growthSec"));

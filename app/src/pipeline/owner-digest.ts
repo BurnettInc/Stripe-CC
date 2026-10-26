@@ -57,7 +57,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { FREE_TRIAL_DAYS, getMerchantById, isWithinFreeTrial, logSend } from "../db";
+import { FREE_TRIAL_DAYS, freeTrialDaysRemaining, getMerchantById, logSend } from "../db";
 import { sendEmailForReal } from "./sender";
 import type { EmailDraft } from "./drafter";
 import { getOwnerNotifyEmail, isDevOrTestMerchant } from "./owner-notify";
@@ -202,11 +202,12 @@ export interface TrialMerchant {
  *   1. ONE SQL read prefiltered to the trial window with the SAME boundary as
  *      isWithinFreeTrial (strict `datetime('now') < datetime(created_at,
  *      '+FREE_TRIAL_DAYS days')`), so no in-trial row is skipped and old rows
- *      are never enumerated. The same expression yields the remaining window
- *      in days (julianday) for the "N days left" figure.
- *   2. Then the AUTHORITATIVE per-candidate check, isWithinFreeTrial, which
- *      also excludes dev_pro merchants and anyone with an active paid
- *      subscription (a subscriber is never "in trial").
+ *      are never enumerated (and the rows come back in connect order).
+ *   2. Then freeTrialDaysRemaining — the SHARED db.ts helper (also used by the
+ *      owner admin dashboard, so the two can never drift): it returns null
+ *      unless the merchant is genuinely in trial (excludes dev_pro merchants
+ *      and anyone with an active paid subscription — a subscriber is never
+ *      "in trial") and otherwise the whole days left, ceil()'d, never 0.
  *   3. Then the pipeline's dev/test exclusion (isDevOrTestMerchant: dev_pro,
  *      acct_default placeholder account, .local placeholder emails) so our own
  *      test installs never show up in the owner's digest.
@@ -216,26 +217,28 @@ export interface TrialMerchant {
  */
 export function collectTrialMerchants(db: Database, errors?: string[]): TrialMerchant[] {
   try {
+    // Cheap SQL prefilter with the SAME boundary as isWithinFreeTrial, so old
+    // rows are never enumerated (and the ordering is the connect order).
+    // The days-left figure itself comes from the shared
+    // freeTrialDaysRemaining helper — one implementation shared with the owner
+    // admin dashboard, so the two can never disagree.
     const interval = `+${FREE_TRIAL_DAYS} days`;
     const rows = db
       .query(
-        `SELECT id, email,
-                (julianday(datetime(created_at, ?)) - julianday('now')) AS days_remaining
+        `SELECT id, email
            FROM merchants
           WHERE datetime('now') < datetime(created_at, ?)
           ORDER BY datetime(created_at) ASC`
       )
-      .all(interval, interval) as { id: number; email: string | null; days_remaining: number | null }[];
+      .all(interval) as { id: number; email: string | null }[];
 
     const out: TrialMerchant[] = [];
     for (const row of rows) {
-      if (!isWithinFreeTrial(db, row.id)) continue; // dev_pro / active subscriber / boundary
+      const daysLeft = freeTrialDaysRemaining(db, row.id);
+      if (daysLeft === null) continue; // dev_pro / active subscriber / boundary
       const merchant = getMerchantById(db, row.id);
       if (isDevOrTestMerchant(merchant)) continue; // our own test installs never reach the owner
-      const raw = typeof row.days_remaining === "number" && Number.isFinite(row.days_remaining) ? row.days_remaining : 0;
-      // ceil: hours left reads "1 day left" (never 0); at exactly 30 days the
-      // SQL prefilter/isWithinFreeTrial pair already excludes the merchant.
-      out.push({ email: (merchant?.email || row.email || "unknown").trim(), daysLeft: Math.max(Math.ceil(raw), 1) });
+      out.push({ email: (merchant?.email || row.email || "unknown").trim(), daysLeft });
     }
     return out;
   } catch (err) {

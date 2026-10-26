@@ -408,6 +408,35 @@ export function isWithinFreeTrial(db: Database, merchantId: number): boolean {
     .get(`+${FREE_TRIAL_DAYS} days`, merchantId) as { within: number } | null;
   return row?.within === 1;
 }
+/**
+ * Whole days of free trial left for the merchant, or null when the merchant is
+ * NOT in a free trial (the single source of truth for "how much trial is
+ * left", so the owner digest and the owner admin dashboard can never drift).
+ *
+ * Semantics, deliberately identical to isWithinFreeTrial:
+ *   - null when isWithinFreeTrial is false — dev_pro merchants, merchants with
+ *     an ACTIVE paid subscription, merchants at/after the exact
+ *     FREE_TRIAL_DAYS boundary, and merchants whose created_at is missing.
+ *   - otherwise an INTEGER >= 1: the remaining window in days, ceil()'d, so a
+ *     merchant with only hours left reads "1 day left" and no in-trial
+ *     merchant can ever read "0 days left".
+ * Remaining time is computed in SQLite from merchants.created_at (the same
+ * timezone-consistent datetime('now') anchor isWithinFreeTrial compares
+ * against). No side effects, read-only.
+ */
+export function freeTrialDaysRemaining(db: Database, merchantId: number): number | null {
+  if (!isWithinFreeTrial(db, merchantId)) return null;
+  const row = db
+    .query(
+      "SELECT (julianday(datetime(created_at, ?)) - julianday('now')) AS days_remaining FROM merchants WHERE id=?"
+    )
+    .get(`+${FREE_TRIAL_DAYS} days`, merchantId) as { days_remaining: number | null } | null;
+  const raw =
+    typeof row?.days_remaining === "number" && Number.isFinite(row.days_remaining) ? row.days_remaining : 0;
+  // ceil: hours left reads 1 (never 0); the strict boundary in
+  // isWithinFreeTrial already excluded the merchant at exactly FREE_TRIAL_DAYS.
+  return Math.max(Math.ceil(raw), 1);
+}
 /** Whether the merchant's most recent subscription is currently active. */
 export function hasActiveSubscription(db: Database, merchantId: number): boolean {
   if (isDevPro(db, merchantId)) return true;

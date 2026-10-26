@@ -121,6 +121,23 @@ async function main(): Promise<void> {
     "visits_total" in data.funnel && "connects_total" in data.funnel && "drafts_created_total" in data.funnel &&
     "paid_active" in data.funnel && "subs_cancelled" in data.funnel);
 
+  // Free-trial badge fields (owner ask 2026-10-26): every merchant row carries
+  // in_trial (boolean) + trial_days_left (integer >= 1, or null when not in
+  // trial), both derived from the SHARED db.ts freeTrialDaysRemaining helper —
+  // so the badge can never drift from the daily owner digest, and an in-trial
+  // merchant can never read "0 days left".
+  const trialRows = data.merchants as Array<{ in_trial?: unknown; trial_days_left?: unknown; sub_status?: string; dev_pro?: boolean }>;
+  check("admin/data merchants carry in_trial + trial_days_left",
+    trialRows.every((m) => typeof m.in_trial === "boolean" &&
+      (m.trial_days_left === null || (typeof m.trial_days_left === "number" && m.trial_days_left >= 1))),
+    JSON.stringify(trialRows));
+  check("admin/data trial fields agree with in_trial (number ⇔ in trial; never 0)",
+    trialRows.every((m) => (m.in_trial === true) === (typeof m.trial_days_left === "number")),
+    JSON.stringify(trialRows));
+  check("admin/data dev_pro + active subscribers are never in trial",
+    trialRows.every((m) => !((m.dev_pro === true || m.sub_status === "active") && m.in_trial === true)),
+    JSON.stringify(trialRows));
+
   // ── (c) /api/track ──
   const ts = new Date().toISOString();
   const payload = { visitor_id: "11111111-2222-4333-8444-555555555555", page: "/", referrer: "https://google.com", utm_source: "google", utm_medium: "cpc", utm_campaign: "launch", utm_content: "test-content", ts };
@@ -294,6 +311,11 @@ async function main(): Promise<void> {
   check("admin page renders the UTM campaigns panel markup",
     html2.includes("UTM campaigns") && html2.includes("utmCampaigns") && html2.includes("utmCampaignsPanel"),
     "utm campaigns markup missing");
+  check("admin page renders the Merchants panel with the free-trial badge",
+    html2.includes('id="merchantsSec"') && html2.includes('id="merchants"') &&
+    html2.includes("function trialPill") && html2.includes('class="pill trial"') &&
+    html2.includes("TRIAL · "),
+    "merchants / trial-badge markup missing");
 
   // ── (i) utm_campaigns rollup in /admin/data ──
   // Seed campaign-tagged visits: "banner" (3 visits from one visitor, medium
