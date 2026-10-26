@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { countWaitlistSignups, listWaitlistEntries, type WaitlistEntry } from "../db";
+import { countWaitlistSignups, freeTrialDaysRemaining, listWaitlistEntries, type WaitlistEntry } from "../db";
 import { aggregateUtmCampaigns, aggregateVisitsBySource, bucketVisit, displayBucketName, referrerHost, type VisitForAttribution } from "../visit-sources";
 import { botStatusForFull, botLikePatternFlags, classifyDevice, isBotUa, type VisitSignalRow } from "../visitor-signals";
 import { funnelStages } from "../funnel";
@@ -218,6 +218,12 @@ function merchantsList(db: Database) {
       (typeof r.email === "string" && r.email.endsWith(".local"));
     const subTier = typeof r.sub_tier === "string" ? r.sub_tier : null;
     const subStatus = typeof r.sub_status === "string" ? r.sub_status : null;
+    // Free-trial visibility (owner ask 2026-10-26): the SHARED db.ts helper is
+    // the single source of truth — same semantics as the daily owner digest, so
+    // the badge here can never disagree with the digest's "N days left".
+    // null means "not in trial" (dev_pro, active paid subscriber, outside the
+    // strict 30-day window); otherwise it's ceil'd whole days, always >= 1.
+    const trialDaysLeft = freeTrialDaysRemaining(db, Number(r.id));
 
     const candidates = [r.created_at, r.first_draft_at, r.sub_created_at, r.sub_cancelled_at, r.conn_updated_at, r.invoice_last_at]
       .map((t) => epochMs(typeof t === "string" ? t : null))
@@ -236,6 +242,10 @@ function merchantsList(db: Database) {
       sub_status: devPro ? "active" : (subStatus ?? "none"),
       sub_created_at: r.sub_created_at ?? null,
       sub_cancelled_at: r.sub_cancelled_at ?? null,
+      /** Inside the 30-day automatic full-access free trial (shared db.ts helper). */
+      in_trial: trialDaysLeft !== null,
+      /** Whole days left in that trial (ceil, >= 1) — null when not in trial. */
+      trial_days_left: trialDaysLeft,
       first_draft_at: r.first_draft_at ?? null,
       draft_count: Number(r.draft_count ?? 0),
       invoice_count: Number(r.invoice_count ?? 0),
