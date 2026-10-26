@@ -93,6 +93,7 @@ import { saveStripeConnection } from "../middleware/auth";
 import { sessionCookieFor, WWW_BASE, WWW_DASHBOARD_URL } from "./oauth";
 import { recordFunnelEvent } from "../funnel";
 import { accountFromCookie } from "./accounts";
+import { notifyOwnerStripeConnect } from "../pipeline/owner-notify";
 
 // ── Constants ──
 // The marketplace authorize endpoint's OFFICIAL (post-approval) format is the
@@ -1599,6 +1600,27 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
   // it, so it is logged for diagnosability and the cc_vid join is kept.
   recordFunnelEvent(db, merchantId, "oauth_completed", installVisitorId);
   console.log(`[oauth-app] install complete: ${tokens.stripe_user_id} (merchant ${merchantId}, link=${linkType}, livemode=${tokens.livemode})`);
+  // ── Owner signup notification (marketplace install path) ──
+  // Owner visibility 2026-10-26: marketplace installs are the real acquisition
+  // path, and until now this callback never told the owner anything —
+  // notifyOwnerStripeConnect was only wired into the OLD web-connect callback
+  // (routes/oauth.ts), so a merchant who installed from the listing (e.g. the
+  // first paying customer on 2026-10-09) connected with no owner email at all.
+  // Same call, same arguments as routes/oauth.ts: db, merchantId, the connected
+  // account id, and the connected account's own email when it is known. Here
+  // that email comes from the developer-key /v1/account fetch (the app-scoped
+  // OAuth token 403s on /v1/account — see fetchAccountDetailsViaDevKey); when
+  // both are null the helper falls back to merchant.email (the signed-in
+  // platform account address), exactly as it does on the web-connect path.
+  // Dev/test merchants are excluded INSIDE the helper (isDevOrTestMerchant:
+  // dev_pro / acct_default / .local placeholder emails) and it never throws —
+  // a failed owner email must never break an install.
+  try {
+    const accountEmail = devKeyDetails?.email ?? appTokenDetails?.email ?? null;
+    await notifyOwnerStripeConnect(db, merchantId, tokens.stripe_user_id, accountEmail);
+  } catch (err: unknown) {
+    console.error(`[oauth-app] owner connect notification error: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   return new Response(null, {
     status: 302,
