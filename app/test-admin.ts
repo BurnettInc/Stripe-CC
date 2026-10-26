@@ -126,7 +126,7 @@ async function main(): Promise<void> {
   // trial), both derived from the SHARED db.ts freeTrialDaysRemaining helper —
   // so the badge can never drift from the daily owner digest, and an in-trial
   // merchant can never read "0 days left".
-  const trialRows = data.merchants as Array<{ in_trial?: unknown; trial_days_left?: unknown; sub_status?: string; dev_pro?: boolean }>;
+  const trialRows = data.merchants as Array<{ id?: number; created_at?: string; in_trial?: unknown; trial_days_left?: unknown; trial_expires_at?: unknown; sub_status?: string; dev_pro?: boolean }>;
   check("admin/data merchants carry in_trial + trial_days_left",
     trialRows.every((m) => typeof m.in_trial === "boolean" &&
       (m.trial_days_left === null || (typeof m.trial_days_left === "number" && m.trial_days_left >= 1))),
@@ -137,6 +137,24 @@ async function main(): Promise<void> {
   check("admin/data dev_pro + active subscribers are never in trial",
     trialRows.every((m) => !((m.dev_pro === true || m.sub_status === "active") && m.in_trial === true)),
     JSON.stringify(trialRows));
+  // trial_expires_at (owner ask 2026-10-26, Trials section): the ISO-8601 UTC
+  // instant the trial runs out — present for in-trial merchants only, null for
+  // everyone else, so the dashboard can never print an expiry date for a
+  // merchant that has no live trial.
+  check("admin/data trial_expires_at is an ISO string iff the merchant is in trial",
+    trialRows.every((m) => (m.in_trial === true
+      ? typeof m.trial_expires_at === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(m.trial_expires_at as string)
+      : m.trial_expires_at === null)),
+    JSON.stringify(trialRows));
+  // …and it must be the SAME window the days-left helper measures:
+  // merchants.created_at (SQLite "YYYY-MM-DD HH:MM:SS", UTC) + FREE_TRIAL_DAYS.
+  const inTrialRow = trialRows.find((m) => m.in_trial === true);
+  const expectedExpiry = inTrialRow && typeof inTrialRow.created_at === "string"
+    ? new Date(Date.parse(inTrialRow.created_at.replace(" ", "T") + "Z") + 30 * 86400000).toISOString()
+    : null;
+  check("admin/data trial_expires_at equals created_at + 30 days (UTC)",
+    !!inTrialRow && expectedExpiry !== null && inTrialRow.trial_expires_at === expectedExpiry,
+    `got ${String(inTrialRow?.trial_expires_at)} expected ${String(expectedExpiry)}`);
 
   // ── (c) /api/track ──
   const ts = new Date().toISOString();
@@ -311,11 +329,49 @@ async function main(): Promise<void> {
   check("admin page renders the UTM campaigns panel markup",
     html2.includes("UTM campaigns") && html2.includes("utmCampaigns") && html2.includes("utmCampaignsPanel"),
     "utm campaigns markup missing");
-  check("admin page renders the Merchants panel with the free-trial badge",
-    html2.includes('id="merchantsSec"') && html2.includes('id="merchants"') &&
-    html2.includes("function trialPill") && html2.includes('class="pill trial"') &&
-    html2.includes("TRIAL · "),
-    "merchants / trial-badge markup missing");
+  check("admin page renders the Merchants panel without the free-trial column",
+    html2.includes('id="merchantsSec"') && html2.includes('id="merchants"'),
+    "merchants markup missing");
+  // Trials is its own category now (owner ask 2026-10-26): the free-trial badge
+  // lives ONLY there, and the section sits directly ABOVE the funnel.
+  const trialsIdx = html2.indexOf('id="trialsSec"');
+  const funnelIdx = html2.indexOf('id="funnelSec"');
+  check("admin page renders the Trials section (TRIAL badge + expiry column)",
+    trialsIdx > -1 && html2.includes('id="trials"') && html2.includes('id="trialsHint"') &&
+    html2.includes("function renderTrials") && html2.includes("function trialPill") &&
+    html2.includes('class="pill trial"') && html2.includes("TRIAL · ") &&
+    html2.includes("trial_expires_at") && html2.includes("No merchants in free trial right now."),
+    "trials section markup missing");
+  check("admin page puts Trials BEFORE the Funnel (and after Revenue + Product Health)",
+    trialsIdx > -1 && funnelIdx > -1 && trialsIdx < funnelIdx &&
+    html2.indexOf('id="outcomesSec"') < trialsIdx,
+    `trialsSec@${trialsIdx} funnelSec@${funnelIdx}`);
+  // Exactly one place renders the badge: the Trials section. The Merchants
+  // section markup and its renderer must carry neither the pill nor trialPill.
+  {
+    const mStart = html2.indexOf('id="merchantsSec"');
+    const mBlock = mStart > -1 ? html2.slice(mStart, html2.indexOf("</section>", mStart)) : "";
+    const rStart = html2.indexOf("function renderMerchants");
+    const rEnd = html2.indexOf("function renderTrials", rStart);
+    const rBlock = rStart > -1 && rEnd > rStart ? html2.slice(rStart, rEnd) : "";
+    const tBlock = trialsIdx > -1 ? html2.slice(trialsIdx, html2.indexOf("</section>", trialsIdx)) : "";
+    const tMatch = html2.match(/function renderTrials[\s\S]{0,2000}/);
+    const tBody = tMatch ? tMatch[0] : "";
+    const pillCalls = (html2.match(/trialPill/g) || []).length;
+    check("admin page Merchants panel no longer renders the TRIAL badge",
+      !!mBlock && !mBlock.includes("pill trial") && !mBlock.includes("TRIAL · ") &&
+      !mBlock.includes("trialPill") && !mBlock.includes(">Trial<") && mBlock.includes("<th>Subscription</th>"),
+      "merchants still renders the trial badge");
+    check("admin page Trials section carries the Trial + Expires columns and its own header",
+      !!tBlock && tBlock.includes("<h2>Trials</h2>") && tBlock.includes("<th>Trial</th>") &&
+      tBlock.includes("<th>Expires</th>") && tBlock.includes('id="trials"') && tBlock.includes('id="trialsHint"'),
+      "trials section markup missing columns");
+    check("admin page TRIAL badge renders only from the Trials renderer",
+      pillCalls === 2 && !rBlock.includes("trialPill") && !rBlock.includes("in free trial") &&
+      tBody.includes("trialPill(") && tBody.includes("trial_expires_at") &&
+      tBody.includes("in_trial") && tBody.includes("No merchants in free trial right now."),
+      `trialPillRefs=${pillCalls} merchantsRendererHits=${rBlock.includes("trialPill")} trialsRendererOk=${tBody.includes("trial_expires_at")}`);
+  }
 
   // ── (i) utm_campaigns rollup in /admin/data ──
   // Seed campaign-tagged visits: "banner" (3 visits from one visitor, medium
@@ -533,6 +589,41 @@ async function main(): Promise<void> {
   check("admin chart copy is human-only (note + static hint)",
     htmlDV.includes("human visits") && htmlDV.includes("(UTC, human visits)"),
     "human-only copy missing");
+  // ── (k) Trials section membership: only CURRENT trials ──
+  // /admin/data must offer trial_expires_at ONLY for merchants in the trial
+  // right now. A paying merchant (ACTIVE subscription inside the time window)
+  // and a lapsed trial (connected 31 days ago) are both outside it, so both
+  // must report in_trial=false + trial_expires_at=null and never appear in the
+  // Trials section's rows. Seeded directly (no schema/feature changes).
+  {
+    const d = new Database(DB_PATH);
+    // Created NOW (inside the 30-day window by time) but the ACTIVE paid
+    // subscription wins — isWithinFreeTrial: "active subscriber always wins".
+    d.run("INSERT INTO merchants (id, stripe_account_id, email, trust_mode) VALUES (3, 'acct_paying', 'paying@example.com', 'semi')");
+    d.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (3, 'sub_admin_paying', 'pro', 'active')");
+    // Created 31 days ago → the strict `now < created_at + 30 days` window has
+    // elapsed (note: the SQL expression is INLINE, never a bound parameter).
+    d.run("INSERT INTO merchants (id, stripe_account_id, email, trust_mode, created_at) VALUES (4, 'acct_lapsed', 'lapsed@example.com', 'semi', datetime('now','-31 days'))");
+    d.close();
+  }
+  {
+    const dt = (await (await fetch(`${BASE}/admin/data?token=${TOKEN}`)).json()) as {
+      merchants: Array<{ id: number; created_at: string | null; sub_status: string; in_trial: boolean; trial_days_left: number | null; trial_expires_at: string | null }>;
+    };
+    const paying = dt.merchants.find((m) => m.id === 3);
+    const lapsed = dt.merchants.find((m) => m.id === 4);
+    check("admin/data paying merchant (active sub) is not in trial and has no trial expiry",
+      !!paying && paying.sub_status === "active" && paying.in_trial === false &&
+      paying.trial_days_left === null && paying.trial_expires_at === null,
+      JSON.stringify(paying));
+    check("admin/data lapsed trial (connected 31 days ago) is not in trial and has no trial expiry",
+      !!lapsed && lapsed.in_trial === false && lapsed.trial_days_left === null && lapsed.trial_expires_at === null,
+      JSON.stringify(lapsed));
+    check("admin/data trial_expires_at stands only on in-trial merchants (Trials membership)",
+      dt.merchants.every((m) => (m.in_trial === true) === (typeof m.trial_expires_at === "string")) &&
+      dt.merchants.some((m) => m.in_trial === true) && dt.merchants.length >= 4,
+      JSON.stringify(dt.merchants.map((m) => ({ id: m.id, in_trial: m.in_trial, exp: m.trial_expires_at }))));
+  }
   console.log(failures ? `\n${failures} FAILURE(S)` : "\nAll admin/track checks passed");
   process.exit(failures ? 1 : 0);
 }

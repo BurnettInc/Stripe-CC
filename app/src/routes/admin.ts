@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { countWaitlistSignups, freeTrialDaysRemaining, listWaitlistEntries, type WaitlistEntry } from "../db";
+import { FREE_TRIAL_DAYS, countWaitlistSignups, freeTrialDaysRemaining, listWaitlistEntries, type WaitlistEntry } from "../db";
 import { aggregateUtmCampaigns, aggregateVisitsBySource, bucketVisit, displayBucketName, referrerHost, type VisitForAttribution } from "../visit-sources";
 import { botStatusForFull, botLikePatternFlags, classifyDevice, isBotUa, type VisitSignalRow } from "../visitor-signals";
 import { funnelStages } from "../funnel";
@@ -92,6 +92,24 @@ function epochMs(ts: string | null | undefined): number | null {
   }
   const ms = Date.parse(ts);
   return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * The UTC instant a merchant's automatic free trial runs out: created_at +
+ * FREE_TRIAL_DAYS days, emitted as an ISO-8601 UTC string so the admin page can
+ * render it in the owner's local timezone. This is the SAME window the shared
+ * db.ts helpers measure (isWithinFreeTrial / freeTrialDaysRemaining use
+ * `datetime(created_at, '+30 days')`), expressed as a date — the days-left
+ * number and the expiry date therefore always describe the same moment.
+ *
+ * SQLite stores created_at as "YYYY-MM-DD HH:MM:SS" (UTC, no zone marker), which
+ * `new Date()` would read as LOCAL time — epochMs() appends the "Z" first.
+ * Returns null when created_at is missing/unparseable (no anchor, no date).
+ */
+function trialExpiresAt(createdAt: string | null | undefined): string | null {
+  const started = epochMs(createdAt ?? null);
+  if (started === null) return null;
+  return new Date(started + FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function funnel(db: Database) {
@@ -246,6 +264,13 @@ function merchantsList(db: Database) {
       in_trial: trialDaysLeft !== null,
       /** Whole days left in that trial (ceil, >= 1) — null when not in trial. */
       trial_days_left: trialDaysLeft,
+      /**
+       * When that trial expires — created_at + FREE_TRIAL_DAYS days as an
+       * ISO-8601 UTC instant. Null for every merchant not in trial (and for a
+       * missing/unparseable created_at), so the owner's Trials section can show
+       * one unambiguous date per current trial and nothing else.
+       */
+      trial_expires_at: trialDaysLeft !== null ? trialExpiresAt(r.created_at as string | null) : null,
       first_draft_at: r.first_draft_at ?? null,
       draft_count: Number(r.draft_count ?? 0),
       invoice_count: Number(r.invoice_count ?? 0),
