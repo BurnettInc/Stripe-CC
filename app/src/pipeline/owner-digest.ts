@@ -4,15 +4,20 @@
  * Once a day the app emails the OWNER (OWNER_NOTIFY_EMAIL) a compact revenue
  * summary pulled from the app's OWN Stripe account — the account behind
  * STRIPE_SECRET_KEY, i.e. the platform account that bills Standard/Pro
- * subscriptions. It is an INTERNAL owner alert: it goes through the same
- * product sender as the other owner notifications (sendEmailForReal, with
- * skipCanspam — there is no customer to opt out), and it is never sent to a
- * customer or merchant address.
+ * subscriptions — PLUS the merchants currently inside the 30-day full-access
+ * free trial (owner request 2026-10-26: trial merchants produce no Stripe
+ * objects at all, so the revenue lines alone never mention them; the owner
+ * wants them tracked to drive conversion). It is an INTERNAL owner alert: it
+ * goes through the same product sender as the other owner notifications
+ * (sendEmailForReal, with skipCanspam — there is no customer to opt out), and
+ * it is never sent to a customer or merchant address.
  *
- * READ-ONLY by construction: only three GETs are issued (balance,
- * balance/history, subscriptions) with the existing STRIPE_SECRET_KEY. No new
- * API key, no new env var beyond the ones the app already reads, and no write
- * of any kind against Stripe.
+ * READ-ONLY by construction: three Stripe GETs (balance, balance/history,
+ * subscriptions) with the existing STRIPE_SECRET_KEY, plus one local SQLite
+ * read of the merchants table for the trial section. No new API key, no new
+ * env var beyond the ones the app already reads, and no write of any kind
+ * against Stripe. The trial data comes from the app's own DB (merchants.
+ * created_at + subscriptions), never from Stripe.
  *
  * Source data:
  *   GET /v1/balance            — available[] + pending[] (usd only) → balance.
@@ -23,6 +28,11 @@
  *   GET /v1/subscriptions      — active subscriptions (livemode only) → count,
  *                                MRR, and one line per subscription created in
  *                                the window.
+ *   merchants table            — free-trial merchants: isWithinFreeTrial
+ *                                (strict "now < created_at + FREE_TRIAL_DAYS",
+ *                                the same helper the entitlement code uses),
+ *                                dev/test placeholders excluded with the
+ *                                pipeline's isDevOrTestMerchant rule.
  *
  * Honesty rules baked in:
  *   - livemode only: the product's merchant subscriptions are live-mode; a
@@ -33,6 +43,12 @@
  *     "unavailable" would be noise, and the failure is logged instead).
  *   - if the 24h window needed more than 100 balance transactions the body
  *     says so, so a capped number is never read as exact.
+ *   - the free-trial section is ALWAYS rendered, including "Merchants in free
+ *     trial (0):" — an explicit zero is the owner's ask (omitting the section
+ *     would read as "unknown").
+ *   - days left is ceil() of the remaining window (SQLite julianday), so a
+ *     merchant with hours left reads "1 day left" (never 0) and the strict
+ *     30-day boundary stays truthful: at exactly FREE_TRIAL_DAYS they are out.
  *
  * Never throws: a failed Stripe call, a failed send, or a logging failure is
  * logged and swallowed — exactly like owner-notify.ts — so the daily pass can
@@ -41,10 +57,11 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { logSend } from "../db";
+import { FREE_TRIAL_DAYS, getMerchantById, isWithinFreeTrial, logSend } from "../db";
 import { sendEmailForReal } from "./sender";
 import type { EmailDraft } from "./drafter";
-import { getOwnerNotifyEmail } from "./owner-notify";
+import { getOwnerNotifyEmail, isDevOrTestMerchant } from "./owner-notify";
+
 
 // Stripe API base. STRIPE_API_BASE lets tests point this module at a local stub
 // instead of the real API; production keeps the default. Same convention as
@@ -166,6 +183,69 @@ export function monthlyCentsForPrice(price: StripePrice | null | undefined, quan
   return Math.round((unit * qty) / months);
 }
 
+// ── Free-trial merchants (owner visibility, 2026-10-26) ──
+
+/** One merchant inside the 30-day full-access free trial. */
+export interface TrialMerchant {
+  /** The merchant's (real, non-placeholder) email. */
+  email: string;
+  /** Whole days of trial left, ceil()'d — always >= 1 while the trial is on. */
+  daysLeft: number;
+}
+
+/**
+ * The merchants currently inside the 30-day full-access free trial — the ones
+ * that produce NO Stripe objects, so the revenue lines above never mention
+ * them. Owner request 2026-10-26: track them to drive conversion.
+ *
+ * Correctness first, cheapest query that cannot miss a merchant:
+ *   1. ONE SQL read prefiltered to the trial window with the SAME boundary as
+ *      isWithinFreeTrial (strict `datetime('now') < datetime(created_at,
+ *      '+FREE_TRIAL_DAYS days')`), so no in-trial row is skipped and old rows
+ *      are never enumerated. The same expression yields the remaining window
+ *      in days (julianday) for the "N days left" figure.
+ *   2. Then the AUTHORITATIVE per-candidate check, isWithinFreeTrial, which
+ *      also excludes dev_pro merchants and anyone with an active paid
+ *      subscription (a subscriber is never "in trial").
+ *   3. Then the pipeline's dev/test exclusion (isDevOrTestMerchant: dev_pro,
+ *      acct_default placeholder account, .local placeholder emails) so our own
+ *      test installs never show up in the owner's digest.
+ *
+ * Never throws: a DB failure is recorded in `errors` (rendered in the body as
+ * unavailable) and yields an empty list — the digest still goes out.
+ */
+export function collectTrialMerchants(db: Database, errors?: string[]): TrialMerchant[] {
+  try {
+    const interval = `+${FREE_TRIAL_DAYS} days`;
+    const rows = db
+      .query(
+        `SELECT id, email,
+                (julianday(datetime(created_at, ?)) - julianday('now')) AS days_remaining
+           FROM merchants
+          WHERE datetime('now') < datetime(created_at, ?)
+          ORDER BY datetime(created_at) ASC`
+      )
+      .all(interval, interval) as { id: number; email: string | null; days_remaining: number | null }[];
+
+    const out: TrialMerchant[] = [];
+    for (const row of rows) {
+      if (!isWithinFreeTrial(db, row.id)) continue; // dev_pro / active subscriber / boundary
+      const merchant = getMerchantById(db, row.id);
+      if (isDevOrTestMerchant(merchant)) continue; // our own test installs never reach the owner
+      const raw = typeof row.days_remaining === "number" && Number.isFinite(row.days_remaining) ? row.days_remaining : 0;
+      // ceil: hours left reads "1 day left" (never 0); at exactly 30 days the
+      // SQL prefilter/isWithinFreeTrial pair already excludes the merchant.
+      out.push({ email: (merchant?.email || row.email || "unknown").trim(), daysLeft: Math.max(Math.ceil(raw), 1) });
+    }
+    return out;
+  } catch (err) {
+    const msg = `/merchants (free trial) → ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[owner-digest] ${msg}`);
+    if (errors) errors.push(msg);
+    return [];
+  }
+}
+
 // ── The digest payload ──
 
 export interface OwnerDigestData {
@@ -186,6 +266,9 @@ export interface OwnerDigestData {
   mrrCents: number | null;
   /** One short line per subscription/payment event in the window. */
   events: string[];
+  /** Merchants inside the 30-day free trial (never dev/test). Always present —
+   *  an explicit empty list renders as "Merchants in free trial (0):". */
+  trialMerchants: TrialMerchant[];
   /** True when the 24h window hit the balance-history page limit. */
   historyTruncated: boolean;
   /** Per-call failures, e.g. "/balance → HTTP 500" — rendered in the body. */
@@ -228,6 +311,18 @@ export function buildOwnerDigestEmail(data: OwnerDigestData): OwnerDigestEmail {
     lines.push("  (no payments, refunds or new subscriptions in the last 24h)");
   } else {
     for (const event of data.events) lines.push(`  ${event}`);
+  }
+
+  // Free-trial merchants (owner request 2026-10-26): ALWAYS rendered, even at
+  // zero — these merchants create no Stripe objects, so this section is the
+  // only place the owner sees them, and an explicit "0" beats an omission.
+  lines.push("", `Merchants in free trial (${data.trialMerchants.length}):`);
+  if (data.trialMerchants.length === 0) {
+    lines.push("  (none — no merchant is inside the 30-day trial right now)");
+  } else {
+    for (const merchant of data.trialMerchants) {
+      lines.push(`  ${merchant.email} · ${merchant.daysLeft} day${merchant.daysLeft === 1 ? "" : "s"} left`);
+    }
   }
 
   if (data.errors.length > 0) {
@@ -287,7 +382,7 @@ function defaultStripeGet(key: string): StripeGet {
  * attempted) so the scheduler loop stays alive.
  *
  * Log line (same shape as the other passes, so it parses the same way):
- *   [scheduler] owner-digest pass: <N> subscriber(s), MRR $X.XX/mo, net 24h $X.XX, <M> event(s) — <sent|failed|skipped>
+ *   [scheduler] owner-digest pass: <N> subscriber(s), MRR $X.XX/mo, net 24h $X.XX, <M> event(s), <T> in trial — <sent|failed|skipped>
  * plus singleFlightPass's own `[scheduler] owner-digest pass done (Xms)`.
  */
 export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = {}): Promise<OwnerDigestResult> {
@@ -428,6 +523,10 @@ export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = 
       activeSubscribers,
       mrrCents,
       events,
+      // Local DB read (no network): the trial merchants the revenue numbers
+      // can never show. Errors are folded into the same "Unavailable this run"
+      // line as the Stripe failures.
+      trialMerchants: collectTrialMerchants(db, errors),
       historyTruncated,
       errors,
     };
@@ -444,7 +543,7 @@ export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = 
   }
 
   const email = buildOwnerDigestEmail(data);
-  const summary = `${data.activeSubscribers ?? "?"} subscriber(s), MRR ${money(data.mrrCents)}/mo, net 24h ${money(data.netCents)}, ${data.events.length} event(s)`;
+  const summary = `${data.activeSubscribers ?? "?"} subscriber(s), MRR ${money(data.mrrCents)}/mo, net 24h ${money(data.netCents)}, ${data.events.length} event(s), ${data.trialMerchants.length} in trial`;
 
   const draft: EmailDraft = { subject: email.subject, body: email.body };
   try {
