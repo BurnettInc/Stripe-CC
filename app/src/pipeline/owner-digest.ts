@@ -249,6 +249,40 @@ export function collectTrialMerchants(db: Database, errors?: string[]): TrialMer
   }
 }
 
+// ── Free-trial expiry emails sent (owner visibility, 2026-10-26) ──
+
+/** send_logs.type the trial-expiry engine logs its sends under. */
+const TRIAL_EXPIRY_LOG_TYPE = "trial_expiry";
+
+/**
+ * How many trial-expiry emails actually went out in the last 24 hours — the
+ * one line the owner gets about the free-trial notification arc (the engine is
+ * flag-off by default, so this is normally 0 and the line is then OMITTED
+ * entirely rather than printed as a zero).
+ *
+ * Reads the mail trail (send_logs rows with type 'trial_expiry', status
+ * 'success') — NOT the dedupe ledger, which also holds reservations. A DB
+ * failure degrades to 0 (line omitted) and is recorded in `errors`, exactly
+ * like the other local reads here.
+ */
+export function countTrialExpirySends24h(db: Database, errors?: string[]): number {
+  try {
+    const row = db
+      .query(
+        `SELECT COUNT(*) AS n FROM send_logs
+          WHERE type = ? AND status = 'success'
+            AND datetime(created_at) >= datetime('now', '-1 day')`
+      )
+      .get(TRIAL_EXPIRY_LOG_TYPE) as { n: number } | null;
+    return Number(row?.n ?? 0);
+  } catch (err) {
+    const msg = `/send_logs (trial_expiry 24h) → ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[owner-digest] ${msg}`);
+    if (errors) errors.push(msg);
+    return 0;
+  }
+}
+
 // ── The digest payload ──
 
 export interface OwnerDigestData {
@@ -272,6 +306,10 @@ export interface OwnerDigestData {
   /** Merchants inside the 30-day free trial (never dev/test). Always present —
    *  an explicit empty list renders as "Merchants in free trial (0):". */
   trialMerchants: TrialMerchant[];
+  /** Free-trial expiry emails that actually went out in the last 24h. Rendered
+   *  as its own line ONLY when > 0 (the engine ships flag-off, so a typical
+   *  digest is byte-identical to the pre-feature one). */
+  trialExpirySends: number;
   /** True when the 24h window hit the balance-history page limit. */
   historyTruncated: boolean;
   /** Per-call failures, e.g. "/balance → HTTP 500" — rendered in the body. */
@@ -326,6 +364,13 @@ export function buildOwnerDigestEmail(data: OwnerDigestData): OwnerDigestEmail {
     for (const merchant of data.trialMerchants) {
       lines.push(`  ${merchant.email} · ${merchant.daysLeft} day${merchant.daysLeft === 1 ? "" : "s"} left`);
     }
+  }
+
+  // Free-trial expiry emails sent in the last 24h — a single line, and ONLY
+  // when something actually went out (the engine is flag-off by default, so
+  // the common digest is byte-identical to the pre-feature one).
+  if (data.trialExpirySends > 0) {
+    lines.push("", `Trial-expiry emails sent (24h): ${data.trialExpirySends}`);
   }
 
   if (data.errors.length > 0) {
@@ -530,6 +575,9 @@ export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = 
       // can never show. Errors are folded into the same "Unavailable this run"
       // line as the Stripe failures.
       trialMerchants: collectTrialMerchants(db, errors),
+      // Free-trial notification arc: how many trial-expiry emails actually went
+      // out in the last 24h (0 → the line is omitted entirely).
+      trialExpirySends: countTrialExpirySends24h(db, errors),
       historyTruncated,
       errors,
     };

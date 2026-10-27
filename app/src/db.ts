@@ -630,6 +630,7 @@ export function clearMerchantDeletion(db: Database, merchantId: number): void {
  *   email_oauth_states — merchant_id (one-time state rows for the email
  *                        authorize hop, migration 026)
  *   subscription_events— merchant_id
+ *   trial_expiry_sends — merchant_id (free-trial email dedupe ledger, 035)
  *   merchants          — the row itself
  * Plus the account layer (migration 017) when this merchant is the LAST
  * merchant of its linked account: account_magic_links, account_sessions,
@@ -672,6 +673,10 @@ export function purgeMerchantData(db: Database, merchantId: number): void {
     db.run("DELETE FROM email_connections WHERE merchant_id = ?", [merchantId]);
     db.run("DELETE FROM email_oauth_states WHERE merchant_id = ?", [merchantId]);
     db.run("DELETE FROM subscription_events WHERE merchant_id = ?", [merchantId]);
+    // Free-trial expiry email ledger (migration 035) — the (merchant_id,
+    // touchpoint) dedupe table; its FK would otherwise block the merchants
+    // delete below.
+    db.run("DELETE FROM trial_expiry_sends WHERE merchant_id = ?", [merchantId]);
 
     // Account layer: delete the linked account only when this is its last
     // merchant (see the doc comment above).
