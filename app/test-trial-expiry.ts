@@ -248,18 +248,33 @@ const t7Mail = sentTo("active-t7@example.com")[0];
 check("(c) sender identity is support@ (welcome-email continuity)", t7Mail?.from === "support@getcollectionscopilot.com", String(t7Mail?.from));
 check("(c) CAN-SPAM invoice footer is skipped (merchant email, own opt-out line)",
   t7Mail?.skipCanspam === true && !/stop receiving reminders for this invoice/i.test(t7Mail?.body ?? ""), t7Mail?.body);
-check("(c) subject is the PLACEHOLDER for T-7", /PLACEHOLDER — pending owner approval/.test(t7Mail?.subject ?? ""), t7Mail?.subject);
-check("(c) merge fields are substituted (no {{tokens}} left)",
-  !/\{\{\w+\}\}/.test(`${t7Mail?.subject}\n${t7Mail?.body}`) && (t7Mail?.body ?? "").includes("Hi active-t7,"), t7Mail?.body);
 const a7Expiry = copy.formatExpiryDateUtc(new Date(createdAtForHours(160)).getTime() + TRIAL_DAYS * DAY_MS);
-check("(c) expiry date merged as 'November 23, 2026'", (t7Mail?.body ?? "").includes(`Trial ends: ${a7Expiry}`), `${a7Expiry}\n${t7Mail?.body}`);
-check("(c) opt-out line present in the body", (t7Mail?.body ?? "").includes("support@getcollectionscopilot.com"), t7Mail?.body);
-check("(c) dashboard URL merged from BASE_URL", (t7Mail?.body ?? "").includes("https://app.example.com/dashboard"), t7Mail?.body);
+check("(c) subject is the owner-approved T-7 line (date merged)",
+  t7Mail?.subject === `Your free trial ends ${a7Expiry}`, `${t7Mail?.subject} vs ${a7Expiry}`);
+check("(c) merge fields are substituted (no {{tokens}} left)",
+  !/\{\{\w+\}\}/.test(`${t7Mail?.subject}\n${t7Mail?.body}`) && (t7Mail?.body ?? "").startsWith("Hello,"), t7Mail?.body);
+check("(c) expiry date merged into the approved sentence", (t7Mail?.body ?? "").includes(`free trial ends on ${a7Expiry}`), `${a7Expiry}\n${t7Mail?.body}`);
+check("(c) approved opt-out line closes the body",
+  (t7Mail?.body ?? "").includes(copy.TRIAL_EMAIL_OPT_OUT) &&
+    (t7Mail?.body ?? "").trimEnd().endsWith(copy.TRIAL_EMAIL_OPT_OUT), t7Mail?.body);
+check("(c) approved signature line present", (t7Mail?.body ?? "").includes("— Collections Copilot"), t7Mail?.body);
+check("(c) CTA token links to the dashboard checkout route via BASE_URL",
+  (t7Mail?.body ?? "").includes("[Choose a plan →] https://app.example.com/billing/checkout?tier=standard"), t7Mail?.body);
 const t0Mail = sentTo("active-t0@example.com")[0];
 check("(c) T-0 subject says today", /ends today/i.test(t0Mail?.subject ?? ""), t0Mail?.subject);
 const plus3Mail = sentTo("active-plus3@example.com")[0];
-check("(c) T+3 subject is the win-back placeholder", /reminders are paused/i.test(plus3Mail?.subject ?? ""), plus3Mail?.subject);
-check("(c) idle T-3 shares the T-3 template", sentTo("idle-t3@example.com")[0]?.subject === sentTo("active-t3@example.com")[0]?.subject);
+check("(c) T+3 subject is the approved win-back line", plus3Mail?.subject === "Your trial ended — your reminders are paused", plus3Mail?.subject);
+check("(c) T+3 resume CTA links to the checkout route",
+  (plus3Mail?.body ?? "").includes("[Subscribe to resume →] https://app.example.com/billing/checkout?tier=standard"), plus3Mail?.body);
+check("(c) idle T-3 uses the approved idle copy (3b), not the active T-3",
+  sentTo("idle-t3@example.com")[0]?.subject === "3 days left in your trial" &&
+    sentTo("active-t3@example.com")[0]?.subject === "3 days left in your trial — keep your reminders running",
+  JSON.stringify([sentTo("idle-t3@example.com")[0]?.subject, sentTo("active-t3@example.com")[0]?.subject]));
+check("(c) every trial email body ends with the approved opt-out line",
+  sent.length > 0 && sent.every((m) => m.body.trimEnd().endsWith(copy.TRIAL_EMAIL_OPT_OUT) &&
+    m.body.includes("— Collections Copilot")) &&
+    sent.every((m) => !/PLACEHOLDER/i.test(`${m.subject}\n${m.body}`)),
+  JSON.stringify(sent.map((m) => m.subject)));
 
 // ── (e) track selection ──
 // Seeded far from every touchpoint window (400h to expiry): this section is
