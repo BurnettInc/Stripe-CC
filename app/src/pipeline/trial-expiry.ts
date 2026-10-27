@@ -65,6 +65,7 @@ import type { EmailDraft } from "./drafter";
 import { isDevOrTestMerchant } from "./owner-notify";
 import { sendEmailForReal } from "./sender";
 import {
+  TRIAL_BILLING_PATH,
   TRIAL_EMAIL_FROM,
   TRIAL_EMAIL_SUPPORT,
   formatExpiryDateUtc,
@@ -456,14 +457,18 @@ export async function runTrialExpiryPass(
 
       const expiresAtMs = createdAtMs + FREE_TRIAL_DAYS * DAY_MS;
       const daysLeft = DAYS_LEFT_FOR_TOUCHPOINT[touchpoint];
+      const appBaseUrl = (process.env.BASE_URL || "https://stripe-cc-production.up.railway.app").replace(/\/+$/, "");
       const fields: TrialExpiryMergeFields = {
         greetingName: greetingNameFor(merchantEmail),
         merchantEmail,
         expiryDate: formatExpiryDateUtc(expiresAtMs),
         daysLeft,
         trialDays: FREE_TRIAL_DAYS,
-        dashboardUrl: `${(process.env.BASE_URL || "https://stripe-cc-production.up.railway.app").replace(/\/+$/, "")}/dashboard`,
+        dashboardUrl: `${appBaseUrl}/dashboard`,
         supportEmail: TRIAL_EMAIL_SUPPORT,
+        // The approved copy's CTA tokens link to the dashboard's own subscribe
+        // route (GET /billing/checkout — same URL the in-app CTA uses).
+        billingUrl: `${appBaseUrl}${TRIAL_BILLING_PATH}`,
         track,
       };
       const email = renderTrialEmail(touchpoint, track, fields);
