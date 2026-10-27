@@ -208,7 +208,7 @@ check("(d) activity still reported", partialBody.includes("Payment received · $
 const empty = digest.buildOwnerDigestEmail({
   date: "2026-10-12", windowEnd: "2026-10-12 09:00 UTC",
   availableCents: 0, pendingCents: 0, netCents: 0, paymentsCents: 0, refundsCents: 0, feesCents: 0,
-  activeSubscribers: 0, mrrCents: 0, events: [], trialMerchants: [], historyTruncated: false, errors: [],
+  activeSubscribers: 0, mrrCents: 0, events: [], trialMerchants: [], trialExpirySends: 0, historyTruncated: false, errors: [],
 });
 check("(e) zeros render as $0.00", empty.body.includes("Balance available:   $0.00") && empty.body.includes("Revenue last 24h:    $0.00") && empty.body.includes("MRR:                 $0.00/mo"), empty.body);
 check("(e) no activity is stated, not invented", empty.body.includes("(no payments, refunds or new subscriptions in the last 24h)"), empty.body);
@@ -310,6 +310,6 @@ function emptyDataNulls(): Parameters<typeof digest.buildOwnerDigestEmail>[0] {
   return {
     date: "2026-10-12", windowEnd: "2026-10-12 09:00 UTC",
     availableCents: null, pendingCents: null, netCents: null, paymentsCents: null, refundsCents: null, feesCents: null,
-    activeSubscribers: null, mrrCents: null, events: [], trialMerchants: [], historyTruncated: false, errors: [],
+    activeSubscribers: null, mrrCents: null, events: [], trialMerchants: [], trialExpirySends: 0, historyTruncated: false, errors: [],
   };
 }

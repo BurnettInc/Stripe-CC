@@ -44,6 +44,12 @@
  *      payment/subscription event. Internal owner alert only — it is addressed
  *      to OWNER_NOTIFY_EMAIL, never to a customer, and the pass no-ops when
  *      that variable is unset (see pipeline/owner-digest.ts).
+ *   6. FREE-TRIAL EXPIRY EMAILS (default every 6 hours) — email merchants a
+ *      scheduled arc of trial-expiry reminders as their 30-day trial runs out
+ *      (T-7/T-3/T-1/T-0 on the active track, a day-10 check-in plus T-3/T-0 on
+ *      the idle track, optional T+3 win-back). DISABLED BY DEFAULT: the pass is
+ *      a logged no-op unless TRIAL_EXPIRY_EMAILS_ENABLED is exactly "true", and
+ *      it never runs in a dev/test environment. See pipeline/trial-expiry.ts.
  *
  * Every pass is factored as a pure-ish (db, deps) function — deps.now() and
  * deps.log() are injectable so tests drive the passes with seeded data and
@@ -71,6 +77,7 @@ import { sendEmailForReal } from "./sender";
 import { isPlaceholderMerchant, notifyMerchant } from "./notify";
 import { getEscalationStage } from "./escalation";
 import { runDailyOwnerDigest } from "./owner-digest";
+import { runTrialExpiryPass } from "./trial-expiry";
 import { recordFunnelEvent } from "../funnel";
 import {
   cancelTasksForInvoice,
@@ -785,6 +792,20 @@ export async function runPurgePass(db: Database, deps: SchedulerDeps = {}): Prom
 export { runDailyOwnerDigest } from "./owner-digest";
 export type { OwnerDigestData, OwnerDigestResult } from "./owner-digest";
 
+// ── Pass 6: free-trial expiry emails ──
+
+/**
+ * The free-trial expiry email engine (owner-approved direction 2026-10-26)
+ * lives in pipeline/trial-expiry.ts. Re-exported here so the scheduler module
+ * stays the single entry point for every pass.
+ *
+ * SAFETY: the pass is OFF unless TRIAL_EXPIRY_EMAILS_ENABLED is exactly "true"
+ * and the environment is not dev/test — with the flag unset it is a no-op that
+ * only logs its tick. Nothing in the repo sets that flag.
+ */
+export { runTrialExpiryPass, isTrialExpiryEnabled, isDevOrTestEnv, touchpointForHours } from "./trial-expiry";
+export type { TrialExpiryPassResult } from "./trial-expiry";
+
 // ── Boot wiring ──
 
 export interface SchedulerConfig {
@@ -793,6 +814,9 @@ export interface SchedulerConfig {
   summaryIntervalMs: number;
   purgeIntervalMs: number;
   ownerDigestIntervalMs: number;
+  /** Free-trial expiry emails (pipeline/trial-expiry.ts) — off by default, so
+   *  the cadence only matters once the lead flips the flag in production. */
+  trialExpiryIntervalMs: number;
   /** First tick of the daily passes after boot (lets the HTTP server come up). */
   startDelayMs: number;
   /** First sync tick after boot — invoices created while the server was down
@@ -806,6 +830,10 @@ export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
   summaryIntervalMs: 24 * 60 * 60 * 1000,
   purgeIntervalMs: 24 * 60 * 60 * 1000,
   ownerDigestIntervalMs: 24 * 60 * 60 * 1000,
+  // 6 hours. Touchpoint windows are 24h wide, so this cadence can never land
+  // between two windows and miss one; the 14:00 UTC tick is the natural
+  // "US morning" slot (no timezone logic in v1 — deliberate).
+  trialExpiryIntervalMs: 6 * 60 * 60 * 1000,
   startDelayMs: 60 * 1000,
   syncInitialDelayMs: 30 * 1000,
 };
@@ -831,6 +859,7 @@ export function startScheduler(
     summaryIntervalMs: envMs("SCHEDULER_SUMMARY_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.summaryIntervalMs),
     purgeIntervalMs: envMs("SCHEDULER_PURGE_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.purgeIntervalMs),
     ownerDigestIntervalMs: envMs("SCHEDULER_OWNER_DIGEST_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.ownerDigestIntervalMs),
+    trialExpiryIntervalMs: envMs("SCHEDULER_TRIAL_EXPIRY_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.trialExpiryIntervalMs),
     startDelayMs: envMs("SCHEDULER_START_DELAY_MS", DEFAULT_SCHEDULER_CONFIG.startDelayMs),
     syncInitialDelayMs: envMs("SCHEDULER_SYNC_INITIAL_DELAY_MS", DEFAULT_SCHEDULER_CONFIG.syncInitialDelayMs),
     ...config,
@@ -855,11 +884,16 @@ export function startScheduler(
   // daily passes: 24h interval, first tick at startDelayMs, single-flight
   // wrapper, so it logs `[scheduler] owner-digest pass …` like the rest.
   schedule(cfg.startDelayMs, cfg.ownerDigestIntervalMs, singleFlightPass("owner-digest", () => runDailyOwnerDigest(db, deps), log));
+  // Free-trial expiry emails (owner-approved direction 2026-10-26). Registered
+  // exactly like the other passes — 6h interval, first tick at startDelayMs,
+  // single-flight wrapper — so it logs `[scheduler] trial-expiry pass …` even
+  // while it is a no-op. OFF unless TRIAL_EXPIRY_EMAILS_ENABLED is "true".
+  schedule(cfg.startDelayMs, cfg.trialExpiryIntervalMs, singleFlightPass("trial-expiry", () => runTrialExpiryPass(db, deps), log));
 
   log(
     `[scheduler] started: invoice-sync every ${cfg.syncIntervalMs}ms (first in ${cfg.syncInitialDelayMs}ms), ` +
       `escalation-advance every ${cfg.advanceIntervalMs}ms, weekly-summary every ${cfg.summaryIntervalMs}ms, purge every ${cfg.purgeIntervalMs}ms, ` +
-      `owner-digest every ${cfg.ownerDigestIntervalMs}ms`
+      `owner-digest every ${cfg.ownerDigestIntervalMs}ms, trial-expiry every ${cfg.trialExpiryIntervalMs}ms`
   );
 
   return { stop: () => { for (const t of timers) clearTimeout(t); } };
