@@ -171,6 +171,21 @@ function seedConnection(merchantId: number, token: string): void {
     [`acct_conn_${merchantId}`, merchantId, token, `rt_${merchantId}`]
   );
 }
+/**
+ * Seed a stripe_connections row whose created_at is `daysAgo` before FAKE_NOW,
+ * written in the ISO-8601 format the real OAuth handshake stores
+ * ('YYYY-MM-DDTHH:MM:SS.sssZ') — deliberately different from the SQLite
+ * 'YYYY-MM-DD HH:MM:SS' format the other timestamp columns use, so the summary
+ * pass's cross-format anchor comparison is exercised.
+ */
+function seedConnectionAt(merchantId: number, token: string, daysAgo: number, base: Date = FAKE_NOW): void {
+  const when = new Date(base.getTime() - daysAgo * DAY_MS).toISOString();
+  db.run(
+    `INSERT INTO stripe_connections (id, merchant_id, access_token, refresh_token, stripe_publishable_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, '', ?, ?)`,
+    [`acct_conn_at_${merchantId}`, merchantId, token, `rt_${merchantId}`, when, when]
+  );
+}
 function seedStandardSub(merchantId: number, tier = "standard"): void {
   db.run(
     "INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (?, ?, ?, 'active')",
@@ -437,6 +452,46 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   const m16 = seedMerchant("acct_m16", { email: "user_acct_m16@install.local", createdDaysAgo: 20 });
   seedStandardSub(m16, "standard");
 
+  // -- connect-aware guards (owner direction 2026-10-28) --
+  // m26: PRE-CONNECT SKEW - the merchants row was created 10 days ago but the
+  // Stripe connect only happened 2 days ago. The OLD anchor (merchants
+  // .created_at) made her due immediately and shipped a report covering a week
+  // before she connected; the connect anchor keeps her not-due until a full
+  // 7-day post-connect window exists.
+  const m26 = seedMerchant("acct_m26", { email: "m26@example.com", createdDaysAgo: 10 });
+  seedStandardSub(m26, "standard");
+  seedConnectionAt(m26, "tok_m26", 2);
+  // m27: paid, connected 8 days ago (ISO timestamp, the real prod format), no
+  // prior summary -> due and sent.
+  const m27 = seedMerchant("acct_m27", { email: "m27@example.com", createdDaysAgo: 8 });
+  seedStandardSub(m27, "standard");
+  seedConnectionAt(m27, "tok_m27", 8);
+  // m28: established - connected 30 days ago, last summary 5 days ago -> the
+  // sent_at anchor still governs (not due).
+  const m28 = seedMerchant("acct_m28", { email: "m28@example.com", createdDaysAgo: 30 });
+  seedStandardSub(m28, "standard");
+  seedConnectionAt(m28, "tok_m28", 30);
+  db.run("INSERT INTO summary_sends (merchant_id, sent_at, status) VALUES (?, ?, 'sent')", [
+    m28,
+    sqliteFromDate(new Date(FAKE_NOW.getTime() - 5 * DAY_MS)),
+  ]);
+  // m29: WINDOW GUARD - cadence says due (last summary 30 days ago) but the
+  // connect is only 2 days old, so the generated window (now-7d) starts before
+  // the connect date -> before-connect skip: no send, no new ledger row.
+  const m29 = seedMerchant("acct_m29", { email: "m29@example.com", createdDaysAgo: 40 });
+  seedStandardSub(m29, "standard");
+  // NOTE: relative to the REAL clock, not FAKE_NOW — generateWeeklySummary()
+  // stamps periodStart from new Date() (real now), so this is the one fixture
+  // that must line up with the generated window for the guard to be exercised.
+  seedConnectionAt(m29, "tok_m29", 2, new Date());
+  db.run("INSERT INTO summary_sends (merchant_id, sent_at, status) VALUES (?, ?, 'sent')", [
+    m29,
+    sqliteFromDate(new Date(FAKE_NOW.getTime() - 30 * DAY_MS)),
+  ]);
+  // m30: NO stripe_connections row at all -> the anchor falls back to
+  // merchants.created_at (9 days ago) and the summary is sent.
+  const m30 = seedMerchant("acct_m30", { email: "m30@example.com", createdDaysAgo: 9 });
+  seedStandardSub(m30, "standard");
   const rh = await sched.runWeeklySummaryPass(db, { now: fakeNow, log: () => {} });
 
   const m12Sends = db.query("SELECT COUNT(*) AS n FROM summary_sends WHERE merchant_id=?").get(m12) as { n: number };
@@ -452,9 +507,50 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   const m16Sends = db.query("SELECT COUNT(*) AS n FROM summary_sends WHERE merchant_id=?").get(m16) as { n: number };
   check("(h) placeholder merchant never sent", m16Sends.n === 0, `n=${m16Sends.n}`);
   check("(h) summary pass reports the paid sends", rh.sent >= 1, `sent=${rh.sent}`);
+  // -- connect-aware guards (owner direction 2026-10-28) --
+  const ledgerCount = (id: number): number =>
+    (db.query("SELECT COUNT(*) AS n FROM summary_sends WHERE merchant_id=?").get(id) as { n: number }).n;
+  check(
+    "(h) merchants row 10d old but connected 2d ago -> NO summary (pre-connect skew)",
+    ledgerCount(m26) === 0,
+    `ledger=${ledgerCount(m26)}`
+  );
+  check(
+    "(h) connected 8d ago with no prior send -> first summary sent",
+    ledgerCount(m27) === 1,
+    `ledger=${ledgerCount(m27)}`
+  );
+  check(
+    "(h) established merchant (sent 5d ago) stays not-due",
+    ledgerCount(m28) === 1,
+    `ledger=${ledgerCount(m28)}`
+  );
+  check(
+    "(h) window predating connect -> before-connect skip, no send, no ledger row",
+    ledgerCount(m29) === 1,
+    `ledger=${ledgerCount(m29)}`
+  );
+  check(
+    "(h) pass reports exactly one before-connect skip",
+    rh.skipped.beforeConnect === 1,
+    `beforeConnect=${rh.skipped.beforeConnect}`
+  );
+  check(
+    "(h) no stripe_connections row -> falls back to merchants.created_at and sends",
+    ledgerCount(m30) === 1,
+    `ledger=${ledgerCount(m30)}`
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// -- (h2) summary window guard: pure eligibility rule --
+{
+  const connectAt = Date.UTC(2026, 9, 28, 8, 40, 16); // 2026-10-28T08:40:16Z
+  check("(h2) window starting before the connect date is rejected", sched.summaryWindowPredatesConnect("2026-10-21", connectAt) === true);
+  check("(h2) window starting on the connect date is allowed", sched.summaryWindowPredatesConnect("2026-10-28", connectAt) === false);
+  check("(h2) window starting after the connect date is allowed", sched.summaryWindowPredatesConnect("2026-10-29", connectAt) === false);
+  check("(h2) unknown connect time never blocks a send", sched.summaryWindowPredatesConnect("2026-10-21", null) === false);
+}
 // (i) purge pass — expired clock purged (FK chain), future/null kept
 // ════════════════════════════════════════════════════════════════════════
 {
