@@ -839,7 +839,8 @@ async function handleRequest(req: Request): Promise<Response> {
       if (path === "/summary/send" && req.method === "POST") {
         const auth = requireSession(db, req);
         if (auth instanceof Response) return auth;
-        const { generateWeeklySummary } = await import("./pipeline/summary");
+        const { generateWeeklySummary, merchantConnectMs, summaryWindowPredatesConnect, utcDateString } =
+          await import("./pipeline/summary");
         const { formatSummaryEmail } = await import("./pipeline/summary-email");
         const { getMerchantById, logSend, isActivePaidSubscriber } = await import("./db");
         const { sendEmailForReal } = await import("./pipeline/sender");
@@ -847,11 +848,11 @@ async function handleRequest(req: Request): Promise<Response> {
         const merchantId = auth.merchant_id;
 
         // Weekly recovery reports are included with every PAID plan (Standard
-        // and Pro) — homepage parity. There is no separate scheduled send
-        // path today: this route is the only place summaries go out, and any
-        // future scheduler must apply the same isActivePaidSubscriber() rule
-        // before sending (must never send to free merchants). Read-only GET
-        // /summary stays open to any authenticated user.
+        // and Pro) — homepage parity. The scheduled weekly-summary pass
+        // (pipeline/scheduler.ts) applies the same isActivePaidSubscriber() rule
+        // before sending (never to free merchants); this on-demand route mirrors
+        // it, plus the shared connect-window guard below. Read-only GET /summary
+        // stays open to any authenticated user.
         if (!isActivePaidSubscriber(db, merchantId)) {
           return new Response(
             JSON.stringify({ error: "Weekly recovery reports require a subscription. Upgrade to unlock." }),
@@ -892,6 +893,38 @@ async function handleRequest(req: Request): Promise<Response> {
         }
 
         const summary = generateWeeklySummary(db, merchantId);
+
+        // Connect-window guard (owner direction 2026-10-28, incident 2026-10-28
+        // 08:56:45 send_logs id 135): a brand-new merchant must never receive a
+        // "your last 7 days" report covering a week before they connected. The
+        // SCHEDULED pass got this in PR #242, but this on-demand route is the
+        // path the incident actually came through, so the SAME rule
+        // (summaryWindowPredatesConnect — one implementation, in
+        // ./pipeline/summary) is enforced here, after the paid + placeholder
+        // gates and BEFORE anything is sent. A skip is not an attempt: no
+        // sendEmailForReal call, no send_logs row, no summary_sends row.
+        const connectMs = merchantConnectMs(db, merchant);
+        if (summaryWindowPredatesConnect(summary.periodStart, connectMs)) {
+          console.log(
+            `[summary] merchant ${merchantId} on-demand summary skipped — reporting window ${summary.periodStart} predates Stripe connect ${
+              connectMs === null ? "unknown" : utcDateString(connectMs)
+            }`
+          );
+          return new Response(JSON.stringify({
+            skipped: true,
+            sentTo: merchant.email,
+            sendResult: {
+              success: false,
+              skipped: true,
+              message:
+                "Your weekly summary covers the past 7 days. You'll receive your first one once your account has been connected for a full week.",
+            },
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
         const email = formatSummaryEmail(summary, merchant.stripe_account_id === "acct_default" ? "Merchant" : merchant.email);
 
         // Attempt real send
