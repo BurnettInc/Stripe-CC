@@ -545,11 +545,48 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
 // ════════════════════════════════════════════════════════════════════════
 // -- (h2) summary window guard: pure eligibility rule --
 {
+  const summaryMod = await import("./src/pipeline/summary");
   const connectAt = Date.UTC(2026, 9, 28, 8, 40, 16); // 2026-10-28T08:40:16Z
   check("(h2) window starting before the connect date is rejected", sched.summaryWindowPredatesConnect("2026-10-21", connectAt) === true);
   check("(h2) window starting on the connect date is allowed", sched.summaryWindowPredatesConnect("2026-10-28", connectAt) === false);
   check("(h2) window starting after the connect date is allowed", sched.summaryWindowPredatesConnect("2026-10-29", connectAt) === false);
   check("(h2) unknown connect time never blocks a send", sched.summaryWindowPredatesConnect("2026-10-21", null) === false);
+  // ONE implementation: the scheduler re-exports the rule that lives next to
+  // generateWeeklySummary, so the pass and the manual POST /summary/send route
+  // (index.ts imports it from ./pipeline/summary directly) cannot diverge.
+  check(
+    "(h2) scheduler re-exports the single shared guard implementation",
+    sched.summaryWindowPredatesConnect === summaryMod.summaryWindowPredatesConnect
+  );
+  // Connect epoch: MAX(stripe_connections.created_at), ISO timestamps, and the
+  // merchants.created_at fallback when there is no connection row at all.
+  const mMulti = seedMerchant("acct_m_multi", { email: "multi@example.com", createdDaysAgo: 40 });
+  for (const [suffix, daysAgo] of [["old", 30], ["new", 5]] as const) {
+    const when = new Date(FAKE_NOW.getTime() - daysAgo * DAY_MS).toISOString();
+    db.run(
+      `INSERT INTO stripe_connections (id, merchant_id, access_token, refresh_token, stripe_publishable_key, created_at, updated_at)
+       VALUES (?, ?, ?, '', '', ?, ?)`,
+      [`acct_conn_multi_${suffix}`, mMulti, `tok_multi_${suffix}`, when, when]
+    );
+  }
+  const multiMs = summaryMod.merchantConnectMs(db, { id: mMulti, created_at: null });
+  check(
+    "(h2) connect epoch uses the LATEST connection row, not merchants.created_at",
+    multiMs === new Date(FAKE_NOW.getTime() - 5 * DAY_MS).getTime(),
+    `ms=${multiMs}`
+  );
+  const mNoConn = seedMerchant("acct_m_noconn", { email: "noconn@example.com", createdDaysAgo: 9 });
+  check(
+    "(h2) no connection row → falls back to merchants.created_at (UTC-pinned)",
+    summaryMod.merchantConnectMs(db, { id: mNoConn, created_at: sqliteFromDate(new Date(FAKE_NOW.getTime() - 9 * DAY_MS)) }) ===
+      new Date(sqliteFromDate(new Date(FAKE_NOW.getTime() - 9 * DAY_MS)).replace(" ", "T") + "Z").getTime(),
+    `ms=${summaryMod.merchantConnectMs(db, { id: mNoConn, created_at: sqliteFromDate(new Date(FAKE_NOW.getTime() - 9 * DAY_MS)) })}`
+  );
+  check(
+    "(h2) nothing parseable → null (guard can never fire on unknown)",
+    summaryMod.merchantConnectMs(db, { id: mNoConn, created_at: null }) === null &&
+      summaryMod.summaryWindowPredatesConnect("2026-01-01", null) === false
+  );
 }
 // (i) purge pass — expired clock purged (FK chain), future/null kept
 // ════════════════════════════════════════════════════════════════════════

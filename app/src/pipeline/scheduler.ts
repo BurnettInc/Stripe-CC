@@ -71,7 +71,13 @@ import type { Database } from "bun:sqlite";
 import { getAppOAuthTokens, refreshAppAccessToken, syncMerchantInvoices } from "../routes/oauth-app-install";
 import { getStripeConnectionFor } from "../middleware/auth";
 import { createTaskForOverdueInvoice } from "./watcher";
-import { generateWeeklySummary } from "./summary";
+import {
+  generateWeeklySummary,
+  merchantConnectMs,
+  parseStoredDate,
+  summaryWindowPredatesConnect,
+  utcDateString,
+} from "./summary";
 import type { WeeklySummary } from "./summary";
 import { formatSummaryEmail } from "./summary-email";
 import { sendEmailForReal } from "./sender";
@@ -92,6 +98,12 @@ import {
 } from "../db";
 import type { Invoice, Merchant, ReminderTask } from "../db";
 
+// The weekly-summary window rule now lives in ./summary (next to
+// generateWeeklySummary, which produces the window it tests) so this pass and
+// the manual POST /summary/send route share ONE implementation. Re-exported here
+// for the scheduler-level unit tests (test-scheduler.ts (h2)).
+export { summaryWindowPredatesConnect };
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SUMMARY_CADENCE_MS = 7 * DAY_MS;
 
@@ -99,51 +111,6 @@ const SUMMARY_CADENCE_MS = 7 * DAY_MS;
  * writes, so string comparisons against stored timestamps are correct. */
 function sqliteDateTime(d: Date): string {
   return d.toISOString().slice(0, 19).replace("T", " ");
-}
-
-/** UTC calendar date ('YYYY-MM-DD') for a timestamp given in epoch ms. */
-function utcDateString(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
-}
-
-/**
- * Parse a timestamp this app stores into epoch ms. Two formats exist side by
- * side and must both work when we compare them:
- *   - SQLite `datetime('now')` — 'YYYY-MM-DD HH:MM:SS', UTC, no zone marker
- *     (merchants.created_at, summary_sends.sent_at)
- *   - ISO-8601 — 'YYYY-MM-DDTHH:MM:SS.sssZ'
- *     (stripe_connections.created_at, written by the OAuth handshake)
- * A space-separated value carries no zone, so it is pinned to UTC explicitly —
- * `new Date("YYYY-MM-DD HH:MM:SS")` alone would be parsed in LOCAL time and the
- * comparison would drift with the host timezone. NULL / empty / unparseable
- * input returns null: callers must treat that as "unknown", never as "now".
- */
-function parseStoredDate(raw: string | null | undefined): number | null {
-  if (!raw) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-  const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(s);
-  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s) && !hasZone
-    ? s.replace(" ", "T") + "Z"
-    : s;
-  const ms = Date.parse(normalized);
-  return Number.isNaN(ms) ? null : ms;
-}
-
-/**
- * Owner-approved guard (2026-10-28): a weekly summary must never be sent to a
- * merchant whose reporting window STARTS BEFORE they connected Stripe — a
- * merchant 16 minutes into the product must not receive a "your last 7 days"
- * report covering a week they were not there for.
- *
- * `periodStart` is the summary's UTC date ('YYYY-MM-DD', generated as now-7d);
- * `connectAtMs` is the merchant's Stripe connect time in epoch ms (null when
- * unknown, in which case the guard cannot fire). ISO dates compare correctly
- * as strings. Exported so the eligibility rule is unit-testable on its own.
- */
-export function summaryWindowPredatesConnect(periodStart: string, connectAtMs: number | null): boolean {
-  if (connectAtMs === null) return false;
-  return periodStart < utcDateString(connectAtMs);
 }
 
 function formatMoney(cents: number, currency: string): string {
@@ -704,7 +671,8 @@ export interface SummaryPassResult {
  * `preGenerated` lets the PASS do its eligibility checks (the before-connect
  * window guard) on the exact summary it is about to send, without changing what
  * an on-demand send generates. The manual POST /summary/send route keeps its
- * own inline path in index.ts and is deliberately NOT gated by this pass. */
+ * own inline path in index.ts: it shares the same window rule (via
+ * ./summary.summaryWindowPredatesConnect) but not this pass's cadence ledger. */
 async function sendWeeklySummaryForMerchant(
   db: Database,
   merchant: Merchant,
@@ -743,8 +711,11 @@ async function sendWeeklySummaryForMerchant(
  *      reporting window (periodStart = now-7d) must not start before the
  *      connect date; if it does, nothing is sent and no summary_sends row is
  *      written (the ledger only records real attempts).
- * Both guards live in the PASS, never in the shared send helper or the manual
- * POST /summary/send route, so an explicit on-demand send still works.
+ * Both guards live in the PASS's eligibility step (not in the shared send
+ * helper), and the WINDOW GUARD itself is the single implementation in
+ * ./summary.summaryWindowPredatesConnect — the manual POST /summary/send route
+ * applies the same rule before it sends, so no path can email a merchant a
+ * report covering a week before they connected.
  */
 export async function runWeeklySummaryPass(db: Database, deps: SchedulerDeps = {}): Promise<SummaryPassResult> {
   const log = deps.log ?? console.log;
@@ -774,19 +745,15 @@ export async function runWeeklySummaryPass(db: Database, deps: SchedulerDeps = {
       continue;
     }
     // Cadence: anchor = last scheduled send, or the merchant's real Stripe
-    // connect time for the first send. Subqueries (not a JOIN) so a merchant
-    // with no stripe_connections row at all still appears and simply falls back
-    // to merchants.created_at. Both timestamps are parsed to epoch ms because
-    // they are stored in two different formats (see parseStoredDate).
-    const anchors = db
-      .query(
-        `SELECT (SELECT MAX(sent_at) FROM summary_sends WHERE merchant_id = m.id) AS last_sent_at,
-                (SELECT MAX(created_at) FROM stripe_connections WHERE merchant_id = m.id) AS connected_at
-           FROM merchants m WHERE m.id = ?`
-      )
-      .get(merchant.id) as { last_sent_at: string | null; connected_at: string | null } | null;
-    const lastSentMs = parseStoredDate(anchors?.last_sent_at);
-    const connectMs = parseStoredDate(anchors?.connected_at) ?? parseStoredDate(merchant.created_at);
+    // connect time for the first send (merchantConnectMs — MAX connect row,
+    // falling back to merchants.created_at when there is no connection row at
+    // all). Both timestamps are parsed to epoch ms because they are stored in
+    // two different formats (see parseStoredDate in ./summary).
+    const lastSentRow = db
+      .query("SELECT MAX(sent_at) AS last_sent_at FROM summary_sends WHERE merchant_id = ?")
+      .get(merchant.id) as { last_sent_at: string | null } | null;
+    const lastSentMs = parseStoredDate(lastSentRow?.last_sent_at);
+    const connectMs = merchantConnectMs(db, merchant);
     const anchorMs = lastSentMs ?? connectMs;
     if (anchorMs === null || anchorMs > cutoffMs) {
       result.skipped.notDue++;

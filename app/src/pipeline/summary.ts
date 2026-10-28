@@ -1,5 +1,77 @@
 import type { Database } from "bun:sqlite";
 
+/** UTC calendar date ('YYYY-MM-DD') for a timestamp given in epoch ms. */
+export function utcDateString(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Parse a timestamp this app stores into epoch ms. Two formats exist side by
+ * side and must both work when we compare them:
+ *   - SQLite `datetime('now')` — 'YYYY-MM-DD HH:MM:SS', UTC, no zone marker
+ *     (merchants.created_at, summary_sends.sent_at)
+ *   - ISO-8601 — 'YYYY-MM-DDTHH:MM:SS.sssZ'
+ *     (stripe_connections.created_at, written by the OAuth handshake)
+ * A space-separated value carries no zone, so it is pinned to UTC explicitly —
+ * `new Date("YYYY-MM-DD HH:MM:SS")` alone would be parsed in LOCAL time and the
+ * comparison would drift with the host timezone. NULL / empty / unparseable
+ * input returns null: callers must treat that as "unknown", never as "now".
+ */
+export function parseStoredDate(raw: string | null | undefined): number | null {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(s);
+  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s) && !hasZone
+    ? s.replace(" ", "T") + "Z"
+    : s;
+  const ms = Date.parse(normalized);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * The merchant's Stripe connect time in epoch ms:
+ * MAX(stripe_connections.created_at) for that merchant, falling back to
+ * merchants.created_at when no connection row exists at all.
+ *
+ * The fallback matters because a merchants row can be created before the OAuth
+ * handshake completes; the connect row is the real "they are live" moment. NULL
+ * (nothing parses) means "unknown" — callers must never treat it as "now".
+ *
+ * Single implementation, shared by the scheduled weekly-summary pass (cadence
+ * anchor + window guard) and the on-demand POST /summary/send route, so the two
+ * paths can never disagree about when a merchant really connected.
+ */
+export function merchantConnectMs(
+  db: Database,
+  merchant: { id: number; created_at?: string | null }
+): number | null {
+  const row = db
+    .query("SELECT MAX(created_at) AS connected_at FROM stripe_connections WHERE merchant_id = ?")
+    .get(merchant.id) as { connected_at: string | null } | null;
+  return parseStoredDate(row?.connected_at) ?? parseStoredDate(merchant.created_at);
+}
+
+/**
+ * Owner-approved guard (2026-10-28): a weekly summary must never be sent to a
+ * merchant whose reporting window STARTS BEFORE they connected Stripe — a
+ * merchant 16 minutes into the product must not receive a "your last 7 days"
+ * report covering a week they were not there for.
+ *
+ * `periodStart` is the summary's UTC date ('YYYY-MM-DD', generated as now-7d);
+ * `connectAtMs` is the merchant's Stripe connect time in epoch ms (null when
+ * unknown, in which case the guard cannot fire). ISO dates compare correctly
+ * as strings. Exported so the eligibility rule is unit-testable on its own.
+ *
+ * Enforced in BOTH send paths: the scheduled pass (scheduler.ts) and the manual
+ * POST /summary/send route (index.ts). A guard hit is a skip, not an attempt:
+ * no email, no send_logs row, no summary_sends row.
+ */
+export function summaryWindowPredatesConnect(periodStart: string, connectAtMs: number | null): boolean {
+  if (connectAtMs === null) return false;
+  return periodStart < utcDateString(connectAtMs);
+}
+
 export interface WeeklySummary {
   merchantId: number;
   periodStart: string;
