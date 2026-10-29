@@ -61,6 +61,9 @@ import { FREE_TRIAL_DAYS, freeTrialDaysRemaining, getMerchantById, logSend } fro
 import { sendEmailForReal } from "./sender";
 import type { EmailDraft } from "./drafter";
 import { getOwnerNotifyEmail, isDevOrTestMerchant } from "./owner-notify";
+// Shared timestamp parser (SQLite 'YYYY-MM-DD HH:MM:SS' → epoch ms, UTC-pinned).
+// Same helper the weekly-summary cadence uses, so stored dates are read one way.
+import { parseStoredDate } from "./summary";
 
 
 // Stripe API base. STRIPE_API_BASE lets tests point this module at a local stub
@@ -283,6 +286,135 @@ export function countTrialExpirySends24h(db: Database, errors?: string[]): numbe
   }
 }
 
+// ── Durable once-per-24h guard (owner-digest double-send fix, 2026-10-29) ──
+
+/**
+ * THE BUG THIS SOLVES. The digest pass used to rely on the scheduler's 24h
+ * `setInterval` alone: the "already sent today" state was per-process, so every
+ * process restart re-armed a first tick 60s after boot and re-sent. Railway
+ * auto-deploys every push to `main` (~3s after merge), so each deploy emailed the
+ * owner a second digest — production evidence: send_logs id 137 @ 2026-10-28
+ * 20:54:41 and id 138 @ 2026-10-29 16:12:23, 19h apart, one per deploy.
+ *
+ * WHY send_logs AND NOT A NEW TABLE. `send_logs` is already the durable mail
+ * trail and already holds exactly one row per digest attempt (type
+ * 'owner_digest', written by this module). A dedicated state/kv table would be a
+ * SECOND record of the same fact and could drift from the trail (e.g. a send
+ * that succeeded but whose state row was lost, or vice versa). One source of
+ * truth, no migration, and the guard can be audited from the same rows the owner
+ * sees in the DB. The schema has no kv/state table to reuse.
+ *
+ * WHAT COUNTS AS "SENT". Only `status='success'` rows. A FAILED attempt is an
+ * attempt, not a delivery: counting it would swallow a real digest for a full
+ * day after one transient failure (requirement: a failed send must be retried,
+ * not suppressed). `status='skipped'` rows are never written by this pass.
+ *
+ * CLOCK. Timestamps are compared as epoch ms via parseStoredDate (SQLite
+ * 'YYYY-MM-DD HH:MM:SS' UTC is pinned to UTC explicitly there). The pass writes
+ * its rows with the same clock it reads with (logSend's createdAt), so the guard
+ * is exact under an injected clock as well as in production.
+ */
+const DIGEST_CADENCE_MS = WINDOW_MS;
+
+export interface LastDigestState {
+  /** Epoch ms of the most recent SUCCESSFUL digest, or null when none exists. */
+  lastSuccessMs: number | null;
+  /** Raw stored timestamp of that success (for logs), or null. */
+  lastSuccessAt: string | null;
+  /** Epoch ms of the most recent attempt of ANY status, or null. */
+  lastAttemptMs: number | null;
+  /** Status of that most recent attempt ('success' | 'failed' | 'skipped'). */
+  lastAttemptStatus: string | null;
+}
+
+/**
+ * Read the durable ledger. Throws on a DB error — the caller decides what a
+ * failed read means (this pass fails CLOSED: if we cannot prove we have not
+ * already sent, we do not send a second time).
+ */
+export function readLastDigestState(db: Database): LastDigestState {
+  const row = db
+    .query(
+      `SELECT
+         (SELECT created_at FROM send_logs WHERE type = ?1 AND status = 'success'
+            ORDER BY datetime(created_at) DESC, id DESC LIMIT 1) AS last_success_at,
+         (SELECT created_at FROM send_logs WHERE type = ?1
+            ORDER BY datetime(created_at) DESC, id DESC LIMIT 1) AS last_attempt_at,
+         (SELECT status FROM send_logs WHERE type = ?1
+            ORDER BY datetime(created_at) DESC, id DESC LIMIT 1) AS last_attempt_status`
+    )
+    .get(LOG_TYPE) as
+    | { last_success_at: string | null; last_attempt_at: string | null; last_attempt_status: string | null }
+    | null;
+  return {
+    lastSuccessMs: parseStoredDate(row?.last_success_at),
+    lastSuccessAt: row?.last_success_at ?? null,
+    lastAttemptMs: parseStoredDate(row?.last_attempt_at),
+    lastAttemptStatus: row?.last_attempt_status ?? null,
+  };
+}
+
+/** `45s` / `12m` / `3h 05m` / `1d 3h` — how long ago, for the skip log line. */
+export function formatElapsed(ms: number): string {
+  const abs = Math.abs(ms);
+  const minutes = Math.floor(abs / 60_000);
+  if (minutes < 1) return `${Math.round(abs / 1000)}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 1) return `${minutes}m`;
+  const days = Math.floor(hours / 24);
+  if (days < 1) return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+  return `${days}d ${hours % 24}h`;
+}
+
+export interface DigestGuardDecision {
+  shouldSend: boolean;
+  /** Human-readable why (always populated — it goes straight into the log line). */
+  reason: string;
+  /** Epoch ms when the 24h window opens again; null when the digest is due now. */
+  nextAttemptMs: number | null;
+}
+
+/**
+ * The pure decision, exported so the rule is unit-testable on its own:
+ *   - no successful digest on record  → send;
+ *   - one sent less than 24h ago      → SKIP, next attempt at lastSuccess + 24h;
+ *   - one sent 24h ago or longer      → send.
+ * A last-success timestamp in the FUTURE (clock skew between a host and the
+ * ledger) is treated as "just sent": never double-send on a clock disagreement.
+ */
+export function evaluateDigestGuard(state: LastDigestState, nowMs: number): DigestGuardDecision {
+  if (state.lastSuccessMs === null) {
+    return { shouldSend: true, reason: "no digest on record yet", nextAttemptMs: null };
+  }
+  const elapsed = nowMs - state.lastSuccessMs;
+  if (elapsed < DIGEST_CADENCE_MS) {
+    const reason =
+      elapsed < 0
+        ? `last digest is timestamped ${formatElapsed(elapsed)} in the future — treating it as just sent`
+        : `last digest sent ${formatElapsed(elapsed)} ago (window is 24h)`;
+    return { shouldSend: false, reason, nextAttemptMs: state.lastSuccessMs + DIGEST_CADENCE_MS };
+  }
+  return { shouldSend: true, reason: `last digest sent ${formatElapsed(elapsed)} ago — window open`, nextAttemptMs: null };
+}
+
+/**
+ * Milliseconds until the owner-digest window opens, from the DURABLE ledger —
+ * 0 means "due now". Used by the scheduler at boot so a restart does not arm a
+ * digest tick 60s later when one went out 3h ago (the exact shape of the bug);
+ * the tick lands when the window actually opens instead. Never throws: an
+ * unreadable ledger means "due now" and the pass's own guard re-checks anyway.
+ */
+export function ownerDigestDueInMs(db: Database, nowMs: number): number {
+  try {
+    const decision = evaluateDigestGuard(readLastDigestState(db), nowMs);
+    if (decision.shouldSend || decision.nextAttemptMs === null) return 0;
+    return Math.max(0, decision.nextAttemptMs - nowMs);
+  } catch (err) {
+    console.error(`[owner-digest] guard read failed in ownerDigestDueInMs: ${err instanceof Error ? err.message : String(err)}`);
+    return 0;
+  }
+}
+
 // ── The digest payload ──
 
 export interface OwnerDigestData {
@@ -399,8 +531,10 @@ export interface OwnerDigestDeps {
 export interface OwnerDigestResult {
   success: boolean;
   message: string;
-  /** True when no digest was attempted (owner email unset / no Stripe key / every call failed). */
+  /** True when no digest was attempted (owner email unset / no Stripe key / every call failed / already sent inside 24h). */
   skipped?: boolean;
+  /** Epoch ms of the next allowed attempt — set only by the once-per-24h guard. */
+  nextAttemptMs?: number;
   /** Present when a digest was formatted and a send was attempted. */
   data?: OwnerDigestData;
 }
@@ -432,6 +566,14 @@ function defaultStripeGet(key: string): StripeGet {
  * Log line (same shape as the other passes, so it parses the same way):
  *   [scheduler] owner-digest pass: <N> subscriber(s), MRR $X.XX/mo, net 24h $X.XX, <M> event(s), <T> in trial — <sent|failed|skipped>
  * plus singleFlightPass's own `[scheduler] owner-digest pass done (Xms)`.
+ *
+ * CADENCE IS DURABLE (2026-10-29). The pass itself enforces "at most one digest
+ * per 24h" from the send_logs ledger (see the guard section below), so a restart
+ * — including Railway's auto-deploy on every push to `main` — cannot re-send.
+ * The scheduler additionally arms its first tick for when the window actually
+ * opens (ownerDigestDueInMs) instead of blindly 60s after boot. A guard hit logs
+ * `[scheduler] owner-digest pass: skipped — last digest sent 3h 05m ago …` and
+ * writes NO send_logs row (a skip is not an attempt).
  */
 export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = {}): Promise<OwnerDigestResult> {
   const log = deps.log ?? console.log;
@@ -451,6 +593,34 @@ export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = 
   if (!stripeGet) {
     log("[scheduler] owner-digest pass: skipped — STRIPE_SECRET_KEY not set");
     return { success: false, skipped: true, message: "STRIPE_SECRET_KEY not set — cannot read the revenue account" };
+  }
+
+  // ── Durable once-per-24h guard (2026-10-29) ──
+  // Consulted BEFORE any Stripe call, so a restart that lands inside the window
+  // costs nothing but a log line. This is what makes the cadence survive a
+  // process restart (Railway auto-deploys on every push, and the old in-memory
+  // cadence re-sent the digest on every one).
+  let lastState: LastDigestState;
+  try {
+    lastState = readLastDigestState(db);
+  } catch (err) {
+    // Fail CLOSED: without the ledger we cannot prove a digest has not already
+    // gone out, and a duplicate owner email is the bug being fixed. The next
+    // tick (24h) or the next boot re-reads a healthy ledger and sends.
+    const msg = `guard read failed (${err instanceof Error ? err.message : String(err)}) — not sending a possible duplicate`;
+    log(`[scheduler] owner-digest pass: skipped — ${msg}`);
+    return { success: false, skipped: true, message: msg };
+  }
+  const guard = evaluateDigestGuard(lastState, now.getTime());
+  if (!guard.shouldSend) {
+    const next = guard.nextAttemptMs === null ? "" : `; next attempt ${new Date(guard.nextAttemptMs).toISOString().slice(0, 16).replace("T", " ")} UTC (in ${formatElapsed(guard.nextAttemptMs - now.getTime())})`;
+    log(`[scheduler] owner-digest pass: skipped — ${guard.reason}${next}`);
+    return {
+      success: false,
+      skipped: true,
+      message: `already sent inside the 24h window — ${guard.reason}`,
+      ...(guard.nextAttemptMs === null ? {} : { nextAttemptMs: guard.nextAttemptMs }),
+    };
   }
 
   const errors: string[] = [];
@@ -484,7 +654,7 @@ export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = 
       const msg = `all Stripe calls failed (${errors.join("; ")})`;
       log(`[scheduler] owner-digest pass: no digest sent — ${msg}`);
       try {
-        logSend(db, 0, "failed", `Owner digest skipped: ${msg}`, LOG_TYPE);
+        logSend(db, 0, "failed", `Owner digest skipped: ${msg}`, LOG_TYPE, undefined, now);
       } catch {
         // Logging failed too — nothing more we can do; never throw to caller.
       }
@@ -586,7 +756,7 @@ export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = 
     const msg = `owner-digest build error: ${err instanceof Error ? err.message : String(err)}`;
     log(`[scheduler] owner-digest pass: ${msg}`);
     try {
-      logSend(db, 0, "failed", msg, LOG_TYPE);
+      logSend(db, 0, "failed", msg, LOG_TYPE, undefined, now);
     } catch {
       // ignore
     }
@@ -605,7 +775,9 @@ export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = 
       0,
       status,
       `Owner digest ${sendResult.success ? "sent" : "failed"}: ${email.subject} (${sendResult.message})`,
-      LOG_TYPE
+      LOG_TYPE,
+      undefined,
+      now
     );
     log(`[scheduler] owner-digest pass: ${summary} — ${sendResult.success ? "sent" : `send failed (${sendResult.message})`}`);
     return { success: sendResult.success, message: sendResult.message, data };
@@ -613,7 +785,7 @@ export async function runDailyOwnerDigest(db: Database, deps: OwnerDigestDeps = 
     const msg = `Owner digest send error: ${err instanceof Error ? err.message : String(err)}`;
     log(`[scheduler] owner-digest pass: ${msg}`);
     try {
-      logSend(db, 0, "failed", msg, LOG_TYPE);
+      logSend(db, 0, "failed", msg, LOG_TYPE, undefined, now);
     } catch {
       // ignore
     }

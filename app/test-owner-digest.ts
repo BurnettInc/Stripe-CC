@@ -37,7 +37,14 @@
 const DB_PATH = process.env.TEST_DB_PATH || "/tmp/cc-owner-digest-test.db";
 const STRIPE_STUB_PORT = 3221;
 const NOW = new Date("2026-10-12T09:00:00Z");
-const NOW_SECONDS = Math.floor(NOW.getTime() / 1000);
+/** The pass clock. Mutable so the suite can move time forward: the durable
+ *  once-per-24h guard compares the send_logs ledger against this clock, and the
+ *  Stripe stub fixtures are generated relative to it, so advancing it keeps every
+ *  relative-time assertion intact while crossing the 24h window. */
+let clockMs = NOW.getTime();
+const nowDate = () => new Date(clockMs);
+/** Stub fixtures are expressed relative to the pass clock (epoch seconds). */
+const nowSeconds = () => Math.floor(clockMs / 1000);
 const DAY = 86400;
 
 // ── Environment BEFORE any module import ──
@@ -55,6 +62,10 @@ function check(label: string, cond: boolean, detail = ""): void {
   if (cond) console.log(`PASS  ${label}`);
   else { failures++; console.log(`FAIL  ${label}  ${detail}`); }
 }
+
+/** Move the pass clock forward. Each scenario below is a separate "boot" against
+ *  the same DB, so the durable 24h guard must be crossed between them. */
+function advanceClock(ms: number): void { clockMs += ms; }
 
 // ── In-process Stripe stub ──
 const stub = {
@@ -99,7 +110,7 @@ function digestLogRows(): { type: string; status: string; provider_message: stri
 }
 function logLines(): string[] { return captured.slice(); }
 const captured: string[] = [];
-const deps = { now: () => NOW, log: (m: string) => captured.push(m) };
+const deps = { now: nowDate, log: (m: string) => captured.push(m) };
 
 /** Fixture: one in-window charge, one in-window refund, one payout (ignored),
  *  one out-of-window charge, one test-mode charge. */
@@ -110,19 +121,19 @@ function seedStripe(): void {
   };
   stub.history = {
     data: [
-      { id: "txn_1", type: "charge", amount: 1500, fee: 74, net: 1426, currency: "usd", created: NOW_SECONDS - 3600, livemode: true },
-      { id: "txn_2", type: "refund", amount: -1500, fee: 0, net: -1500, currency: "usd", created: NOW_SECONDS - 7200, livemode: true },
-      { id: "txn_3", type: "payout", amount: -1500, fee: 0, currency: "usd", created: NOW_SECONDS - 10800, livemode: true },
-      { id: "txn_4", type: "charge", amount: 5000, fee: 175, currency: "usd", created: NOW_SECONDS - 4000, livemode: false },
-      { id: "txn_5", type: "charge", amount: 800, fee: 23, currency: "usd", created: NOW_SECONDS - 30 * 3600, livemode: true },
+      { id: "txn_1", type: "charge", amount: 1500, fee: 74, net: 1426, currency: "usd", created: nowSeconds() - 3600, livemode: true },
+      { id: "txn_2", type: "refund", amount: -1500, fee: 0, net: -1500, currency: "usd", created: nowSeconds() - 7200, livemode: true },
+      { id: "txn_3", type: "payout", amount: -1500, fee: 0, currency: "usd", created: nowSeconds() - 10800, livemode: true },
+      { id: "txn_4", type: "charge", amount: 5000, fee: 175, currency: "usd", created: nowSeconds() - 4000, livemode: false },
+      { id: "txn_5", type: "charge", amount: 800, fee: 23, currency: "usd", created: nowSeconds() - 30 * 3600, livemode: true },
     ],
   };
   stub.subs = {
     data: [
-      { id: "sub_1", status: "active", created: NOW_SECONDS - 3600, livemode: true, items: { data: [{ quantity: 1, price: { unit_amount: 1500, nickname: null, recurring: { interval: "month" } } }] } },
-      { id: "sub_2", status: "active", created: NOW_SECONDS - 40 * DAY, livemode: true, items: { data: [{ quantity: 1, price: { unit_amount: 5000, nickname: null, recurring: { interval: "year" } } }] } },
-      { id: "sub_3", status: "active", created: NOW_SECONDS - 3600, livemode: false, items: { data: [{ quantity: 1, price: { unit_amount: 10000, nickname: null, recurring: { interval: "month" } } }] } },
-      { id: "sub_4", status: "canceled", created: NOW_SECONDS - 3600, livemode: true, items: { data: [{ quantity: 1, price: { unit_amount: 1500, nickname: null, recurring: { interval: "month" } } }] } },
+      { id: "sub_1", status: "active", created: nowSeconds() - 3600, livemode: true, items: { data: [{ quantity: 1, price: { unit_amount: 1500, nickname: null, recurring: { interval: "month" } } }] } },
+      { id: "sub_2", status: "active", created: nowSeconds() - 40 * DAY, livemode: true, items: { data: [{ quantity: 1, price: { unit_amount: 5000, nickname: null, recurring: { interval: "year" } } }] } },
+      { id: "sub_3", status: "active", created: nowSeconds() - 3600, livemode: false, items: { data: [{ quantity: 1, price: { unit_amount: 10000, nickname: null, recurring: { interval: "month" } } }] } },
+      { id: "sub_4", status: "canceled", created: nowSeconds() - 3600, livemode: true, items: { data: [{ quantity: 1, price: { unit_amount: 1500, nickname: null, recurring: { interval: "month" } } }] } },
     ],
   };
 }
@@ -182,6 +193,7 @@ check("(b) skip logged", logLines().some((l) => l.includes("skipped — OWNER_NO
 process.env.OWNER_NOTIFY_EMAIL = "owner@example.com";
 
 // ── (c) every Stripe call fails → no email, failure logged, no throw ──
+advanceClock(25 * 3600 * 1000); // cross the durable 24h window
 resetStub();
 stub.failPaths = ["/v1/balance", "/v1/balance/history", "/v1/subscriptions"];
 captured.length = 0;
@@ -192,6 +204,7 @@ check("(c) failure recorded in send_logs", digestLogRows()[1].status === "failed
 check("(c) log line names the failures", logLines().some((l) => l.includes("[scheduler] owner-digest pass: no digest sent")), JSON.stringify(logLines()));
 
 // ── (d) one dead call degrades that line only ──
+advanceClock(25 * 3600 * 1000); // cross the durable 24h window
 resetStub();
 seedStripe();
 stub.failPaths = ["/v1/subscriptions"];
@@ -218,10 +231,11 @@ check("(e) unavailable renders honestly", digest.buildOwnerDigestEmail({ ...empt
 check("(e) money helper negative", digest.formatUsd(-74) === "-$0.74", digest.formatUsd(-74));
 
 // ── (f) capped history page is disclosed ──
+advanceClock(25 * 3600 * 1000); // cross the durable 24h window
 resetStub();
 seedStripe();
 const cappedRows = Array.from({ length: 100 }, (_, i) => ({
-  id: `txn_${i}`, type: "charge", amount: 100, fee: 3, currency: "usd", created: NOW_SECONDS - 60 - i, livemode: true,
+  id: `txn_${i}`, type: "charge", amount: 100, fee: 3, currency: "usd", created: nowSeconds() - 60 - i, livemode: true,
 }));
 stub.history = { data: cappedRows };
 captured.length = 0;
@@ -260,6 +274,7 @@ db.run(
   [trialPaying]
 );
 
+advanceClock(25 * 3600 * 1000); // cross the durable 24h window
 resetStub();
 seedStripe();
 captured.length = 0;
@@ -293,6 +308,154 @@ check(
   "(i) log line carries the trial count",
   logLines().some((l) => l.includes("3 event(s), 2 in trial — sent")),
   JSON.stringify(logLines())
+);
+
+// ── (j) DURABLE once-per-24h guard (owner-digest double-send fix, 2026-10-29) ──
+// The production defect this covers: send_logs id 137 @ 2026-10-28 20:54:41 and
+// id 138 @ 2026-10-29 16:12:23 — one digest per Railway deploy, 19h apart,
+// because the "already sent today" state lived only in the process's timer.
+// Every call below is ONE PROCESS BOOT against the SAME DB; nothing here depends
+// on process memory or on a timer surviving.
+function digestRowsFull(): { id: number; status: string; created_at: string }[] {
+  return db
+    .query("SELECT id, status, created_at FROM send_logs WHERE type='owner_digest' ORDER BY id ASC")
+    .all() as { id: number; status: string; created_at: string }[];
+}
+const sqliteAt = (ms: number): string => new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+const successRows = () => digestRowsFull().filter((r) => r.status === "success");
+db.run("DELETE FROM send_logs WHERE type='owner_digest'"); // clean ledger for this scenario
+
+// boot 1 — nothing on record → sends
+advanceClock(25 * 3600 * 1000);
+resetStub();
+seedStripe();
+captured.length = 0;
+const BOOT1 = clockMs;
+const boot1 = await digest.runDailyOwnerDigest(db, deps);
+check("(j) boot 1 sends (empty ledger)", boot1.success === true && boot1.skipped !== true, boot1.message);
+check("(j) boot 1 wrote exactly one success row", successRows().length === 1 && digestRowsFull().length === 1, JSON.stringify(digestRowsFull()));
+check(
+  "(j) the ledger row carries the pass clock, so the guard can read it back",
+  digestRowsFull()[0].created_at === sqliteAt(BOOT1),
+  `${digestRowsFull()[0].created_at} vs ${sqliteAt(BOOT1)}`
+);
+
+// boot 2 — a deploy 40 minutes later → SKIP: no Stripe call, no row, elapsed logged
+clockMs = BOOT1 + 40 * 60 * 1000;
+resetStub();
+seedStripe();
+captured.length = 0;
+const boot2 = await digest.runDailyOwnerDigest(db, deps);
+check("(j) boot 2 inside the window is SKIPPED", boot2.skipped === true && boot2.success === false, boot2.message);
+check(
+  "(j) skip log names the elapsed time since the last digest",
+  logLines().some((l) => l.includes("[scheduler] owner-digest pass: skipped — last digest sent 40m ago")),
+  JSON.stringify(logLines())
+);
+check(
+  "(j) skip log says when the next attempt is due",
+  logLines().some((l) => l.includes("next attempt") && l.includes("(in 23h 20m)")),
+  JSON.stringify(logLines())
+);
+check("(j) skip writes NO send_logs row", digestRowsFull().length === 1, JSON.stringify(digestRowsFull()));
+check("(j) skip costs no Stripe call", stub.calls.length === 0, JSON.stringify(stub.calls));
+check("(j) the pass reports the next allowed attempt", boot2.nextAttemptMs === BOOT1 + 24 * 3600 * 1000, String(boot2.nextAttemptMs));
+
+// boot 3 — 23h59m after boot 1, still inside the window → SKIP
+clockMs = BOOT1 + 23 * 3600 * 1000 + 59 * 60 * 1000;
+resetStub();
+seedStripe();
+captured.length = 0;
+const boot3 = await digest.runDailyOwnerDigest(db, deps);
+check("(j) boot 3 at 23h59m is still SKIPPED", boot3.skipped === true, boot3.message);
+check(
+  "(j) boot 3 skip log shows 23h 59m elapsed",
+  logLines().some((l) => l.includes("last digest sent 23h 59m ago")),
+  JSON.stringify(logLines())
+);
+check("(j) boot 3 sent nothing", successRows().length === 1, JSON.stringify(digestRowsFull()));
+
+// boot 4 — past 24h → the digest DOES send again
+clockMs = BOOT1 + 25 * 3600 * 1000;
+resetStub();
+seedStripe();
+captured.length = 0;
+const boot4 = await digest.runDailyOwnerDigest(db, deps);
+check("(j) boot 4 (>24h later) sends", boot4.success === true, boot4.message);
+check("(j) boot 4 added a second success row", successRows().length === 2, JSON.stringify(digestRowsFull()));
+check(
+  "(j) boot 4 logs a SEND, not a guard skip",
+  logLines().some((l) => l.includes("owner-digest pass:") && l.includes("— sent")) &&
+    !logLines().some((l) => l.includes("owner-digest pass: skipped —")),
+  JSON.stringify(logLines())
+);
+
+// ── failed sends are RETRIED, never swallowed for 24h ──
+db.run("DELETE FROM send_logs WHERE type='owner_digest'");
+clockMs += 60 * 60 * 1000;
+resetStub();
+stub.failPaths = ["/v1/balance", "/v1/balance/history", "/v1/subscriptions"];
+captured.length = 0;
+const failedRun = await digest.runDailyOwnerDigest(db, deps);
+check("(j) failed attempt writes a FAILED row and no success", digestRowsFull().length === 1 && digestRowsFull()[0].status === "failed", JSON.stringify(digestRowsFull()));
+check("(j) failed attempt is not reported as sent", failedRun.success === false && failedRun.skipped === true, failedRun.message);
+
+clockMs += 60 * 60 * 1000; // one hour later
+resetStub();
+seedStripe();
+captured.length = 0;
+const retryRun = await digest.runDailyOwnerDigest(db, deps);
+check("(j) a failed attempt does NOT suppress the retry an hour later", retryRun.success === true, retryRun.message);
+check("(j) the retry wrote the success row", successRows().length === 1, JSON.stringify(digestRowsFull()));
+
+// ── the rule itself (pure, no DB) ──
+const T = clockMs;
+const state = (lastSuccessMs: number | null) => ({
+  lastSuccessMs,
+  lastSuccessAt: lastSuccessMs === null ? null : sqliteAt(lastSuccessMs),
+  lastAttemptMs: lastSuccessMs,
+  lastAttemptStatus: lastSuccessMs === null ? null : "success",
+});
+check("(j) guard: no ledger → send", digest.evaluateDigestGuard(state(null), T).shouldSend === true);
+check("(j) guard: 1m after a send → skip", digest.evaluateDigestGuard(state(T - 60_000), T).shouldSend === false);
+check("(j) guard: 23h59m after a send → skip", digest.evaluateDigestGuard(state(T - (23 * 3600_000 + 59 * 60_000)), T).shouldSend === false);
+check("(j) guard: exactly 24h after a send → send", digest.evaluateDigestGuard(state(T - 24 * 3600_000), T).shouldSend === true);
+check("(j) guard: 24h01m after a send → send", digest.evaluateDigestGuard(state(T - (24 * 3600_000 + 60_000)), T).shouldSend === true);
+check("(j) guard: a FUTURE timestamp is treated as just sent (never double-send on clock skew)", digest.evaluateDigestGuard(state(T + 60_000), T).shouldSend === false);
+check("(j) guard: next attempt = last success + 24h", digest.evaluateDigestGuard(state(T - 3 * 3600_000), T).nextAttemptMs === T + 21 * 3600_000);
+check("(j) elapsed formatter", digest.formatElapsed(3 * 3600_000 + 5 * 60_000) === "3h 05m" && digest.formatElapsed(45_000) === "45s" && digest.formatElapsed(26 * 3600_000) === "1d 2h", `${digest.formatElapsed(3 * 3600_000 + 5 * 60_000)} / ${digest.formatElapsed(45_000)} / ${digest.formatElapsed(26 * 3600_000)}`);
+
+// ── the scheduler arms its first tick from that same ledger ──
+db.run("DELETE FROM send_logs WHERE type='owner_digest'");
+check("(j) scheduler delay: no digest on record → due now", digest.ownerDigestDueInMs(db, T) === 0);
+db.run("INSERT INTO send_logs (type, status, provider_message, created_at) VALUES ('owner_digest','success','seed',?)", [sqliteAt(T - 3 * 3600 * 1000)]);
+check(
+  "(j) scheduler delay: last digest 3h ago → next tick ~21h out, not 60s",
+  digest.ownerDigestDueInMs(db, T) === 21 * 3600 * 1000,
+  String(digest.ownerDigestDueInMs(db, T))
+);
+check("(j) scheduler delay: window open → due now", digest.ownerDigestDueInMs(db, T + 21 * 3600 * 1000) === 0);
+
+const bootLogs: string[] = [];
+const bootHandle = sched.startScheduler(
+  db,
+  {
+    startDelayMs: 60_000,
+    syncInitialDelayMs: 9_000_000,
+    syncIntervalMs: 9_000_000,
+    advanceIntervalMs: 9_000_000,
+    summaryIntervalMs: 9_000_000,
+    purgeIntervalMs: 9_000_000,
+    ownerDigestIntervalMs: 9_000_000,
+    trialExpiryIntervalMs: 9_000_000,
+  },
+  { now: nowDate, log: (m: string) => bootLogs.push(m) }
+);
+bootHandle.stop(); // armed, never fired — this suite must not run a real pass
+check(
+  "(j) boot log arms the digest tick 21h out and says this boot does not send",
+  bootLogs.some((l) => l.includes("[scheduler] owner-digest: first tick in 21h 00m") && l.includes("does not send")),
+  JSON.stringify(bootLogs)
 );
 
 // ── (h) scheduler wiring: the pass is registered under the owner-digest name ──

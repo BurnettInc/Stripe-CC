@@ -43,7 +43,10 @@
  *      (payments − refunds − fees), active subscribers, MRR, and one line per
  *      payment/subscription event. Internal owner alert only — it is addressed
  *      to OWNER_NOTIFY_EMAIL, never to a customer, and the pass no-ops when
- *      that variable is unset (see pipeline/owner-digest.ts).
+ *      that variable is unset (see pipeline/owner-digest.ts). Its 24h cadence is
+ *      DURABLE (send_logs ledger, 2026-10-29): a restart re-arms the first tick
+ *      for when the window actually opens, and the pass itself refuses to send
+ *      a second digest inside the window — a deploy is not a send trigger.
  *   6. FREE-TRIAL EXPIRY EMAILS (default every 6 hours) — email merchants a
  *      scheduled arc of trial-expiry reminders as their 30-day trial runs out
  *      (T-7/T-3/T-1/T-0 on the active track, a day-10 check-in plus T-3/T-0 on
@@ -83,7 +86,7 @@ import { formatSummaryEmail } from "./summary-email";
 import { sendEmailForReal } from "./sender";
 import { isPlaceholderMerchant, notifyMerchant } from "./notify";
 import { getEscalationStage } from "./escalation";
-import { runDailyOwnerDigest } from "./owner-digest";
+import { formatElapsed, ownerDigestDueInMs, runDailyOwnerDigest } from "./owner-digest";
 import { runTrialExpiryPass } from "./trial-expiry";
 import { recordFunnelEvent } from "../funnel";
 import {
@@ -934,10 +937,31 @@ export function startScheduler(
   schedule(cfg.startDelayMs, cfg.summaryIntervalMs, singleFlightPass("weekly-summary", () => runWeeklySummaryPass(db, deps), log));
   schedule(cfg.startDelayMs, cfg.purgeIntervalMs, singleFlightPass("purge", () => runPurgePass(db, deps), log));
   // Daily owner revenue digest (owner request 2026-10-12) — reads the app's own
-  // Stripe account and emails the owner. Registered exactly like the other
-  // daily passes: 24h interval, first tick at startDelayMs, single-flight
-  // wrapper, so it logs `[scheduler] owner-digest pass …` like the rest.
-  schedule(cfg.startDelayMs, cfg.ownerDigestIntervalMs, singleFlightPass("owner-digest", () => runDailyOwnerDigest(db, deps), log));
+  // Stripe account and emails the owner. 24h interval, single-flight wrapper, so
+  // it logs `[scheduler] owner-digest pass …` like the rest.
+  //
+  // BOOT IS NOT A SEND TRIGGER (fix 2026-10-29). The once-per-24h state used to
+  // live only in this process's timer, so every restart re-armed a first tick
+  // 60s later and re-sent the digest — and Railway auto-deploys every push to
+  // `main`, so that meant a duplicate owner email per deploy (send_logs id 137
+  // @ 2026-10-28 20:54, id 138 @ 2026-10-29 16:12). The first tick is now armed
+  // from the DURABLE ledger: if the last digest went out 3h ago the tick lands
+  // ~21h from now instead. The pass re-checks the same ledger on every tick, so
+  // this scheduling is an optimisation, not the guard itself.
+  // The first tick is armed from the durable ledger, measured on the same clock
+  // the passes use (deps.now when injected, so tests are deterministic).
+  const digestDueInMs = ownerDigestDueInMs(db, (deps.now?.() ?? new Date()).getTime());
+  schedule(
+    Math.max(cfg.startDelayMs, digestDueInMs),
+    cfg.ownerDigestIntervalMs,
+    singleFlightPass("owner-digest", () => runDailyOwnerDigest(db, deps), log)
+  );
+  log(
+    `[scheduler] owner-digest: first tick in ${formatElapsed(Math.max(cfg.startDelayMs, digestDueInMs))}` +
+      (digestDueInMs > cfg.startDelayMs
+        ? " — the 24h window is still closed (durable ledger), so this boot does not send"
+        : " (window open or no digest on record)")
+  );
   // Free-trial expiry emails (owner-approved direction 2026-10-26). Registered
   // exactly like the other passes — 6h interval, first tick at startDelayMs,
   // single-flight wrapper — so it logs `[scheduler] trial-expiry pass …` even
