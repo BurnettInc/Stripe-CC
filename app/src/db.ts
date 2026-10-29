@@ -272,10 +272,38 @@ export function cancelTasksForInvoice(db: Database, invoiceId: number) {
 
 // ── Logging helpers ──
 
-export function logSend(db: Database, taskId: number, status: string, message: string, type: string = "reminder", resendMessageId?: string | null) {
+/**
+ * Append one row to the mail trail.
+ *
+ * `createdAt` pins the row's timestamp to a caller-supplied clock instead of
+ * SQLite's `datetime('now')` (same 'YYYY-MM-DD HH:MM:SS' UTC format, so every
+ * comparison in the codebase keeps working). Only the daily owner digest passes
+ * it: that pass reads these very rows back to enforce its durable once-per-24h
+ * guard, so the clock that WRITES the ledger and the clock that READS it must be
+ * the same one — a pass driven by an injected clock (tests) would otherwise
+ * write rows dated from a different clock than the one it compares against.
+ * Every other caller keeps the SQLite default, byte-identical to before.
+ */
+export function logSend(
+  db: Database,
+  taskId: number,
+  status: string,
+  message: string,
+  type: string = "reminder",
+  resendMessageId?: string | null,
+  createdAt?: Date,
+) {
   db.run(
-    "INSERT INTO send_logs (reminder_task_id, type, status, provider_message, resend_message_id) VALUES (?, ?, ?, ?, ?)",
-    [taskId === 0 ? null : taskId, type, status, message, resendMessageId || null]
+    `INSERT INTO send_logs (reminder_task_id, type, status, provider_message, resend_message_id, created_at)
+     VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+    [
+      taskId === 0 ? null : taskId,
+      type,
+      status,
+      message,
+      resendMessageId || null,
+      createdAt ? createdAt.toISOString().slice(0, 19).replace("T", " ") : null,
+    ]
   );
 }
 
