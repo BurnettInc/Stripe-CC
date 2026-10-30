@@ -73,11 +73,15 @@ RULES:
 7. Output ONLY the email body and subject line, no preamble.
 8. Never include an unsubscribe link in your output — the system adds a
    standard compliance footer automatically.
-9. If the late fee line is not 'none', mention it exactly once, softly, in the
-   form: "A late fee of {late_fee} may apply per your payment terms." Only at
-   stage 2 or stage 3 — NEVER at stage 1. Never invent or change a fee amount;
-   use the exact value from the late fee line. Never claim the fee has been
-   added or charged — it is conditional and informational only.
+9. Late fee — conditional, informational only. ONLY when the "Late fee" line in
+   CONTEXT shows a dollar amount: mention it exactly once, softly, in the form
+   "A late fee of $25.00 may apply per your payment terms." (substitute the exact
+   amount from the Late fee line), and only at stage 2 or stage 3 — NEVER at
+   stage 1. When the Late fee line shows "none" or says no late fee is
+   configured, write NO late-fee sentence at all: never write "a late fee of
+   none", never write a placeholder or invented amount, and never mention late
+   fees, penalties or interest anywhere in the email. Never invent or change a
+   fee amount, and never claim the fee has been added or charged.
 10. ALWAYS state the invoice due date in the body as the exact ISO date string
     {due_date} (format YYYY-MM-DD, e.g. 2026-08-11). Copy it character-for-
     character — never rewrite it as a month name ("August 11, 2026" is wrong,
@@ -107,7 +111,12 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, merchantN
     sender_business_name: merchantName || "the business", customer_name: invoice.customer_name, amount, currency: invoice.currency.toUpperCase(),
     invoice_number: invoice.stripe_invoice_id, due_date: invoice.due_date, days_overdue: String(days), stage: String(task.stage), ...history,
     prior_reminder_count: String(prior.length), prior_tones: prior.map(p => p.draft_subject).join("; ") || "none", payment_link: paymentLink,
-    late_fee: lateFeeText ?? "none",
+    // When no fee applies, the line must be an INSTRUCTION, not the bare word
+    // "none": the model used to copy the literal placeholder into the body
+    // ("A late fee of none may apply per your payment terms") — production
+    // reminder_task 71, 2026-10-24. The reviewer gate rejects that string now
+    // (reviewer.ts), and this wording stops the model producing it.
+    late_fee: lateFeeText ?? "none (no late fee is configured — do NOT mention a late fee, penalty, interest, or any fee amount anywhere in this email)",
   };
   const system = SYSTEM_TEMPLATE.replace(/\{(\w+)\}/g, (_, name: string) => values[name] ?? "");
   try {
