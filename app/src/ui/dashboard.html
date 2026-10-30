@@ -1016,7 +1016,7 @@
     var MODE_LABELS = { draft: 'Draft Mode', semi: 'Semi-Auto', full: 'Copilot Mode' };
     var MODE_DESCS = {
       draft: 'you review and send every reminder manually \u2014 nothing goes out without your say-so',
-      semi: 'Stage 1 reminders send automatically; later drafts wait for your approval',
+      semi: 'New overdue invoices are chased automatically from the first reminder; later reminders wait for your approval. Invoices that were already overdue when you connected stay in Draft Mode until you approve them',
       full: 'reminders are drafted, reviewed and sent end-to-end, with no manual step',
     };
     function modeLabel(m) { return MODE_LABELS[m] || MODE_LABELS.semi; }

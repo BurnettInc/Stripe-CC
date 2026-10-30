@@ -18,7 +18,7 @@ interface ConnectionResponse { connected: boolean; account_name?: string }
 
 const modes: Array<{ value: TrustMode; label: string; description: string }> = [
   { value: 'draft', label: 'Draft', description: 'You approve every email before it is sent.' },
-  { value: 'semi', label: 'Semi-Auto', description: 'Stage 1 reminders send automatically; later stages need approval.' },
+  { value: 'semi', label: 'Semi-Auto', description: 'New overdue invoices send the first reminder automatically; later stages, and invoices that were already overdue when you connected, need approval.' },
   { value: 'full', label: 'Copilot Mode', description: 'Fully hands-off follow-ups across every escalation stage.' },
 ];
 

@@ -1071,8 +1071,17 @@ export function findOrCreateMerchant(
     return existing.id;
   }
   const finalEmail = email && email.includes("@") ? email : `user_${stripeUserId}@install.local`;
+  // Default autonomy for a NEW merchant (owner decision 2026-10-30): Semi-Auto,
+  // not Draft Mode. Under Draft Mode a trial merchant who never clicks
+  // "approve" gets a month of nothing — that was the trial-conversion hole.
+  // Semi-Auto auto-sends stage 1 (the first reminder) and holds stage 2+ for
+  // approval. The one guardrail — invoices that were already overdue when the
+  // merchant connected must never auto-send — is applied by the install
+  // backfill, which pins those rows to trust_mode_override='draft'
+  // (backfillMerchantInvoices + connectCutoff). Existing merchants are
+  // untouched: this only runs on INSERT.
   const info = db.run(
-    "INSERT INTO merchants (stripe_account_id, email, trust_mode, account_id, visitor_id) VALUES (?, ?, 'draft', ?, ?)",
+    "INSERT INTO merchants (stripe_account_id, email, trust_mode, account_id, visitor_id) VALUES (?, ?, 'semi', ?, ?)",
     [stripeUserId, finalEmail, accountId ?? null, visitorId]
   );
   return Number(info.lastInsertRowid);
@@ -1193,32 +1202,68 @@ export async function backfillMerchantInvoices(
   db: Database,
   merchantId: number,
   accessToken: string,
-  opts: { includeInactive?: boolean; livemode?: number } = {}
-): Promise<{ inserted: number; error?: string }> {
+  opts: { includeInactive?: boolean; livemode?: number; connectCutoff?: Date | number | string | null } = {}
+): Promise<{ inserted: number; heldForApproval: number; error?: string }> {
   try {
+    // Pre-connect guard cutoff (owner decision 2026-10-30). When set, any
+    // invoice that was ALREADY overdue at this instant — its due date is
+    // before the cutoff and it arrives open/overdue — is pinned to
+    // trust_mode_override='draft', so the new Semi-Auto default can never
+    // auto-send a first reminder about a debt the merchant had before they
+    // connected. Only the INSTALL backfill passes a cutoff (the merchant's own
+    // connect time); the recurring sync pass leaves it unset, so invoices that
+    // fall due after connect are chased automatically from stage 1.
+    const cutoffMs =
+      opts.connectCutoff === null || opts.connectCutoff === undefined
+        ? null
+        : opts.connectCutoff instanceof Date
+          ? opts.connectCutoff.getTime()
+          : typeof opts.connectCutoff === "string"
+            ? new Date(`${opts.connectCutoff.replace(" ", "T")}Z`).getTime() // merchants.created_at: UTC "YYYY-MM-DD HH:MM:SS"
+            : Number(opts.connectCutoff);
+    const cutoff = cutoffMs !== null && Number.isFinite(cutoffMs) ? cutoffMs : null;
     const res = await fetch(`${STRIPE_API}/invoices?limit=100`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) {
       const msg = `HTTP ${res.status}`;
       console.warn(`[oauth-app] invoice backfill failed (${msg}) — install continues with an empty dashboard`);
-      return { inserted: 0, error: msg };
+      return { inserted: 0, heldForApproval: 0, error: msg };
     }
     const data = (await res.json().catch(() => null)) as { data?: unknown } | null;
     const list = Array.isArray(data?.data) ? data.data : [];
     let inserted = 0;
+    let heldForApproval = 0;
     for (const raw of list) {
       const mapped = mapBackfilledInvoice((raw ?? {}) as Record<string, unknown>, merchantId, opts.includeInactive === true);
       if (!mapped) continue;
-      upsertInvoice(db, { ...mapped, livemode: opts.livemode === 0 ? 0 : 1 });
+      const invoiceId = upsertInvoice(db, { ...mapped, livemode: opts.livemode === 0 ? 0 : 1 });
       inserted++;
+      if (cutoff !== null && mapped.status === "overdue") {
+        // due_date is the ISO (UTC) day the invoice was due. A due date
+        // earlier than the connect moment is a debt the merchant already had
+        // when they arrived (mapBackfilledInvoice already calls it 'overdue'),
+        // so it is held for approval.
+        const dueMs = new Date(`${mapped.due_date}T00:00:00Z`).getTime();
+        if (Number.isFinite(dueMs) && dueMs < cutoff) {
+          // Never overwrite a merchant's own explicit override.
+          const changed = db.run(
+            "UPDATE invoices SET trust_mode_override='draft' WHERE id=? AND trust_mode_override IS NULL",
+            [invoiceId]
+          );
+          if (Number(changed.changes) > 0) heldForApproval++;
+        }
+      }
     }
-    console.log(`[oauth-app] backfilled ${inserted} invoice(s) for merchant ${merchantId} (livemode=${opts.livemode === 0 ? 0 : 1})`);
-    return { inserted };
+    console.log(
+      `[oauth-app] backfilled ${inserted} invoice(s) for merchant ${merchantId} (livemode=${opts.livemode === 0 ? 0 : 1}` +
+        `${cutoff !== null ? `, ${heldForApproval} pre-connect overdue held in Draft Mode` : ""})`
+    );
+    return { inserted, heldForApproval };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[oauth-app] invoice backfill failed (${msg}) — install continues with an empty dashboard`);
-    return { inserted: 0, error: msg };
+    return { inserted: 0, heldForApproval: 0, error: msg };
   }
 }
 
@@ -1568,7 +1613,25 @@ export async function handleAppInstallCallback(db: Database, req: Request): Prom
   // breaks the install. Idempotent via upsertInvoice on stripe_invoice_id.
   // Tagged with the install's mode (livemode from the token exchange —
   // reviewer fix #5) so a test-mode install never writes live rows.
-  await backfillMerchantInvoices(db, merchantId, tokens.access_token, { livemode: tokens.livemode ? 1 : 0 });
+  //
+  // Pre-connect guard (owner decision 2026-10-30): this is the ONE backfill
+  // call that carries connectCutoff, anchored on the merchant's own
+  // merchants.created_at (the first connect; for a re-install it is the
+  // original connect, so invoices that fell due after it are not re-held).
+  // Invoices already overdue at that instant are pinned to
+  // trust_mode_override='draft' — never auto-sent — while everything that
+  // falls due after connect is chased automatically from stage 1 under the new
+  // Semi-Auto default.
+  const merchantCreatedAt = (
+    db.query("SELECT created_at FROM merchants WHERE id=?").get(merchantId) as { created_at: string } | null
+  )?.created_at;
+  const connectCutoff = merchantCreatedAt
+    ? new Date(`${merchantCreatedAt.replace(" ", "T")}Z`)
+    : new Date();
+  await backfillMerchantInvoices(db, merchantId, tokens.access_token, {
+    livemode: tokens.livemode ? 1 : 0,
+    connectCutoff,
+  });
 
   // ── Mint the session + cross-host handoff ──
   // SameSite / persistence analysis (task D): the install STATE is
