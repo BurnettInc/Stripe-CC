@@ -223,6 +223,15 @@
     /* Copilot Mode (Pro): visually locked for non-Pro — same pattern as the
        dashboard's trust pill (opacity + no pointer events + title tooltip). */
     .mode-card.mode-locked { opacity: 0.45; pointer-events: none; }
+    /* Plain-language explanation of what actually sends on its own. Muted,
+       on-surface, brand accent bar — existing tokens only. */
+    .mode-whatsends {
+      margin-top: 16px; padding: 12px 16px; border-radius: var(--radius-sm);
+      background: var(--bg); border: 1px solid var(--border);
+      border-left: 3px solid var(--brand);
+      color: var(--body); font-size: 0.85rem; line-height: 1.55;
+    }
+    .mode-whatsends strong { color: var(--text); font-weight: 600; }
     /* Plain-language confirmation of the active mode */
     .mode-confirm {
       margin-top: 16px; padding: 12px 16px; border-radius: var(--radius-sm);
@@ -444,7 +453,7 @@
               <input type="radio" name="trust_mode" value="semi">
               <div class="pill-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18"/><path d="M8 21h8"/><path d="M3 7h18"/><path d="M6 7 4 12h4L6 7z"/><path d="m18 7-2 5h4l-2-5z"/></svg></div>
               <div class="mode-name">Semi-Auto</div>
-              <div class="mode-desc">Stage 1 auto-sends. Stage 2+ needs your approval.</div>
+              <div class="mode-desc">New overdue invoices auto-send the first reminder. Later reminders, and anything you arrived with, wait for your approval.</div>
             </label>
             <label class="mode-card" data-mode="full">
               <input type="radio" name="trust_mode" value="full">
@@ -453,6 +462,14 @@
               <div class="mode-desc">End-to-end: drafts, reviews, and sends automatically.</div>
             </label>
           </div>
+          <p class="mode-whatsends" id="mode-whatsends">
+            <strong>What sends on its own.</strong> In Semi-Auto, an invoice that falls due
+            after you connected is chased automatically &mdash; the first reminder goes out
+            without you approving it. Invoices that were <strong>already overdue when you
+            connected</strong> are held in Draft Mode: they stay as drafts until you approve
+            each one, so nothing goes to a customer about an older debt unless you say so.
+            Stage 2 and Stage 3 reminders always wait for your approval.
+          </p>
           <p class="mode-confirm" id="mode-confirm">Loading your current mode&hellip;</p>
         </section>
 
@@ -720,7 +737,7 @@
 
     var MODE_CONFIRM = {
       draft: 'Draft Mode: the Copilot drafts every reminder email \u2014 you review and send each one manually. Nothing goes out without your say-so.',
-      semi: 'Semi-Auto: Stage 1 reminders send automatically; Stage 2 and later drafts wait for your approval.',
+      semi: 'Semi-Auto: the first reminder for a newly overdue invoice sends automatically; Stage 2 and later wait for your approval, and invoices that were already overdue when you connected stay in Draft Mode until you approve them.',
       full: 'Copilot Mode: the Copilot drafts, reviews and sends reminders end-to-end, with no manual step in between.'
     };
     function renderModeConfirm() {

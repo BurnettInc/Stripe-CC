@@ -3,7 +3,7 @@ import { requestLivemode } from "../middleware/mode";
 import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, isMerchantPaused, isMerchantDisconnected, logSend, createReminderTask, FREE_ALLOWANCE_MESSAGE } from "../db";
 import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
-import { reviewDraft } from "../pipeline/reviewer";
+import { reviewDraft, placeholderLateFeeIssue } from "../pipeline/reviewer";
 import { getLateFeeText } from "../pipeline/late-fee";
 import { getEscalationStage } from "../pipeline/escalation";
 import { sendEmail, sendEmailForReal } from "../pipeline/sender";
@@ -304,6 +304,22 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       }), { status: 402, headers });
     }
 
+    // Placeholder late-fee guard (2026-10-30): a draft that was reviewed
+    // BEFORE the reviewer's late-fee gate existed can still carry the LLM's
+    // "A late fee of none may apply per your payment terms" (production
+    // reminder_task 71). The stored draft is not re-reviewed here on purpose —
+    // merchants edit drafts by hand — so this narrow check runs at the send:
+    // that sentence is never valid customer copy, whatever the fee settings.
+    const placeholderIssue = placeholderLateFeeIssue(`${draft.subject}\n${draft.body}`);
+    if (placeholderIssue) {
+      console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 409 placeholder_late_fee`);
+      return new Response(JSON.stringify({
+        error: "placeholder_late_fee",
+        message:
+          "This draft still contains an unfinished placeholder (\"A late fee of none may apply…\"). Edit the draft to remove that sentence, then approve again — no late fee is configured for your account, so it should not mention one.",
+        issue: placeholderIssue,
+      }), { status: 409, headers });
+    }
     // Send through the exact pipeline path (all guards inside sendEmailForReal).
     // sendEmailForReal sets status='sent' on success and leaves it unchanged on
     // failure, so a failed send keeps the task reviewed/drafted for retry.

@@ -36,6 +36,42 @@ function mentionsDueDate(text: string, dueDate: string): boolean {
   return re.test(text);
 }
 
+/** Any way a draft can bring up a fee for paying late. */
+const LATE_FEE_PHRASE = /\blate[\s-]+(?:fee|fees|charge|charges|penalt(?:y|ies)|surcharge)\b/i;
+/**
+ * The exact defect the gate exists to stop (production reminder_task 71,
+ * 2026-10-24): the drafter copied the prompt's "none" placeholder into a
+ * sentence. There is no legitimate reading of "a late fee of none" — reject it
+ * whether or not the merchant configured a fee.
+ */
+const LATE_FEE_OF_NONE = /\blate[\s-]+fee\s+(?:of\s+)?none\b/i;
+/**
+ * A late-fee mention that is explicitly NEGATED is legitimate copy ("no late
+ * fee applies", "we don't charge a late fee") — a merchant may write that by
+ * hand when editing a draft. Everything else that mentions a late fee when
+ * none is configured is rejected.
+ */
+const LATE_FEE_NEGATED =
+  /(?:\bno\b|\bnot\b|\bnever\b|\bwithout\b|\bnone\b|\bdoesn['’]?t\b|\bdon['’]?t\b|\bwon['’]?t\b|\bisn['’]?t\b|\bwasn['’]?t\b)[^.!?\n]{0,30}\blate[\s-]+(?:fee|fees|charge|charges|penalt(?:y|ies)|surcharge)\b|\blate[\s-]+(?:fee|fees|charge|charges|penalt(?:y|ies)|surcharge)\b[^.!?\n]{0,40}\b(?:does\s+not|doesn['’]?t|is\s+not|isn['’]?t|will\s+not|won['’]?t|was\s+not|wasn['’]?t|never)\b/i;
+
+/** Split subject+body into sentence-ish segments for the late-fee scan. */
+function sentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?\n])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * The placeholder-late-fee defect on its own, exposed for send-time guards
+ * (routes/tasks.ts POST /tasks/:id/approve re-checks a STORED draft, which was
+ * reviewed before this gate existed). Returns a human-readable issue or null.
+ */
+export function placeholderLateFeeIssue(text: string): string | null {
+  const m = LATE_FEE_OF_NONE.exec(text);
+  return m ? `Placeholder late fee: "${m[0]}" — the word "none" can never be a fee amount` : null;
+}
+
 export interface ReviewOptions {
   /**
    * The exact late-fee fragment the draft must contain (from late-fee.ts).
@@ -101,12 +137,33 @@ export function reviewDraft(draft: EmailDraft, invoice: Invoice, opts?: ReviewOp
     );
   }
 
-  // Check 5: late fee (when one applies, i.e. configured AND stage >= 2).
-  // The expected fragment comes from late-fee.ts — the same source the
-  // drafter used — so this validates the fee math end-to-end.
-  if (opts?.lateFeeText) {
-    if (!fullText.includes(opts.lateFeeText)) {
-      issues.push(`Missing late-fee mention: expected "${opts.lateFeeText}" not found in draft`);
+  // Check 5: late fee.
+  // (a) "A late fee of none may apply per your payment terms" is ALWAYS a
+  //     defect — the prompt's placeholder leaked into customer copy. Rejected
+  //     regardless of the merchant's configuration.
+  const ofNone = LATE_FEE_OF_NONE.exec(fullText);
+  if (ofNone) {
+    issues.push(
+      `Placeholder late fee: "${ofNone[0]}" — a draft must never render the word "none" as a fee amount`
+    );
+  }
+  const lateFeeExpected = typeof opts?.lateFeeText === "string" && opts.lateFeeText.trim() !== "";
+  if (lateFeeExpected) {
+    // (b) A fee IS configured (and applies at this stage): the exact fragment
+    //     from late-fee.ts must be present, so the fee math can never drift
+    //     between drafting and review.
+    if (!fullText.includes(opts!.lateFeeText as string)) {
+      issues.push(`Missing late-fee mention: expected "${opts!.lateFeeText}" not found in draft`);
+    }
+  } else {
+    // (c) NO fee is configured: the draft must not contain a late-fee sentence
+    //     at all (explicit negations like "no late fee applies" are allowed).
+    for (const segment of sentences(fullText)) {
+      if (!LATE_FEE_PHRASE.test(segment)) continue;
+      if (LATE_FEE_NEGATED.test(segment)) continue;
+      issues.push(
+        `Unexpected late-fee sentence with no late fee configured: "${segment}"`
+      );
     }
   }
 
