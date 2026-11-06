@@ -401,6 +401,11 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
         due_date: dueDate,
         status: "overdue",
         livemode,
+        // Customer-facing payment link straight off the event's invoice object
+        // (the same object Stripe serves from GET /v1/invoices). Null for
+        // invoices with no hosted page — the drafter then emits no link at all.
+        hosted_invoice_url: typeof inv.hosted_invoice_url === "string" ? inv.hosted_invoice_url : null,
+        invoice_pdf: typeof inv.invoice_pdf === "string" ? inv.invoice_pdf : null,
       });
       const invoice = getInvoiceById(db, invoiceId);
       if (!invoice) {

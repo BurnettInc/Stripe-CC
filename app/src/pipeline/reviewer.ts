@@ -1,4 +1,4 @@
-import type { Invoice } from "../db";
+import { paymentLinkFor, type Invoice } from "../db";
 import type { EmailDraft } from "./drafter";
 
 export interface ReviewResult {
@@ -72,6 +72,25 @@ export function placeholderLateFeeIssue(text: string): string | null {
   return m ? `Placeholder late fee: "${m[0]}" — the word "none" can never be a fee amount` : null;
 }
 
+/**
+ * The merchant-dashboard-link defect on its own, exposed for send-time guards
+ * (routes/tasks.ts POST /tasks/:id/approve re-checks a STORED draft — drafts
+ * written before this gate existed still carry the link).
+ *
+ * `dashboard.stripe.com/invoices/<id>` is the MERCHANT's own Stripe dashboard.
+ * A customer who clicks it hits a Stripe login wall and cannot pay — every
+ * reminder sent before 2026-11-06 carried it. The only URL customer copy may
+ * contain is the invoice's Stripe-hosted payment page (hosted_invoice_url), so
+ * this string is never valid in a draft, whatever the upstream code does.
+ */
+const MERCHANT_DASHBOARD_URL = /dashboard\.stripe\.com/i;
+export function merchantDashboardUrlIssue(text: string): string | null {
+  const m = MERCHANT_DASHBOARD_URL.exec(text);
+  return m
+    ? `Merchant dashboard link: "${m[0]}" is the merchant's own Stripe dashboard — a customer hits a login wall and cannot pay. Use the invoice's hosted payment link, or no link at all`
+    : null;
+}
+
 export interface ReviewOptions {
   /**
    * The exact late-fee fragment the draft must contain (from late-fee.ts).
@@ -91,7 +110,8 @@ export interface ReviewOptions {
  *  - Invoice number (stripe_invoice_id) appears in the body
  *  - Amount (formatted as dollars) appears in the body
  *  - Due date (YYYY-MM-DD format) appears in the body or subject
- *  - A payment link (URL) is present in the body
+ *  - The draft never contains dashboard.stripe.com (merchant login wall) and,
+ *    when the invoice has a Stripe-hosted payment page, carries exactly that URL
  *  - When a late fee applies (opts.lateFeeText), the exact fee fragment is present
  */
 export function reviewDraft(draft: EmailDraft, invoice: Invoice, opts?: ReviewOptions): ReviewResult {
@@ -119,21 +139,24 @@ export function reviewDraft(draft: EmailDraft, invoice: Invoice, opts?: ReviewOp
     issues.push(`Missing due date: expected "${invoice.due_date}" not found in draft`);
   }
 
-  // Check 4: payment link present AND references the actual invoice
-  const urlPattern = /https?:\/\/[^\s]+/g;
-  const urls = draft.body.match(urlPattern) || [];
-  const validUrl = urls.some((url) => {
-    // URL must either contain stripe.com/invoices/ AND the invoice ID,
-    // or start with https:// AND contain the invoice ID
-    const hasInvoiceId = url.includes(invoice.stripe_invoice_id);
-    const isStripeInvoiceUrl = url.includes("stripe.com/invoices/") && hasInvoiceId;
-    const isHttpsWithInvoiceId = url.startsWith("https://") && hasInvoiceId;
-    return isStripeInvoiceUrl || isHttpsWithInvoiceId;
-  });
-
-  if (!validUrl) {
+  // Check 4: payment link.
+  // (a) HARD GATE — the merchant's own dashboard URL is never a payment link.
+  //     Rejected unconditionally: a customer who clicks it hits a Stripe login
+  //     wall (the live defect: all 13 reminders ever sent carried it).
+  const dashboardIssue = merchantDashboardUrlIssue(fullText);
+  if (dashboardIssue) {
+    issues.push(dashboardIssue);
+  }
+  // (b) When the invoice HAS a Stripe-hosted payment page, the draft must carry
+  //     exactly that URL — it is the customer's own page and needs no account.
+  // (c) When it does NOT (draft/voided invoice, or a row not yet re-synced),
+  //     no link is required at all: the drafter omits the pay-now sentence and
+  //     the reminder still works as a reminder. Falling back to any other URL
+  //     is forbidden — (a) already rejects the dashboard one.
+  const hostedInvoiceUrl = paymentLinkFor(invoice);
+  if (hostedInvoiceUrl && !fullText.includes(hostedInvoiceUrl)) {
     issues.push(
-      `Missing or invalid payment link: no URL referencing invoice "${invoice.stripe_invoice_id}" found in draft body`
+      `Missing hosted payment link: expected "${hostedInvoiceUrl}" (the invoice's Stripe-hosted payment page) not found in draft`
     );
   }
 
