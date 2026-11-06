@@ -209,7 +209,7 @@ export async function createTaskForOverdueInvoice(
   try {
     const task = getTaskById(db, taskId);
     if (task) {
-      const draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
+      const draft = await draftEmail(task, invoice, undefined, db);
       db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
         draft.subject, draft.body, taskId,
       ]);

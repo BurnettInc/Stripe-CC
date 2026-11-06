@@ -8,6 +8,62 @@ export interface EmailDraft { subject: string; body: string; }
 const SIGN_OFFS = ["Thanks!", "Best,", "Regards,", "Cheers,", "All the best,"];
 function pickSignOff(stage: number): string { return SIGN_OFFS[(stage - 1) % SIGN_OFFS.length]; }
 
+/** Anything shaped like an email address (never a name, never a sign-off). */
+const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * A human name we can use in customer copy, or null when the value is unusable.
+ *
+ * Unusable means: empty/whitespace, Stripe's literal placeholder "Customer", or
+ * an EMAIL ADDRESS. Production merchant 11 has `sender_name` NULL and the
+ * template used to sign its customers' reminders with the merchant's email
+ * address; the same guard keeps "Hi jenny@example.com," out of the greeting
+ * when an invoice carries no real customer name (2026-11-06).
+ */
+export function usableName(raw: string | null | undefined): string | null {
+  const name = (raw ?? "").trim();
+  if (!name) return null;
+  if (name.toLowerCase() === "customer") return null;
+  if (EMAIL_LIKE.test(name)) return null;
+  return name;
+}
+
+/**
+ * Currency symbols we can safely render in front of a 2-decimal amount. A
+ * currency that is not listed gets NO guessed symbol — it renders as
+ * "27.00 SEK" (code after the amount) instead.
+ *
+ * Zero-decimal currencies (JPY, KRW, …) are deliberately absent: amount_cents
+ * is the smallest currency unit, so this 2-decimal formatting is wrong for
+ * them either way — a pre-existing limitation, not something a symbol fixes.
+ */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  usd: "$", eur: "€", gbp: "£", cad: "CA$", aud: "A$", nzd: "NZ$",
+};
+
+/**
+ * Render an invoice amount for customer copy: USD → "$27.00"; a currency we
+ * have no symbol for → "27.00 SEK". Before this the template wrote a bare
+ * "27.00" — an amount with no currency at all, which is exactly what every
+ * customer received while AI drafting was off (found 2026-11-06).
+ */
+export function formatAmount(amountCents: number, currency: string | null | undefined): string {
+  const amount = (amountCents / 100).toFixed(2);
+  const code = (currency ?? "").trim();
+  const symbol = CURRENCY_SYMBOLS[code.toLowerCase()];
+  if (symbol) return `${symbol}${amount}`;
+  return code ? `${amount} ${code.toUpperCase()}` : amount;
+}
+
+/**
+ * Sign-off for template copy. `name` is the merchant's configured display name
+ * (merchants.sender_name) — never their email address. With no usable name the
+ * email ends on a neutral "Best regards," and no name line at all.
+ */
+function signOff(stage: number, name: string | null): string {
+  return name ? `${pickSignOff(stage)}\n${name}` : "Best regards,";
+}
+
 /**
  * Soft, informational late-fee sentence appended to Stage 2 / Stage 3
  * template-fallback bodies when the merchant configured a fee. Never stage 1,
@@ -20,9 +76,9 @@ function lateFeeSentence(feeText: string | null | undefined): string {
   return feeText ? `\n\nA late fee of ${feeText} may apply per your payment terms.` : "";
 }
 
-function fallback(task: ReminderTask, invoice: Invoice, merchantName?: string, lateFeeText?: string | null): EmailDraft {
+function fallback(task: ReminderTask, invoice: Invoice, senderName?: string | null, lateFeeText?: string | null): EmailDraft {
   const days = Math.floor((Date.now() - new Date(invoice.due_date).getTime()) / 86400000);
-  const amount = `${(invoice.amount_cents / 100).toFixed(2)}`;
+  const amount = formatAmount(invoice.amount_cents, invoice.currency);
   // Stripe's customer-facing hosted invoice page — the ONLY link a customer
   // may be sent. NULL means there is no page to send them to (draft/voided
   // invoice, or a row not re-synced yet): then the body carries NO link at
@@ -30,14 +86,28 @@ function fallback(task: ReminderTask, invoice: Invoice, merchantName?: string, l
   // is the MERCHANT's own dashboard behind a login wall — every reminder ever
   // sent before 2026-11-06 carried that link and no customer could pay it.
   const link = paymentLinkFor(invoice);
-  const name = invoice.customer_name && invoice.customer_name !== "Customer" ? invoice.customer_name : "there";
-  const sign = merchantName ? `${pickSignOff(task.stage)}\n${merchantName}` : pickSignOff(task.stage);
+  const name = usableName(invoice.customer_name);
+  const sign = signOff(task.stage, usableName(senderName));
   const fee = lateFeeSentence(lateFeeText);
   let body: string;
-  if (task.stage === 1) body = `Hey ${name} — just a quick nudge that invoice #${invoice.stripe_invoice_id} for ${amount} was due on ${invoice.due_date}.${link ? `\n\nNo worries if it's already on the way — here's the link if you need it:\n${link}` : ""}\n\n${sign}`;
-  else if (task.stage === 2) body = `Hi ${name},\n\nFollowing up on invoice #${invoice.stripe_invoice_id} (${amount}, due ${invoice.due_date}). It's now ${days} days past due — is there anything blocking payment on your end? Happy to help if so.${fee}${link ? `\n\nHere's the payment link: ${link}` : ""}\n\n${sign}`;
-  else if (task.stage === 3) body = `Hi ${name},\n\nInvoice #${invoice.stripe_invoice_id} for ${amount} has been outstanding since ${invoice.due_date} (${days} days). This is our final notice before we flag it for further follow-up.${fee}${link ? `\n\nPlease settle at your earliest convenience: ${link}` : ""}\n\n${sign}`;
-  else body = `Hi ${name},\n\nThis is a reminder about invoice #${invoice.stripe_invoice_id} for ${amount}, due on ${invoice.due_date}.${link ? `\n\nYou can view and pay the invoice here: ${link}` : ""}\n\n${sign}`;
+  if (task.stage === 1) {
+    // Named customer: unchanged stage-1 copy. No usable name (empty, "Customer"
+    // or an email address): open with a plain "Hi there," and a new paragraph —
+    // never address a customer by their email address.
+    const opener = name
+      ? `Hey ${name} — just a quick nudge`
+      : `Hi there,\n\nJust a quick nudge`;
+    body = `${opener} that invoice #${invoice.stripe_invoice_id} for ${amount} was due on ${invoice.due_date}.${link ? `\n\nNo worries if it's already on the way — here's the link if you need it:\n${link}` : ""}\n\n${sign}`;
+  } else if (task.stage === 2) {
+    const greet = name ? `Hi ${name},` : "Hi there,";
+    body = `${greet}\n\nFollowing up on invoice #${invoice.stripe_invoice_id} (${amount}, due ${invoice.due_date}). It's now ${days} days past due — is there anything blocking payment on your end? Happy to help if so.${fee}${link ? `\n\nHere's the payment link: ${link}` : ""}\n\n${sign}`;
+  } else if (task.stage === 3) {
+    const greet = name ? `Hi ${name},` : "Hi there,";
+    body = `${greet}\n\nInvoice #${invoice.stripe_invoice_id} for ${amount} has been outstanding since ${invoice.due_date} (${days} days). This is our final notice before we flag it for further follow-up.${fee}${link ? `\n\nPlease settle at your earliest convenience: ${link}` : ""}\n\n${sign}`;
+  } else {
+    const greet = name ? `Hi ${name},` : "Hi there,";
+    body = `${greet}\n\nThis is a reminder about invoice #${invoice.stripe_invoice_id} for ${amount}, due on ${invoice.due_date}.${link ? `\n\nYou can view and pay the invoice here: ${link}` : ""}\n\n${sign}`;
+  }
   return { subject: `${getStageSubjectPrefix(task.stage)}: Invoice #${invoice.stripe_invoice_id}`, body };
 }
 
@@ -105,22 +175,182 @@ OUTPUT FORMAT (JSON):
   "body": "..."
 }`;
 
-/** Draft asynchronously with an OpenAI-compatible endpoint; templates remain the safe fallback. */
-export async function draftEmail(task: ReminderTask, invoice: Invoice, merchantName?: string, database?: Database): Promise<EmailDraft> {
+// ── Drafter health: is AI drafting actually on? ──
+//
+// Before this, a failed LLM call was swallowed (`if (!response.ok) return
+// fallbackDraft;` and a bare try/catch), so the product emailed the plain
+// template for an unknown length of time while looking perfectly healthy. On
+// 2026-11-06 the OpenAI account behind OPENAI_API_KEY had no credits: every
+// call returned HTTP 429 `insufficient_quota` and NOTHING said so.
+//
+// The record below is deliberately IN-PROCESS (no DB column, no new table, no
+// extra network call, no cron): it is updated on the drafting hot path that
+// already runs, and read by the existing token-gated GET /admin/data payload
+// (`drafting`). `tracking_since` is the process start time, so a reader can
+// tell "no failures since this restart" apart from "no failures ever" —
+// `status: "unknown"` means no draft attempt has been recorded yet.
+
+export interface DrafterFallback {
+  /** ISO-8601 UTC timestamp of the failed attempt. */
+  at: string;
+  /** Short machine-ish cause: the provider's error code/type, or e.g. "request_failed". */
+  reason: string;
+  /** HTTP status of the failed call (null when there was no response). */
+  http_status: number | null;
+  /** Human-readable one-liner: "status=429 type=insufficient_quota code=credit_balance_exhausted". */
+  detail: string;
+}
+
+export interface DrafterHealth {
+  /** "ok" = last attempt used the model; "degraded" = last attempt used the template; "unknown" = no attempt recorded yet. */
+  status: "ok" | "degraded" | "unknown";
+  key_configured: boolean;
+  tracking_since: string;
+  last_success_at: string | null;
+  last_fallback: DrafterFallback | null;
+  successes_total: number;
+  fallbacks_total: number;
+  consecutive_fallbacks: number;
+}
+
+const trackingSince = new Date().toISOString();
+const healthState: {
+  lastOutcome: "ok" | "fallback" | null;
+  lastSuccessAt: string | null;
+  lastFallback: DrafterFallback | null;
+  successes: number;
+  fallbacks: number;
+  consecutive: number;
+} = { lastOutcome: null, lastSuccessAt: null, lastFallback: null, successes: 0, fallbacks: 0, consecutive: 0 };
+
+/** Trim a provider token (error type/code) to something log-safe. */
+function shortToken(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v.trim().replace(/\s+/g, "_").slice(0, 64);
+}
+
+/** One-line, truncated error text — never a body dump, never the API key. */
+function shortMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  return raw.replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+/**
+ * Record ONE template fallback and log why it happened. Never throws — a
+ * logging failure must never break drafting.
+ */
+function noteFallback(reason: string, detail: string, httpStatus: number | null = null): void {
+  const entry: DrafterFallback = { at: new Date().toISOString(), reason, http_status: httpStatus, detail };
+  healthState.lastOutcome = "fallback";
+  healthState.lastFallback = entry;
+  healthState.fallbacks++;
+  healthState.consecutive++;
+  try {
+    console.warn(`[drafter] LLM unavailable — using template fallback: ${detail}`);
+  } catch { /* logging must never throw */ }
+}
+
+function noteSuccess(): void {
+  healthState.lastOutcome = "ok";
+  healthState.lastSuccessAt = new Date().toISOString();
+  healthState.successes++;
+  healthState.consecutive = 0;
+}
+
+/** Current AI-drafting health, for the admin surface. Pure read, no I/O. */
+export function drafterHealth(): DrafterHealth {
+  const keyConfigured = Boolean(process.env.OPENAI_API_KEY);
+  let status: DrafterHealth["status"] = "unknown";
+  if (!keyConfigured) status = "degraded";
+  else if (healthState.lastOutcome === "fallback") status = "degraded";
+  else if (healthState.lastOutcome === "ok") status = "ok";
+  return {
+    status,
+    key_configured: keyConfigured,
+    tracking_since: trackingSince,
+    last_success_at: healthState.lastSuccessAt,
+    last_fallback: healthState.lastFallback,
+    successes_total: healthState.successes,
+    fallbacks_total: healthState.fallbacks,
+    consecutive_fallbacks: healthState.consecutive,
+  };
+}
+
+/** Test-only: forget everything recorded so far. */
+export function resetDrafterHealth(): void {
+  healthState.lastOutcome = null;
+  healthState.lastSuccessAt = null;
+  healthState.lastFallback = null;
+  healthState.successes = 0;
+  healthState.fallbacks = 0;
+  healthState.consecutive = 0;
+}
+
+/**
+ * The merchant's display name for customer copy, or null.
+ *
+ * `merchants.sender_name` is authoritative (it is what the From header uses
+ * too). The `hint` argument exists for callers/tests that already know a name;
+ * an email address is NEVER accepted as either, which is what put a merchant's
+ * email address in the sign-off of every fallback reminder.
+ */
+function resolveSenderName(db: Database, merchantId: number, hint?: string | null): string | null {
+  let configured: string | null = null;
+  try {
+    const row = db.query("SELECT sender_name FROM merchants WHERE id=?").get(merchantId) as { sender_name: string | null } | null;
+    configured = usableName(row?.sender_name);
+  } catch {
+    configured = null; // no merchant row / closed DB: fall through to the hint
+  }
+  return configured ?? usableName(hint);
+}
+
+/**
+ * Turn a non-2xx provider response into a log-safe reason + detail. Reads at
+ * most the error envelope (`error.type` / `error.code`) — never the whole
+ * body, never the request headers (the API key lives there).
+ */
+async function describeHttpFailure(response: Response): Promise<{ reason: string; detail: string }> {
+  let type = "";
+  let code = "";
+  try {
+    const raw = await response.text();
+    const parsed = JSON.parse(raw) as { error?: { type?: unknown; code?: unknown } };
+    type = shortToken(parsed?.error?.type);
+    code = shortToken(parsed?.error?.code);
+  } catch {
+    // Non-JSON body (HTML gateway page, empty body): the status is the signal.
+  }
+  const parts = [`status=${response.status}`];
+  if (type) parts.push(`type=${type}`);
+  if (code) parts.push(`code=${code}`);
+  return { reason: code || type || `http_${response.status}`, detail: parts.join(" ") };
+}
+
+/**
+ * Draft asynchronously with an OpenAI-compatible endpoint; templates remain the
+ * safe fallback. A failed call NEVER throws and NEVER blocks a reminder: it
+ * returns the template draft and records/logs why (see drafterHealth).
+ */
+export async function draftEmail(task: ReminderTask, invoice: Invoice, senderNameHint?: string | null, database?: Database): Promise<EmailDraft> {
   const db = database ?? getDb();
   // Late fee (informational, Pro): the exact fragment the template must show
   // and the reviewer will verify. Null at stage 1 / when not configured.
   const lateFeeText = getLateFeeText(db, invoice.merchant_id, invoice, task.stage);
-  const fallbackDraft = fallback(task, invoice, merchantName, lateFeeText);
+  const senderName = resolveSenderName(db, invoice.merchant_id, senderNameHint);
+  const fallbackDraft = fallback(task, invoice, senderName, lateFeeText);
   const key = process.env.OPENAI_API_KEY;
-  if (!key) return fallbackDraft;
+  if (!key) {
+    noteFallback("no_api_key", "reason=no_api_key (OPENAI_API_KEY is not set)");
+    return fallbackDraft;
+  }
   const prior = db.query("SELECT draft_subject FROM reminder_tasks WHERE invoice_id=? AND id<>? AND draft_subject<>'' ORDER BY created_at").all(invoice.id, task.id) as Array<{ draft_subject: string }>;
   const history = getCustomerHistory(db, invoice.merchant_id, invoice.customer_name, invoice.customer_email, invoice.id, invoice.amount_cents);
   const days = Math.floor((Date.now() - new Date(invoice.due_date).getTime()) / 86400000);
   const amount = (invoice.amount_cents / 100).toFixed(2);
   const paymentLink = paymentLinkFor(invoice);
   const values: Record<string, string> = {
-    sender_business_name: merchantName || "the business", customer_name: invoice.customer_name, amount, currency: invoice.currency.toUpperCase(),
+    sender_business_name: senderName || "the business", customer_name: invoice.customer_name, amount, currency: invoice.currency.toUpperCase(),
     invoice_number: invoice.stripe_invoice_id, due_date: invoice.due_date, days_overdue: String(days), stage: String(task.stage), ...history,
     prior_reminder_count: String(prior.length), prior_tones: prior.map(p => p.draft_subject).join("; ") || "none",
     // An empty instruction (not a bare "none") so the model never invents a
@@ -135,21 +365,46 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, merchantN
     late_fee: lateFeeText ?? "none (no late fee is configured — do NOT mention a late fee, penalty, interest, or any fee amount anywhere in this email)",
   };
   const system = SYSTEM_TEMPLATE.replace(/\{(\w+)\}/g, (_, name: string) => values[name] ?? "");
+  let response: Response;
   try {
-    const response = await fetch(`${process.env.LLM_API_BASE || "https://api.openai.com/v1"}/chat/completions`, {
+    response = await fetch(`${process.env.LLM_API_BASE || "https://api.openai.com/v1"}/chat/completions`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({ model: process.env.LLM_MODEL || "gpt-4o-mini", messages: [{ role: "system", content: system }], temperature: 0.7 }),
     });
-    if (!response.ok) return fallbackDraft;
+  } catch (error) {
+    // Network/DNS/TLS failure: no response at all.
+    noteFallback("request_failed", `reason=request_failed error=${shortMessage(error)}`);
+    return fallbackDraft;
+  }
+  if (!response.ok) {
+    // THE defect this change exists for: this branch used to `return
+    // fallbackDraft` silently. Production, 2026-11-06 — HTTP 429
+    // insufficient_quota, every reminder the plain template, nothing logged.
+    const { reason, detail } = await describeHttpFailure(response);
+    noteFallback(reason, detail, response.status);
+    return fallbackDraft;
+  }
+  let parsed: { subject?: unknown; body?: unknown };
+  try {
     const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
     const content = data.choices?.[0]?.message?.content?.trim() || "";
-    const parsed = JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
-    if (typeof parsed.subject !== "string" || typeof parsed.body !== "string" || !parsed.subject || !parsed.body) return fallbackDraft;
-    // Safety net: the model must never hand a customer the merchant's own
-    // dashboard URL (login wall, unpayable). Drop such a draft and use the
-    // template, which only ever emits the invoice's hosted payment page. The
-    // reviewer's hard gate is the second line of defence.
-    if (/dashboard\.stripe\.com/i.test(`${parsed.subject}\n${parsed.body}`)) return fallbackDraft;
-    return { subject: parsed.subject, body: parsed.body };
-  } catch { return fallbackDraft; }
+    parsed = JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")) as { subject?: unknown; body?: unknown };
+  } catch (error) {
+    noteFallback("unparseable_response", `reason=unparseable_response error=${shortMessage(error)}`);
+    return fallbackDraft;
+  }
+  if (typeof parsed.subject !== "string" || typeof parsed.body !== "string" || !parsed.subject || !parsed.body) {
+    noteFallback("incomplete_draft", "reason=incomplete_draft (model returned no usable subject/body)");
+    return fallbackDraft;
+  }
+  // Safety net: the model must never hand a customer the merchant's own
+  // dashboard URL (login wall, unpayable). Drop such a draft and use the
+  // template, which only ever emits the invoice's hosted payment page. The
+  // reviewer's hard gate is the second line of defence.
+  if (/dashboard\.stripe\.com/i.test(`${parsed.subject}\n${parsed.body}`)) {
+    noteFallback("merchant_dashboard_link", "reason=merchant_dashboard_link (model wrote the merchant's own dashboard URL)");
+    return fallbackDraft;
+  }
+  noteSuccess();
+  return { subject: parsed.subject, body: parsed.body };
 }

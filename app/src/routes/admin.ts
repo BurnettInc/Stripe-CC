@@ -6,6 +6,7 @@ import { FREE_TRIAL_DAYS, countWaitlistSignups, freeTrialDaysRemaining, listWait
 import { aggregateUtmCampaigns, aggregateVisitsBySource, bucketVisit, displayBucketName, referrerHost, type VisitForAttribution } from "../visit-sources";
 import { botStatusForFull, botLikePatternFlags, classifyDevice, isBotUa, type VisitSignalRow } from "../visitor-signals";
 import { funnelStages } from "../funnel";
+import { drafterHealth } from "../pipeline/drafter";
 
 /**
  * Admin-only internal customer tracking dashboard (owner request 2026-08-12).
@@ -711,6 +712,11 @@ export function handleAdminData(db: Database, req: Request): Response {
     subscription_events: subscriptionEvents,
     outcomes: outcomes(db),
     conversions: conversions(db),
+    // Is the AI actually drafting? In-process record from the drafter (no DB
+    // write, no extra network call): "degraded" means the last reminder draft
+    // fell back to the plain template — e.g. the OpenAI account ran out of
+    // credits on 2026-11-06 and nothing said so for an unknown length of time.
+    drafting: drafterHealth(),
     waitlist: {
       total: countWaitlistSignups(db),
       entries: listWaitlistEntries(db).map(waitlistEntryWithSource),

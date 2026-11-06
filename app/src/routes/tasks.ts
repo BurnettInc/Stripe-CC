@@ -191,7 +191,7 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
   try {
     const task = getTaskById(db, taskId);
     if (task) {
-      const draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
+      const draft = await draftEmail(task, invoice, undefined, db);
       db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [draft.subject, draft.body, taskId]);
       const review = reviewDraft(draft, invoice, {
         lateFeeText: getLateFeeText(db, invoice.merchant_id, invoice, task.stage),
@@ -270,7 +270,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     // free for everyone (no allowance to consume).
     let draft: EmailDraft;
     if (task.status === "pending") {
-      draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
+      draft = await draftEmail(task, invoice, undefined, db);
       db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
         draft.subject, draft.body, taskId,
       ]);
@@ -535,7 +535,7 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     let draft: EmailDraft;
     if (task.status === "pending") {
       pipelineLog.push("Step 1: Drafting email...");
-      draft = await draftEmail(task, invoice, getMerchantById(db, invoice.merchant_id)?.email, db);
+      draft = await draftEmail(task, invoice, undefined, db);
       db.run("UPDATE reminder_tasks SET draft_subject=?, draft_body=?, status='drafted' WHERE id=?", [
         draft.subject,
         draft.body,

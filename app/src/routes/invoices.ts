@@ -124,7 +124,7 @@ export async function handleInvoices(db: Database, req: Request, rawPath: string
     if (open) {
       try {
         const adjustedTask = { ...open, stage: effective } as ReminderTask;
-        const draft = await draftEmail(adjustedTask, invoice as unknown as Invoice, getMerchantById(db, merchantId)?.email, db);
+        const draft = await draftEmail(adjustedTask, invoice as unknown as Invoice, undefined, db);
         const review = reviewDraft(draft, invoice as unknown as Invoice, {
           lateFeeText: getLateFeeText(db, merchantId, invoice as unknown as Invoice, effective),
         });

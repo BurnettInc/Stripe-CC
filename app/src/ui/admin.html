@@ -118,6 +118,10 @@
   </header>
   <main>
     <div id="error" class="error" style="display:none;"></div>
+    <!-- AI-drafting health (owner visibility, 2026-11-06): shown ONLY when the
+         drafter is not actually using the model — every reminder is then the
+         plain template. Hidden when drafting is ok / not yet exercised. -->
+    <div id="draftingBanner" style="display:none;margin:0 0 14px;padding:10px 14px;border-radius:8px;font-size:13px;line-height:1.5;"></div>
 
     <!-- (a) MERGED Revenue + Product Health — outcomes first -->
     <section class="section" id="outcomesSec" style="display:none;">
@@ -291,6 +295,31 @@
     function fmtUsd(amount){ return new Intl.NumberFormat(undefined,{style:"currency",currency:"usd"}).format(amount||0); }
     function pct(n,d){ if(!d)return null; return Math.round((n/d)*1000)/10; }
     function guardMsg(){ return '<span class="guard">not enough data yet</span>'; }
+    // AI-drafting health (owner visibility, 2026-11-06): the drafter keeps an
+    // in-process record of whether the last reminder draft came from the model
+    // or fell back to the plain template. Shown ONLY when it is not ok — an
+    // owner should never have to read server logs to discover that every
+    // reminder going out is the plain template.
+    function renderDrafting(d){
+      var el=document.getElementById("draftingBanner"); if(!el) return;
+      var dr=d.drafting||{};
+      if(dr.status!=="degraded"){ el.style.display="none"; return; }
+      var why;
+      if(dr.key_configured===false){
+        why="OPENAI_API_KEY is not set, so no reminder can be AI-drafted.";
+      } else if(dr.last_fallback){
+        var f=dr.last_fallback;
+        why="The last draft attempt failed"+(f.http_status?" (HTTP "+esc(f.http_status)+")":"")+": <code>"+esc(f.detail)+"</code> at "+esc(String(f.at).replace("T"," ").replace(/\.\d{3}Z$/,"Z"))+".";
+      } else {
+        why="The last draft attempt fell back to the plain template.";
+      }
+      el.style.display="";
+      el.style.background="rgba(214,140,0,.14)";
+      el.style.border="1px solid rgba(214,140,0,.55)";
+      el.style.color="var(--body)";
+      el.innerHTML='<b>AI drafting is OFF — every reminder is being sent as the plain template.</b> '+why+
+        ' <span class="muted">'+esc((dr.fallbacks_total||0)+" fallback(s) / "+(dr.successes_total||0)+" model draft(s) since this process started "+dr.tracking_since+". After adding OpenAI credits the next draft should read OK.")+"</span>";
+    }
     function loadout(d){
       // Check whether there is ANY real outcome/revenue data yet.
       var o=d.outcomes||{}, rec=o.recovery||{}, resp=o.response||{};
@@ -522,6 +551,7 @@
         var d=res.d;
         document.getElementById("gen").textContent="generated "+d.generated_at+" UTC";
         loadout(d);
+        renderDrafting(d);
         renderFunnel(d);
         renderSources(d);
         renderSignals(d);
