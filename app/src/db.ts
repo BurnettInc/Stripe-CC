@@ -47,6 +47,10 @@ function runMigrations(db: Database) {
   if (!invoiceCols.some(c => c.name === "manually_paused_at")) {
     db.exec("ALTER TABLE invoices ADD COLUMN manually_paused_at TEXT DEFAULT NULL");
   }
+  // Customer-facing payment link (Stripe's hosted_invoice_url) + its PDF are
+  // added AFTER the SQL-migration loop below (see the end of runMigrations):
+  // migration 021 REBUILDS the invoices table, so a guard placed here would be
+  // wiped on a fresh database. The reasoning for the columns lives there.
 
   // Dev-only Pro flag (merchants.dev_pro): when 1, the backend treats this
   // merchant as an ACTIVE PRO subscriber with NO real Stripe subscription —
@@ -103,6 +107,30 @@ function runMigrations(db: Database) {
       db.run("INSERT INTO schema_migrations (file) VALUES (?)", [file]);
     }
   }
+
+  // Customer-facing payment link (Stripe's hosted_invoice_url) + its PDF.
+  //
+  // Before this, reminder copy linked to dashboard.stripe.com/invoices/<id> —
+  // the MERCHANT's own dashboard, behind a Stripe login wall — so a customer
+  // could never pay from a reminder (production defect, fixed 2026-11-06; all
+  // 13 reminders ever sent carried that link).
+  //
+  // Deliberately AFTER the SQL-migration loop: migration 021 REBUILDS the
+  // invoices table with an explicit column list, so on a fresh database it
+  // drops anything schema.sql added beyond it. Guarding here makes the columns
+  // exist on every database — a fresh one, and the live volume DB (migration
+  // 021 is already recorded there, so this is a plain idempotent ALTER).
+  //
+  // Nullable on purpose: drafts/voided invoices have no hosted page, and rows
+  // synced before this column existed stay NULL until the next sync fills them
+  // in — copy must then carry NO payment URL rather than the dashboard link.
+  const invoiceColsAfterMigrations = db.query("PRAGMA table_info(invoices)").all() as { name: string }[];
+  if (!invoiceColsAfterMigrations.some(c => c.name === "hosted_invoice_url")) {
+    db.exec("ALTER TABLE invoices ADD COLUMN hosted_invoice_url TEXT DEFAULT NULL");
+  }
+  if (!invoiceColsAfterMigrations.some(c => c.name === "invoice_pdf")) {
+    db.exec("ALTER TABLE invoices ADD COLUMN invoice_pdf TEXT DEFAULT NULL");
+  }
 }
 
 // ── Merchant helpers ──
@@ -119,6 +147,26 @@ export function ensureDefaultMerchant(db: Database) {
 
 // ── Invoice helpers ──
 
+/** Trimmed string, or null for anything that isn't a non-empty string. */
+function nonEmpty(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+}
+
+/**
+ * The customer-facing payment URL for an invoice, or null when there is none.
+ *
+ * Stripe's hosted_invoice_url is the ONLY link a customer may be given: it is
+ * Stripe's own payment page and needs no account. The dashboard.stripe.com
+ * invoice URL that older code used is the MERCHANT's own dashboard — a
+ * customer who clicked it hit a Stripe login wall and could not pay (all 13
+ * reminders ever sent carried it; fixed 2026-11-06). Null (drafts, voided
+ * invoices, rows not yet re-synced) means the copy must carry NO payment link
+ * at all — never fall back to the dashboard URL.
+ */
+export function paymentLinkFor(invoice: Pick<Invoice, "hosted_invoice_url">): string | null {
+  return nonEmpty(invoice.hosted_invoice_url);
+}
+
 export function upsertInvoice(
   db: Database,
   params: {
@@ -133,9 +181,19 @@ export function upsertInvoice(
     /** 1 = live, 0 = test (reviewer fix #5). Defaults to LIVE — the
      * pre-mode behavior; every pre-migration row is live. */
     livemode?: number;
+    /** Stripe's customer-facing hosted invoice page (invoice.hosted_invoice_url).
+     * Null/absent for drafts, voided invoices and legacy payloads — copy must
+     * then omit the payment link entirely (never fall back to the merchant's
+     * dashboard URL). */
+    hosted_invoice_url?: string | null;
+    /** Stripe's invoice PDF (invoice.invoice_pdf). Same call, same row — stored
+     * for later use; not used in copy yet. */
+    invoice_pdf?: string | null;
   }
 ) {
   const livemode = params.livemode === 0 ? 0 : 1;
+  const hostedInvoiceUrl = nonEmpty(params.hosted_invoice_url);
+  const invoicePdf = nonEmpty(params.invoice_pdf);
   const existing = db
     .query("SELECT id FROM invoices WHERE stripe_invoice_id = ? AND livemode = ?")
     .get(params.stripe_invoice_id, livemode) as { id: number } | null;
@@ -146,19 +204,27 @@ export function upsertInvoice(
     // NEVER cleared — an invoice that was once overdue stays flagged for
     // life, so its later payment records a recovery event even after the
     // status column has moved on to 'paid'/'void'.
+    //
+    // hosted_invoice_url / invoice_pdf use COALESCE(?, existing): a re-sync
+    // that DOES carry a link overwrites the stored one (Stripe can rotate the
+    // hosted page), while a payload with no link (voided invoice, a legacy
+    // event without the field) never WIPES a link we already have — the
+    // reminder must keep working.
     db.run(
       `UPDATE invoices SET customer_name=?, customer_email=?, amount_cents=?, currency=?, due_date=?, status=?,
-       ever_overdue = CASE WHEN ? = 'overdue' THEN 1 ELSE ever_overdue END
+       ever_overdue = CASE WHEN ? = 'overdue' THEN 1 ELSE ever_overdue END,
+       hosted_invoice_url = COALESCE(?, hosted_invoice_url),
+       invoice_pdf = COALESCE(?, invoice_pdf)
        WHERE id=?`,
-      [params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status, existing.id]
+      [params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status, hostedInvoiceUrl, invoicePdf, existing.id]
     );
     return existing.id;
   }
 
   const result = db.run(
-    `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, ever_overdue, livemode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [params.stripe_invoice_id, params.merchant_id, params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status === "overdue" ? 1 : 0, livemode]
+    `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, ever_overdue, livemode, hosted_invoice_url, invoice_pdf)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [params.stripe_invoice_id, params.merchant_id, params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status === "overdue" ? 1 : 0, livemode, hostedInvoiceUrl, invoicePdf]
   );
   return Number(result.lastInsertRowid);
 }
@@ -1194,6 +1260,13 @@ export interface Invoice {
   refund_id: string | null;
   /** 1 once the payment-received notification has been emailed for this invoice. */
   paid_notified: number;
+  /** Stripe's customer-facing hosted invoice page — the ONLY URL reminder copy
+   *  may send (see paymentLinkFor). NULL/absent when Stripe returned none
+   *  (drafts, voided invoices) or the row has not been re-synced since the
+   *  column was added: copy then carries NO payment link at all. */
+  hosted_invoice_url?: string | null;
+  /** Stripe's invoice PDF link (invoice.invoice_pdf), stored for later use. */
+  invoice_pdf?: string | null;
   /** ISO timestamp set when a customer reply paused this invoice's sequence (reply-pause, D1a). */
   reply_paused_at: string | null;
   /** ISO timestamp set by the merchant's Pause button in the Stripe App drawer (manual pause). */

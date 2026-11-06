@@ -39,7 +39,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { getInvoiceById, getMerchantById, logSend, isUnsubscribed, cancelTasksForInvoice } from "../db";
+import { getInvoiceById, getMerchantById, logSend, isUnsubscribed, cancelTasksForInvoice, paymentLinkFor } from "../db";
 import type { Invoice } from "../db";
 import { appendCanspamFooter } from "./canspam";
 import { sendEmailForReal } from "./sender";
@@ -209,7 +209,7 @@ RULES:
 2. confidence = how sure you are of the classification (0.0-1.0).
 3. Subject should normally start with "Re:" and be short.
 4. The body must NOT include an unsubscribe link or compliance footer — the system adds those.
-5. Never invent facts about payments, refunds, or fees that the context does not support.
+5. Never invent facts about payments, refunds, or fees that the context does not support. The ONLY link you may include is the "Hosted payment link" from CONTEXT — that is the customer's own Stripe payment page. If it says there is none, include no link at all. NEVER write a dashboard.stripe.com URL: that is the merchant's own dashboard behind a login wall and the customer cannot pay through it.
 6. Keep the body under ~150 words.`;
 
 interface ReplyAiValues extends Record<string, string> {
@@ -265,7 +265,9 @@ export async function classifyAndDraftReply(
     due_date: invoice.due_date,
     days_overdue: String(days),
     stage: "1",
-    payment_link: `https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}`,
+    // Same rule as the drafter: the customer's own Stripe payment page, or no
+    // link at all. Never the merchant's dashboard (login wall).
+    payment_link: paymentLinkFor(invoice) ?? "none (this invoice has no customer payment link — do NOT include any URL or link in this reply)",
     original_reply: `${reply.from_name ? reply.from_name + " <" + reply.from_email + ">" : reply.from_email}\n` +
       (reply.subject ? `Subject: ${reply.subject}\n` : "") +
       `\n${reply.body || ""}`.trim(),
@@ -298,6 +300,9 @@ export async function classifyAndDraftReply(
     const subject = typeof parsed.subject === "string" && parsed.subject.trim() ? parsed.subject.trim().slice(0, 500) : null;
     const body = typeof parsed.body === "string" && parsed.body.trim() ? parsed.body.trim().slice(0, 10000) : null;
     if (!body) return fallbackClassified(reply, invoice); // unusable draft → safe hold
+    // Safety net: a customer-facing reply must never carry the merchant's own
+    // dashboard URL (login wall, unpayable) — hold it for a human instead.
+    if (/dashboard\.stripe\.com/i.test(body)) return fallbackClassified(reply, invoice);
     return { classification, confidence, subject: subject ?? `Re: your message about invoice #${invoice.stripe_invoice_id}`, body };
   } catch {
     return fallbackClassified(reply, invoice);

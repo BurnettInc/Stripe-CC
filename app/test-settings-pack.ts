@@ -443,12 +443,16 @@ async function run() {
     d.close();
     const config = getLateFeeConfig(db(), 1);
     const feeText = formatLateFeeText(config, invoice, 2); // merchant is percent 1.5 now
+    // The customer-facing link is Stripe's hosted invoice page (never
+    // dashboard.stripe.com, which is the merchant's own login-walled dashboard).
+    const hostedLink = "https://invoice.stripe.com/i/acct_SETTINGSPACK/live_settingspack?s=ap";
+    invoice.hosted_invoice_url = hostedLink;
     const withFee = reviewDraft(
-      { subject: "Subject", body: `Invoice ${invoice.stripe_invoice_id} for $1250.00 due ${invoice.due_date}. A late fee of ${feeText} may apply per your payment terms. Pay at https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}` },
+      { subject: "Subject", body: `Invoice ${invoice.stripe_invoice_id} for $1250.00 due ${invoice.due_date}. A late fee of ${feeText} may apply per your payment terms. Pay at ${hostedLink}` },
       invoice, { lateFeeText: feeText },
     );
     const withoutFee = reviewDraft(
-      { subject: "Subject", body: `Invoice ${invoice.stripe_invoice_id} for $1250.00 due ${invoice.due_date}. Pay at https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}` },
+      { subject: "Subject", body: `Invoice ${invoice.stripe_invoice_id} for $1250.00 due ${invoice.due_date}. Pay at ${hostedLink}` },
       invoice, { lateFeeText: feeText },
     );
     const pass =

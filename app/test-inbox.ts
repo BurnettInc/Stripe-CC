@@ -244,7 +244,7 @@ async function run() {
     const editedBody =
       `Hi there — this is my hand-edited reminder for invoice #${invoiceRow.stripe_invoice_id} ` +
       `for $${(invoiceRow.amount_cents / 100).toFixed(2)} due ${invoiceRow.due_date}. ` +
-      `Please pay at https://dashboard.stripe.com/invoices/${invoiceRow.stripe_invoice_id} — thanks!`;
+      `Please pay at https://invoice.stripe.com/i/acct_TESTHANDEDIT/live_testhandedit?s=ap — thanks!`;
 
     const put = await af(`/tasks/${wh.taskId}/draft`, {
       method: "PUT",

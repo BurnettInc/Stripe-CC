@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { getCustomerHistory, getDb, type Invoice, type ReminderTask } from "../db";
+import { getCustomerHistory, getDb, paymentLinkFor, type Invoice, type ReminderTask } from "../db";
 import { getStageSubjectPrefix } from "./escalation";
 import { getLateFeeText } from "./late-fee";
 
@@ -23,15 +23,21 @@ function lateFeeSentence(feeText: string | null | undefined): string {
 function fallback(task: ReminderTask, invoice: Invoice, merchantName?: string, lateFeeText?: string | null): EmailDraft {
   const days = Math.floor((Date.now() - new Date(invoice.due_date).getTime()) / 86400000);
   const amount = `${(invoice.amount_cents / 100).toFixed(2)}`;
-  const link = `https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}`;
+  // Stripe's customer-facing hosted invoice page — the ONLY link a customer
+  // may be sent. NULL means there is no page to send them to (draft/voided
+  // invoice, or a row not re-synced yet): then the body carries NO link at
+  // all. It must never fall back to dashboard.stripe.com/invoices/<id>, which
+  // is the MERCHANT's own dashboard behind a login wall — every reminder ever
+  // sent before 2026-11-06 carried that link and no customer could pay it.
+  const link = paymentLinkFor(invoice);
   const name = invoice.customer_name && invoice.customer_name !== "Customer" ? invoice.customer_name : "there";
   const sign = merchantName ? `${pickSignOff(task.stage)}\n${merchantName}` : pickSignOff(task.stage);
   const fee = lateFeeSentence(lateFeeText);
   let body: string;
-  if (task.stage === 1) body = `Hey ${name} — just a quick nudge that invoice #${invoice.stripe_invoice_id} for ${amount} was due on ${invoice.due_date}.\n\nNo worries if it's already on the way — here's the link if you need it:\n${link}\n\n${sign}`;
-  else if (task.stage === 2) body = `Hi ${name},\n\nFollowing up on invoice #${invoice.stripe_invoice_id} (${amount}, due ${invoice.due_date}). It's now ${days} days past due — is there anything blocking payment on your end? Happy to help if so.${fee}\n\nHere's the payment link: ${link}\n\n${sign}`;
-  else if (task.stage === 3) body = `Hi ${name},\n\nInvoice #${invoice.stripe_invoice_id} for ${amount} has been outstanding since ${invoice.due_date} (${days} days). This is our final notice before we flag it for further follow-up.${fee}\n\nPlease settle at your earliest convenience: ${link}\n\n${sign}`;
-  else body = `Hi ${name},\n\nThis is a reminder about invoice #${invoice.stripe_invoice_id} for ${amount}, due on ${invoice.due_date}.\n\nYou can view and pay the invoice here: ${link}\n\n${sign}`;
+  if (task.stage === 1) body = `Hey ${name} — just a quick nudge that invoice #${invoice.stripe_invoice_id} for ${amount} was due on ${invoice.due_date}.${link ? `\n\nNo worries if it's already on the way — here's the link if you need it:\n${link}` : ""}\n\n${sign}`;
+  else if (task.stage === 2) body = `Hi ${name},\n\nFollowing up on invoice #${invoice.stripe_invoice_id} (${amount}, due ${invoice.due_date}). It's now ${days} days past due — is there anything blocking payment on your end? Happy to help if so.${fee}${link ? `\n\nHere's the payment link: ${link}` : ""}\n\n${sign}`;
+  else if (task.stage === 3) body = `Hi ${name},\n\nInvoice #${invoice.stripe_invoice_id} for ${amount} has been outstanding since ${invoice.due_date} (${days} days). This is our final notice before we flag it for further follow-up.${fee}${link ? `\n\nPlease settle at your earliest convenience: ${link}` : ""}\n\n${sign}`;
+  else body = `Hi ${name},\n\nThis is a reminder about invoice #${invoice.stripe_invoice_id} for ${amount}, due on ${invoice.due_date}.${link ? `\n\nYou can view and pay the invoice here: ${link}` : ""}\n\n${sign}`;
   return { subject: `${getStageSubjectPrefix(task.stage)}: Invoice #${invoice.stripe_invoice_id}`, body };
 }
 
@@ -67,7 +73,13 @@ RULES:
 4. Never repeat phrasing from prior_tones — each email in the sequence must
    read as a distinct, natural follow-up, not a copy-paste with an angrier
    subject line.
-5. Always include the payment link with a clear, single call to action.
+5. Payment link: include the "Hosted payment link" from CONTEXT once, with a
+   clear single call to action — that URL is the customer's own Stripe payment
+   page and is the ONLY link you may ever write. When the Hosted payment link
+   line says there is none, write NO payment link, NO URL of any kind and no
+   "pay here" instruction: the email still works as a reminder. NEVER invent a
+   link and NEVER write a dashboard.stripe.com URL — that is the merchant's own
+   dashboard behind a login wall and the customer cannot pay through it.
 6. Final-notice stage may state a clear, factual consequence (e.g. late fee,
    pause in service) if configured — but never use guilt or hostility.
 7. Output ONLY the email body and subject line, no preamble.
@@ -106,11 +118,15 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, merchantN
   const history = getCustomerHistory(db, invoice.merchant_id, invoice.customer_name, invoice.customer_email, invoice.id, invoice.amount_cents);
   const days = Math.floor((Date.now() - new Date(invoice.due_date).getTime()) / 86400000);
   const amount = (invoice.amount_cents / 100).toFixed(2);
-  const paymentLink = `https://dashboard.stripe.com/invoices/${invoice.stripe_invoice_id}`;
+  const paymentLink = paymentLinkFor(invoice);
   const values: Record<string, string> = {
     sender_business_name: merchantName || "the business", customer_name: invoice.customer_name, amount, currency: invoice.currency.toUpperCase(),
     invoice_number: invoice.stripe_invoice_id, due_date: invoice.due_date, days_overdue: String(days), stage: String(task.stage), ...history,
-    prior_reminder_count: String(prior.length), prior_tones: prior.map(p => p.draft_subject).join("; ") || "none", payment_link: paymentLink,
+    prior_reminder_count: String(prior.length), prior_tones: prior.map(p => p.draft_subject).join("; ") || "none",
+    // An empty instruction (not a bare "none") so the model never invents a
+    // link or reaches for the merchant's dashboard URL when the invoice has no
+    // hosted payment page.
+    payment_link: paymentLink ?? "none (this invoice has no customer payment link — do NOT include any URL or link in this email)",
     // When no fee applies, the line must be an INSTRUCTION, not the bare word
     // "none": the model used to copy the literal placeholder into the body
     // ("A late fee of none may apply per your payment terms") — production
@@ -129,6 +145,11 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, merchantN
     const content = data.choices?.[0]?.message?.content?.trim() || "";
     const parsed = JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
     if (typeof parsed.subject !== "string" || typeof parsed.body !== "string" || !parsed.subject || !parsed.body) return fallbackDraft;
+    // Safety net: the model must never hand a customer the merchant's own
+    // dashboard URL (login wall, unpayable). Drop such a draft and use the
+    // template, which only ever emits the invoice's hosted payment page. The
+    // reviewer's hard gate is the second line of defence.
+    if (/dashboard\.stripe\.com/i.test(`${parsed.subject}\n${parsed.body}`)) return fallbackDraft;
     return { subject: parsed.subject, body: parsed.body };
   } catch { return fallbackDraft; }
 }

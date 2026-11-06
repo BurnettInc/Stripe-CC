@@ -3,7 +3,7 @@ import { requestLivemode } from "../middleware/mode";
 import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, isMerchantPaused, isMerchantDisconnected, logSend, createReminderTask, FREE_ALLOWANCE_MESSAGE } from "../db";
 import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
-import { reviewDraft, placeholderLateFeeIssue } from "../pipeline/reviewer";
+import { reviewDraft, placeholderLateFeeIssue, merchantDashboardUrlIssue } from "../pipeline/reviewer";
 import { getLateFeeText } from "../pipeline/late-fee";
 import { getEscalationStage } from "../pipeline/escalation";
 import { sendEmail, sendEmailForReal } from "../pipeline/sender";
@@ -304,6 +304,23 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       }), { status: 402, headers });
     }
 
+    // Merchant-dashboard link guard (2026-11-06): every reminder drafted before
+    // this fix pays via dashboard.stripe.com/invoices/<id> — the MERCHANT's own
+    // dashboard, behind a Stripe login wall — so a customer cannot pay through
+    // it. Stored drafts are not re-reviewed here (merchants edit by hand), so
+    // this narrow check runs at the send: that host is never valid customer
+    // copy, whatever the draft's age or provenance. Regenerate or edit the
+    // draft to get the invoice's Stripe-hosted payment link.
+    const dashboardIssue = merchantDashboardUrlIssue(`${draft.subject}\n${draft.body}`);
+    if (dashboardIssue) {
+      console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 409 merchant_dashboard_link`);
+      return new Response(JSON.stringify({
+        error: "merchant_dashboard_link",
+        message:
+          "This draft links to your own Stripe dashboard (dashboard.stripe.com), which your customer cannot open without a Stripe login — they cannot pay through it. Regenerate or edit the draft so it uses the invoice's Stripe-hosted payment link, then approve again.",
+        issue: dashboardIssue,
+      }), { status: 409, headers });
+    }
     // Placeholder late-fee guard (2026-10-30): a draft that was reviewed
     // BEFORE the reviewer's late-fee gate existed can still carry the LLM's
     // "A late fee of none may apply per your payment terms" (production

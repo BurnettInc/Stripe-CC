@@ -1137,6 +1137,8 @@ function mapBackfilledInvoice(
   currency: string;
   due_date: string;
   status: string;
+  hosted_invoice_url: string | null;
+  invoice_pdf: string | null;
 } | null {
   if (!inv || typeof inv.id !== "string" || !inv.id) return null;
   const status = typeof inv.status === "string" ? inv.status : "";
@@ -1144,6 +1146,14 @@ function mapBackfilledInvoice(
   const email = typeof inv.customer_email === "string" && inv.customer_email ? inv.customer_email : "—";
   const currency = typeof inv.currency === "string" && inv.currency ? inv.currency : "usd";
   const created = typeof inv.created === "number" ? inv.created : Date.now() / 1000;
+  // Customer-facing payment links. Stripe returns hosted_invoice_url on every
+  // invoice a customer can pay (open / paid); it is null for drafts and voided
+  // invoices, which is fine — reminder copy then omits the link entirely.
+  // Without this the copy fell back to the merchant's own dashboard URL and no
+  // customer could pay (fixed 2026-11-06).
+  const hosted_invoice_url =
+    typeof inv.hosted_invoice_url === "string" && inv.hosted_invoice_url ? inv.hosted_invoice_url : null;
+  const invoice_pdf = typeof inv.invoice_pdf === "string" && inv.invoice_pdf ? inv.invoice_pdf : null;
 
   if (status === "paid") {
     return {
@@ -1155,6 +1165,8 @@ function mapBackfilledInvoice(
       currency,
       due_date: unixToIsoDate(created),
       status: "paid",
+      hosted_invoice_url,
+      invoice_pdf,
     };
   }
   if (status !== "open") {
@@ -1171,6 +1183,8 @@ function mapBackfilledInvoice(
       currency,
       due_date: unixToIsoDate(created),
       status: status === "uncollectible" ? "uncollectible" : "void",
+      hosted_invoice_url,
+      invoice_pdf,
     };
   }
 
@@ -1184,6 +1198,8 @@ function mapBackfilledInvoice(
     currency,
     due_date: unixToIsoDate(dueDate),
     status: dueDate * 1000 < Date.now() ? "overdue" : "open",
+    hosted_invoice_url,
+    invoice_pdf,
   };
 }
 

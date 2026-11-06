@@ -64,8 +64,12 @@ const INVOICE = {
   currency: "usd",
   due_date: "2025-09-18",
   status: "overdue",
+  // Stripe's customer-facing hosted invoice page — the ONLY link a reminder
+  // may carry (dashboard.stripe.com/invoices/<id> is the MERCHANT's own
+  // dashboard behind a login wall; see reviewer.ts).
+  hosted_invoice_url: "https://invoice.stripe.com/i/acct_TESTLATEFEE001/live_testlatefee001?s=ap",
 } as any;
-const LINK = `https://dashboard.stripe.com/invoices/${INVOICE.stripe_invoice_id}`;
+const LINK = INVOICE.hosted_invoice_url as string;
 const CLEAN_BODY = `Hi Jenny,\n\nInvoice ${INVOICE.stripe_invoice_id} for 105.00 was due on 2025-09-18. It is now 401 days past due — is there anything blocking payment on your end?\n\nHere's the payment link: ${LINK}\n\nThanks!`;
 
 console.log("── A. Late-fee reviewer gate ──");

@@ -19,6 +19,14 @@ CREATE TABLE IF NOT EXISTS invoices (
   due_date TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'paid', 'void', 'overdue', 'uncollectible')),
   trust_mode_override TEXT DEFAULT NULL CHECK(trust_mode_override IN ('draft', 'semi', 'full')),
+  -- Customer-facing payment link (Stripe's hosted_invoice_url) and the PDF.
+  -- This is the ONLY URL a customer may be sent: the dashboard.stripe.com
+  -- invoice URL is the MERCHANT's own dashboard and hits a login wall, so a
+  -- customer cannot pay through it (production defect fixed 2026-11-06).
+  -- NULL for drafts / voided invoices / rows synced before this column
+  -- existed — in that case reminder copy carries NO payment URL at all.
+  hosted_invoice_url TEXT DEFAULT NULL,
+  invoice_pdf TEXT DEFAULT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
