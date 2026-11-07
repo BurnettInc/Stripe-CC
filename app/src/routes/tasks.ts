@@ -5,6 +5,7 @@ import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
 import { reviewDraft, placeholderLateFeeIssue, merchantDashboardUrlIssue } from "../pipeline/reviewer";
 import { getLateFeeText } from "../pipeline/late-fee";
+import { annotateTaskReadiness, countReadyDrafts } from "../pipeline/draft-readiness";
 import { getEscalationStage } from "../pipeline/escalation";
 import { sendEmail, sendEmailForReal } from "../pipeline/sender";
 
@@ -226,8 +227,26 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
   if (req.method === "GET" && pathSuffix === "") {
     const url = new URL(req.url);
     const includeAll = url.searchParams.get("status") === "all";
-    const tasks = getAllTasks(db, merchantId, includeAll, livemode);
+    // Every row also carries `draft_readiness` — a READ-ONLY derived flag
+    // (pipeline/draft-readiness.ts) that says whether a reviewed draft can be
+    // sent right now, and whether the merchant's current Trust Mode would have
+    // sent it automatically at creation (the stranded-draft gap: a stage-1
+    // draft written in Draft Mode before the merchant flipped to Semi-Auto
+    // never auto-sends and, until now, was never flagged as sendable).
+    // Nothing here sends, mutates, or gates anything.
+    const tasks = annotateTaskReadiness(db, merchantId, getAllTasks(db, merchantId, includeAll, livemode));
     return new Response(JSON.stringify(tasks), { status: 200, headers });
+  }
+
+  // GET /tasks/ready-count — how many reviewed drafts are ready to send / need
+  // attention right now, for this Stripe mode. Read-only; used by
+  // /copilot-controls to show a merchant who just flipped modes what is
+  // waiting on them. Counts only — no task ids, no draft text.
+  if (req.method === "GET" && pathSuffix === "/ready-count") {
+    return new Response(JSON.stringify(countReadyDrafts(db, merchantId, livemode)), {
+      status: 200,
+      headers,
+    });
   }
 
   // POST /tasks/:id/approve — send the task's current draft through the exact
@@ -456,8 +475,14 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     }
 
     const updatedTask = getTaskById(db, taskId);
+    // Carry the derived readiness flag back so the inbox chip reflects the
+    // edited draft (a fix that satisfies the reviewer turns the chip from
+    // "Needs attention" to "Ready to send"). Still read-only.
+    const annotatedTask = updatedTask
+      ? annotateTaskReadiness(db, merchantId, [updatedTask as unknown as Record<string, unknown>])[0]
+      : null;
     return new Response(JSON.stringify({
-      task: updatedTask,
+      task: annotatedTask,
       message: "Draft updated. Ready for approval.",
     }), { status: 200, headers });
   }

@@ -238,6 +238,13 @@
       background: var(--purple-soft); border: 1px solid var(--border);
       color: var(--brand-dark); font-size: 0.88rem; font-weight: 500;
     }
+    /* Drafts a mode switch left behind (2026-11-06) — factual, their own data */
+    .mode-stranded {
+      margin-top: 12px; padding: 12px 16px; border-radius: var(--radius-sm);
+      background: var(--warning-light); border: 1px solid rgba(138, 90, 0, 0.3);
+      color: var(--warning); font-size: 0.85rem; line-height: 1.55;
+    }
+    .mode-stranded a { color: var(--warning); font-weight: 600; text-decoration: underline; }
 
     /* ── Settings grid: three columns below the Autonomy row ── */
     .controls-grid {
@@ -471,6 +478,12 @@
             Stage 2 and Stage 3 reminders always wait for your approval.
           </p>
           <p class="mode-confirm" id="mode-confirm">Loading your current mode&hellip;</p>
+          <!-- Stranded-draft visibility (2026-11-06): a draft written BEFORE a
+               mode switch never sends itself (auto-send only happens at draft
+               creation). This line counts those drafts for the merchant —
+               read-only, filled from GET /tasks/ready-count. Hidden when there
+               is nothing waiting, so it never becomes a nag. -->
+          <p class="mode-stranded" id="mode-stranded" hidden></p>
         </section>
 
         <!-- 2–4. Sender identity / Escalation timing / Late-fee automation —
@@ -727,6 +740,42 @@
       }
     }
 
+    // ── Drafts a mode switch left behind (2026-11-06) ──
+    // Auto-send only happens at DRAFT CREATION, so a draft written before the
+    // merchant flipped modes never sends itself. GET /tasks/ready-count is
+    // read-only and returns {ready, stranded, needs_attention} for the
+    // merchant's current Stripe mode; nothing here can send anything.
+    async function loadReadyDrafts() {
+      var elc = el('mode-stranded');
+      if (!elc) return;
+      try {
+        var res = await fetch('/tasks/ready-count');
+        if (handoffIf401(res)) return;
+        if (!res.ok) { elc.hidden = true; return; }
+        var counts = await res.json();
+        var ready = Number(counts && counts.stranded) || 0;
+        var blocked = Number(counts && counts.needs_attention) || 0;
+        var parts = [];
+        if (ready > 0) {
+          parts.push(ready === 1
+            ? '1 draft your Copilot wrote before you switched modes is ready to send \u2014 it will not go out on its own. Open Messages to review and send it.'
+            : ready + ' drafts your Copilot wrote before you switched modes are ready to send \u2014 they will not go out on their own. Open Messages to review and send them.');
+        }
+        if (blocked > 0) {
+          parts.push(blocked === 1
+            ? '1 draft needs attention before it can be sent.'
+            : blocked + ' drafts need attention before they can be sent.');
+        }
+        if (parts.length === 0) { elc.hidden = true; elc.innerHTML = ''; return; }
+        // Static copy + a count — no untrusted text is interpolated here.
+        elc.innerHTML = parts.join(' ') +
+          ' <a href="/messages">Go to Messages</a>';
+        elc.hidden = false;
+      } catch (e) {
+        elc.hidden = true;
+      }
+    }
+
     // ── Autonomy mode cards ──
     function updateSelectedStyle(mode) {
       document.querySelectorAll('.mode-card').forEach(function(card) {
@@ -875,6 +924,9 @@
           if (lfValueEl) lfValueEl.value = data.late_fee_value != null ? data.late_fee_value : 0;
           markClean();
           setSaveStatus('\u2713 Saved!', 'ok');
+          // A mode change can strand (or release) drafts that already exist —
+          // refresh the count so the merchant sees it immediately.
+          loadReadyDrafts();
         } else {
           var err = await res.json().catch(function() { return {}; });
           setSaveStatus('\u2717 ' + (err.error || 'Save failed'), 'err');
@@ -969,6 +1021,7 @@
     // ── Initialize ──
     loadSubscription();
     loadSettings();
+    loadReadyDrafts();
     loadStats();
     updateTimestamp();
     // Periodic refresh
