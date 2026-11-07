@@ -31,6 +31,13 @@
  *   C5. A draft that omits the hosted link while the invoice HAS one is rejected.
  *   D1. Source guard: neither drafter.ts nor reply-ai.ts builds a
  *       dashboard.stripe.com URL any more.
+ *   E1-E6. Rotated hosted link (2026-11-07): a stale same-account token is
+ *       rewritten to the invoice's current one and NOTHING else in the draft
+ *       changes; a draft with no link is never given one; another account's
+ *       link is never adopted; the dashboard link is never touched.
+ *   E7-E13. The invoice-sync sweep + the single-task send-path repair: the
+ *       reviewer rejects the stale draft BEFORE, approves it AFTER, a sent task
+ *       is never rewritten, the sweep is idempotent.
  *
  * Pure/unit test — no server, no network, no email, no production DB. Run:
  *   cd app && bun run test-hosted-payment-link.ts
@@ -47,6 +54,9 @@ delete process.env.OPENAI_API_KEY; // force the deterministic template fallback
 const { getDb, upsertInvoice, paymentLinkFor } = await import("./src/db");
 const { draftEmail } = await import("./src/pipeline/drafter");
 const { reviewDraft, merchantDashboardUrlIssue } = await import("./src/pipeline/reviewer");
+const { refreshHostedLinkText, repairStaleHostedLinks, repairTaskHostedLink } = await import(
+  "./src/pipeline/hosted-link-repair"
+);
 
 let pass = 0;
 let fail = 0;
@@ -218,6 +228,156 @@ for (const file of ["src/pipeline/drafter.ts", "src/pipeline/reply-ai.ts"]) {
   // what must never come back is an actual dashboard URL literal.
   check(`${file} no longer builds a dashboard.stripe.com URL`, !/https?:\/\/dashboard\.stripe\.com/i.test(src));
 }
+
+console.log("── E. Rotated hosted link self-heal (2026-11-07) ──");
+
+// THE DEFECT: Stripe ROTATES the hosted payment page (same account, NEW page
+// token). The 15-minute sync refreshes invoices.hosted_invoice_url, so the
+// invoice row moves on while a stored draft keeps the previous token — and the
+// reviewer demands THIS invoice's current link, so a perfectly good draft is
+// rejected as "missing hosted payment link" (production reminder_task 72,
+// merchant 11, $27.00). The repair rewrites the stale token in place.
+const HOSTED_OLD = "https://invoice.stripe.com/i/acct_hostedlink/live_oldtoken?s=ap";
+const FOREIGN = "https://invoice.stripe.com/i/acct_othermerchant/live_foreign?s=ap";
+
+function goodBody(sid: string, url: string | null): string {
+  return (
+    `Hi Jenny,\n\nInvoice ${sid} for 27.00 was due on 2026-10-01 and is still open.\n` +
+    (url ? `You can pay it here: ${url}\n` : "") +
+    `\nBest regards,\nAcme Billing`
+  );
+}
+function insertTask(invoiceId: number, status: string, body: string, subject: string): number {
+  const r = db.run(
+    "INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body) VALUES (?, 1, ?, ?, ?)",
+    [invoiceId, status, subject, body],
+  );
+  return Number(r.lastInsertRowid);
+}
+function taskRow(id: number): { status: string; draft_subject: string; draft_body: string } {
+  return db.query("SELECT status, draft_subject, draft_body FROM reminder_tasks WHERE id=?").get(id) as {
+    status: string;
+    draft_subject: string;
+    draft_body: string;
+  };
+}
+
+// E1 — the pure rewrite: the stale token becomes the current one, and NOTHING
+// else in the draft changes.
+const staleBody = goodBody("in_HOSTED010", HOSTED_OLD);
+const rw = refreshHostedLinkText(staleBody, HOSTED);
+check(
+  "E1 stale hosted link rewritten to the invoice's current one",
+  rw.changed && rw.replaced === 1 && rw.text.includes(HOSTED),
+  rw.text
+);
+check("E1b the draft is otherwise byte-identical", rw.text.replace(HOSTED, HOSTED_OLD) === staleBody, rw.text);
+check("E1c the old token is gone", !rw.text.includes(HOSTED_OLD));
+
+// E2 — already current ⇒ no write at all.
+const noop = refreshHostedLinkText(goodBody("in_HOSTED010", HOSTED), HOSTED);
+check("E2 a draft already carrying the current link is unchanged", noop.changed === false && noop.replaced === 0);
+
+// E3 — a draft with NO link is never given one (C5 must keep rejecting it).
+const noLinkBody = goodBody("in_HOSTED010", null);
+const noLinkRw = refreshHostedLinkText(noLinkBody, HOSTED);
+check("E3 a draft with NO link is not given one", noLinkRw.changed === false && noLinkRw.text === noLinkBody);
+
+// E4 — a link belonging to a DIFFERENT Stripe account is never adopted.
+const foreignRw = refreshHostedLinkText(goodBody("in_HOSTED010", FOREIGN), HOSTED);
+check("E4 another account's hosted link is left alone", foreignRw.changed === false && foreignRw.text.includes(FOREIGN));
+
+// E5 — no current link on the invoice ⇒ nothing to repair to.
+const nullRw = refreshHostedLinkText(staleBody, null);
+check("E5 no current link on the invoice ⇒ draft untouched", nullRw.changed === false && nullRw.text === staleBody);
+
+// E6 — the sentence around the URL survives byte for byte.
+const punctRw = refreshHostedLinkText(`Pay here: (${HOSTED_OLD}). Thanks!`, HOSTED);
+check("E6 surrounding punctuation is preserved", punctRw.text === `Pay here: (${HOSTED}). Thanks!`, punctRw.text);
+
+// E7 — the sweep the invoice-sync pass runs.
+const staleInvId = upsertInvoice(db, baseParams("in_HOSTED010", { hosted_invoice_url: HOSTED }));
+const staleInv = db.query("SELECT * FROM invoices WHERE id=?").get(staleInvId) as any;
+const staleSubject = "Reminder: invoice in_HOSTED010 is overdue";
+const staleTaskId = insertTask(staleInvId, "reviewed", staleBody, staleSubject);
+const foreignInvId = upsertInvoice(db, baseParams("in_HOSTED011", { hosted_invoice_url: HOSTED }));
+const foreignTaskId = insertTask(foreignInvId, "reviewed", goodBody("in_HOSTED011", FOREIGN), "Reminder: invoice in_HOSTED011");
+const noLinkInvId = upsertInvoice(db, baseParams("in_HOSTED012", { hosted_invoice_url: HOSTED }));
+const noLinkTaskId = insertTask(noLinkInvId, "reviewed", goodBody("in_HOSTED012", null), "Reminder: invoice in_HOSTED012");
+const sentInvId = upsertInvoice(db, baseParams("in_HOSTED013", { hosted_invoice_url: HOSTED }));
+const sentTaskId = insertTask(sentInvId, "sent", goodBody("in_HOSTED013", HOSTED_OLD), "Reminder: invoice in_HOSTED013");
+const dashInvId = upsertInvoice(db, baseParams("in_HOSTED014", { hosted_invoice_url: HOSTED }));
+const dashBody = `Hi Jenny,\n\nInvoice in_HOSTED014 for 27.00 was due on 2026-10-01.\nPay here: ${DASHBOARD}in_HOSTED014\n`;
+const dashTaskId = insertTask(dashInvId, "reviewed", dashBody, "Reminder: invoice in_HOSTED014");
+
+// E7a — before the repair the gate rejects the stale draft: this IS the bug.
+const beforeRepair = reviewDraft({ subject: staleSubject, body: staleBody }, staleInv, { lateFeeText: null });
+check(
+  "E7a the reviewer rejects the stale draft BEFORE the repair (the production defect)",
+  beforeRepair.approved === false && beforeRepair.issues.some((i) => /hosted payment link/i.test(i)),
+  JSON.stringify(beforeRepair.issues)
+);
+
+const repairedCount = repairStaleHostedLinks(db, merchantId, 1);
+check("E7b the sweep repaired exactly the one stale draft", repairedCount === 1, `count=${repairedCount}`);
+const repairedRow = taskRow(staleTaskId);
+check(
+  "E7c the stored body now carries the invoice's CURRENT hosted link",
+  repairedRow.draft_body.includes(HOSTED) && !repairedRow.draft_body.includes(HOSTED_OLD),
+  repairedRow.draft_body
+);
+check(
+  "E7d the stored body is otherwise byte-identical",
+  repairedRow.draft_body.replace(HOSTED, HOSTED_OLD) === staleBody,
+  repairedRow.draft_body
+);
+check("E7e the subject is untouched", repairedRow.draft_subject === staleSubject, repairedRow.draft_subject);
+check("E7f the task is still 'reviewed' — nothing was sent", repairedRow.status === "reviewed", repairedRow.status);
+const afterRepair = reviewDraft({ subject: repairedRow.draft_subject, body: repairedRow.draft_body }, staleInv, {
+  lateFeeText: null,
+});
+check("E7g the reviewer APPROVES the repaired draft", afterRepair.approved === true, JSON.stringify(afterRepair.issues));
+
+// E8 — idempotent: the second sweep has nothing left to do.
+check("E8 a second sweep repairs nothing", repairStaleHostedLinks(db, merchantId, 1) === 0);
+
+// E9 — a draft with NO link stays rejected (C5 behaviour preserved).
+const noLinkRow = taskRow(noLinkTaskId);
+check("E9 the no-link draft was not rewritten", noLinkRow.draft_body === goodBody("in_HOSTED012", null));
+check(
+  "E9b the no-link draft is still REJECTED by the reviewer",
+  reviewDraft({ subject: noLinkRow.draft_subject, body: noLinkRow.draft_body }, db.query("SELECT * FROM invoices WHERE id=?").get(noLinkInvId) as any, { lateFeeText: null }).approved === false
+);
+
+// E10 — another invoice's / another account's hosted link stays rejected.
+const foreignRow = taskRow(foreignTaskId);
+check("E10 the foreign hosted link was not rewritten", foreignRow.draft_body.includes(FOREIGN), foreignRow.draft_body);
+check(
+  "E10b the foreign-link draft is still REJECTED by the reviewer",
+  reviewDraft({ subject: foreignRow.draft_subject, body: foreignRow.draft_body }, db.query("SELECT * FROM invoices WHERE id=?").get(foreignInvId) as any, { lateFeeText: null }).approved === false
+);
+
+// E11 — a SENT task is history: never rewritten.
+const sentRow = taskRow(sentTaskId);
+check("E11 a sent task keeps its original (stale) body", sentRow.draft_body.includes(HOSTED_OLD), sentRow.draft_body);
+check("E11b a sent task stays 'sent'", sentRow.status === "sent", sentRow.status);
+
+// E12 — the dashboard link is never touched, so that hard gate keeps firing.
+const dashRow = taskRow(dashTaskId);
+check("E12 the dashboard-link draft was not rewritten", dashRow.draft_body === dashBody, dashRow.draft_body);
+check(
+  "E12b the dashboard-link draft is still REJECTED",
+  reviewDraft({ subject: dashRow.draft_subject, body: dashRow.draft_body }, db.query("SELECT * FROM invoices WHERE id=?").get(dashInvId) as any, { lateFeeText: null }).approved === false
+);
+
+// E13 — the send path (POST /tasks/:id/approve) repairs one task on its own,
+// and refuses to touch a sent one.
+const singleInvId = upsertInvoice(db, baseParams("in_HOSTED015", { hosted_invoice_url: HOSTED }));
+const singleTaskId = insertTask(singleInvId, "reviewed", goodBody("in_HOSTED015", HOSTED_OLD), "Reminder: invoice in_HOSTED015");
+const single = repairTaskHostedLink(db, singleTaskId, HOSTED, () => {});
+check("E13 repairTaskHostedLink repairs one stored draft", single === true, `returned=${single}`);
+check("E13b the single-task repair used the current link", taskRow(singleTaskId).draft_body.includes(HOSTED));
+check("E13c repairTaskHostedLink leaves a sent task alone", repairTaskHostedLink(db, sentTaskId, HOSTED, () => {}) === false);
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"} — ${pass} passed, ${fail} failed`);
 db.close();

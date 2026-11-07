@@ -1,11 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { requestLivemode } from "../middleware/mode";
-import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, isMerchantPaused, isMerchantDisconnected, logSend, createReminderTask, FREE_ALLOWANCE_MESSAGE } from "../db";
+import { getAllTasks, getTaskById, getInvoiceById, getMerchantById, hasActiveSubscription, isMerchantPaused, isMerchantDisconnected, logSend, createReminderTask, paymentLinkFor, FREE_ALLOWANCE_MESSAGE } from "../db";
 import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
 import { reviewDraft, placeholderLateFeeIssue, merchantDashboardUrlIssue } from "../pipeline/reviewer";
 import { getLateFeeText } from "../pipeline/late-fee";
 import { annotateTaskReadiness, countReadyDrafts } from "../pipeline/draft-readiness";
+import { repairTaskHostedLink } from "../pipeline/hosted-link-repair";
 import { getEscalationStage } from "../pipeline/escalation";
 import { sendEmail, sendEmailForReal } from "../pipeline/sender";
 
@@ -284,6 +285,21 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
       console.log(`[tasks] merchant ${merchantId} approve task ${taskId} -> 404 invoice_not_found`);
       return json404();
     }
+    // Rotated hosted payment link (2026-11-07). Stripe rotates the invoice's
+    // hosted payment page and the 15-minute sync refreshes
+    // invoices.hosted_invoice_url, so a draft written before the rotation
+    // still carries the PREVIOUS token. The reviewer demands THIS invoice's
+    // current link, so that draft is rejected as "missing hosted payment link"
+    // even though it is fine. Repair the stored draft in place before the
+    // send-time guards read it — only the URL token changes, every other byte
+    // stays the merchant's own copy — so approving a good draft is never
+    // blocked while waiting for the next sync tick. Sent/cancelled tasks are
+    // never touched, and a draft with NO link is left alone (the reviewer's
+    // gate keeps rejecting it).
+    if (task.status !== "pending") {
+      repairTaskHostedLink(db, taskId, paymentLinkFor(invoice), (msg) => console.log(msg));
+    }
+
     // Ensure there is a current draft to approve. Tasks that never went through
     // the pipeline (status 'pending') get drafted + reviewed inline first —
     // free for everyone (no allowance to consume).
@@ -300,7 +316,10 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
         JSON.stringify(review), taskId,
       ]);
     } else {
-      draft = { subject: task.draft_subject || "", body: task.draft_body || "" };
+      // Read the row back: the hosted-link repair above may have rewritten the
+      // stored draft during this request, and the repaired copy is what we send.
+      const current = getTaskById(db, taskId) ?? task;
+      draft = { subject: current.draft_subject || "", body: current.draft_body || "" };
       if (!draft.body) {
         // No usable draft on the row (anomalous — draft persists before the
         // status flips, but defend anyway).

@@ -25,6 +25,10 @@
  *       gate-failing draft still 409s and leaves the task unsent;
  *   (j) the merchant-facing markup carries the new surfaces (/messages chips +
  *       explanation sentence, /copilot-controls count element).
+ *   (k) ROTATED hosted link (2026-11-07): a stored draft whose Stripe-hosted
+ *       payment URL was rotated reads as needs_attention BEFORE the
+ *       invoice-sync repair (the false alarm) and as ready_to_send + stranded
+ *       AFTER it, with the flag's public shape unchanged and nothing sent.
  *
  * Runs against a booted server (TEST_BASE, default http://localhost:3132) and
  * its SQLite file (TEST_DB_PATH, default /tmp/cc-stranded-draft.db). Boot the
@@ -34,6 +38,7 @@
  *   TEST_BASE=http://localhost:3132 TEST_DB_PATH=/tmp/cc-stranded-draft.db bun run test-stranded-draft.ts
  */
 import { Database } from "bun:sqlite";
+import { repairStaleHostedLinks } from "./src/pipeline/hosted-link-repair";
 
 const BASE = process.env.TEST_BASE || "http://localhost:3132";
 const DB_PATH = process.env.TEST_DB_PATH || "/tmp/cc-stranded-draft.db";
@@ -320,6 +325,92 @@ async function main(): Promise<void> {
     check("(j) /copilot-controls → 200", controls.status === 200, `status=${controls.status}`);
     check("(j) /copilot-controls carries the count element", chtml.includes('id="mode-stranded"'), "missing #mode-stranded");
     check("(j) /copilot-controls fetches /tasks/ready-count", chtml.includes("/tasks/ready-count"), "missing fetch");
+  }
+
+  // ── (k) ROTATED hosted link: the false alarm, then the repair ──
+  // Stripe rotates the invoice's hosted payment page. The 15-minute sync
+  // refreshes invoices.hosted_invoice_url, so the invoice row moves on while a
+  // stored draft keeps the previous token — and the reviewer (which this flag
+  // calls) then rejects a perfectly good draft, reporting it to the merchant as
+  // "Needs attention". This is reminder_task 72 in production (merchant 11,
+  // $27.00). The invoice-sync repair rewrites the stale token; the SAME draft
+  // must then read as ready_to_send / stranded with the flag's shape unchanged.
+  {
+    const STALE = "https://invoice.stripe.com/i/acct_stranded/test_stranded_rotated_old?s=ap";
+    const seedDb = db();
+    const invId = Number(
+      seedDb.run(
+        `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents,
+                               currency, due_date, status, livemode, hosted_invoice_url)
+         VALUES ('in_stranded_rotated', ?, 'Dana Customer', 'dana@customer.com', 2700, 'usd', ?, 'overdue', 1, ?)`,
+        [MERCHANT_SEMI, DUE, HOSTED],
+      ).lastInsertRowid,
+    );
+    const staleBody =
+      `Hi Dana,\n\nInvoice in_stranded_rotated for $27.00 was due on ${DUE} and is still open.\n` +
+      `You can pay it here: ${STALE}\n\nBest regards,\nAcme Billing`;
+    const rotatedTaskId = Number(
+      seedDb.run(
+        `INSERT INTO reminder_tasks (invoice_id, stage, status, draft_subject, draft_body, reviewer_notes)
+         VALUES (?, 1, 'reviewed', ?, ?, '')`,
+        [invId, "Reminder: invoice in_stranded_rotated is overdue", staleBody],
+      ).lastInsertRowid,
+    );
+    seedDb.close();
+
+    const before = byId(await getTasks(SESSION_SEMI), rotatedTaskId);
+    check(
+      "(k) a stale hosted link reads as needs_attention BEFORE the repair (the false alarm)",
+      before?.draft_readiness?.needs_attention === true,
+      JSON.stringify(before?.draft_readiness),
+    );
+    check(
+      "(k) ... and is not ready before the repair",
+      before?.draft_readiness?.ready_to_send === false,
+      JSON.stringify(before?.draft_readiness),
+    );
+
+    const repairDb = db();
+    const repaired = repairStaleHostedLinks(repairDb, MERCHANT_SEMI, 1, () => {});
+    repairDb.close();
+    check("(k) the invoice-sync repair rewrote the rotated link", repaired === 1, `repaired=${repaired}`);
+
+    const after = byId(await getTasks(SESSION_SEMI), rotatedTaskId);
+    const r = after?.draft_readiness;
+    check("(k) repaired draft → ready_to_send true", r?.ready_to_send === true, `ready=${r?.ready_to_send}`);
+    check("(k) repaired draft → stranded true (Semi-Auto would auto-send stage 1)", r?.stranded === true, `stranded=${r?.stranded}`);
+    check("(k) repaired draft → needs_attention false", r?.needs_attention === false, `needs=${r?.needs_attention}`);
+    check("(k) repaired draft → no gate issues", (r?.issues ?? ["x"]).length === 0, JSON.stringify(r?.issues));
+    check("(k) repaired draft → effective_mode still semi", r?.effective_mode === "semi", `mode=${r?.effective_mode}`);
+    check(
+      "(k) draft_readiness keeps its public shape (PR #249)",
+      JSON.stringify(Object.keys(r ?? {}).sort()) ===
+        JSON.stringify(["effective_mode", "issues", "needs_attention", "ready_to_send", "stranded"]),
+      JSON.stringify(Object.keys(r ?? {})),
+    );
+
+    const rotatedRow = dbTaskRow(rotatedTaskId);
+    const rotatedBody = String(rotatedRow.draft_body ?? "");
+    check(
+      "(k) the stored body carries the invoice's CURRENT hosted link",
+      rotatedBody.includes(HOSTED) && !rotatedBody.includes(STALE),
+      rotatedBody,
+    );
+    check(
+      "(k) the stored body is otherwise byte-identical",
+      rotatedBody.replace(HOSTED, STALE) === staleBody,
+      rotatedBody,
+    );
+    check("(k) the task is still 'reviewed' — nothing was sent", rotatedRow.status === "reviewed", String(rotatedRow.status));
+    check("(k) no send_logs row was written", sendLogCount(rotatedTaskId) === 0, `logs=${sendLogCount(rotatedTaskId)}`);
+
+    const countsRes = await fetch(`${BASE}/tasks/ready-count`, { headers: { Cookie: `session=${SESSION_SEMI}` } });
+    const counts = (await countsRes.json()) as { ready: number; stranded: number; needs_attention: number };
+    check(
+      "(k) ready-count counts the repaired draft as ready + stranded",
+      counts.ready === 3 && counts.stranded === 2 && counts.needs_attention === 1,
+      JSON.stringify(counts),
+    );
   }
 
   console.log(`\n${pass} passed, ${failures} failed`);

@@ -88,6 +88,7 @@ import { isPlaceholderMerchant, notifyMerchant } from "./notify";
 import { getEscalationStage } from "./escalation";
 import { formatElapsed, ownerDigestDueInMs, runDailyOwnerDigest } from "./owner-digest";
 import { runTrialExpiryPass } from "./trial-expiry";
+import { repairStaleHostedLinks } from "./hosted-link-repair";
 import { recordFunnelEvent } from "../funnel";
 import {
   cancelTasksForInvoice,
@@ -373,6 +374,9 @@ export interface InvoiceSyncPassResult {
   merchants: number;
   invoicesUpserted: number;
   tasksCreated: number;
+  /** Open drafts whose stale Stripe hosted payment link was rewritten to the
+   *  invoice's current one (Stripe rotates the hosted page; 2026-11-07). */
+  hostedLinksRepaired: number;
   blocked: { standardLimit: number; stopped: number };
   disconnected: string[];
   errors: string[];
@@ -411,6 +415,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
     merchants: 0,
     invoicesUpserted: 0,
     tasksCreated: 0,
+    hostedLinksRepaired: 0,
     blocked: { standardLimit: 0, stopped: 0 },
     disconnected: [],
     errors: [],
@@ -501,6 +506,22 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
       recordFunnelEvent(db, merchantId, "invoices_synced");
       reconcileInvoiceStatuses(db, merchantId, before, livemode, log);
 
+      // Rotated hosted payment link (2026-11-07): the pull above refreshed
+      // invoices.hosted_invoice_url, but a draft written before Stripe rotated
+      // the hosted page still carries the OLD token — and the reviewer demands
+      // THIS invoice's current link, so that draft would be rejected at review
+      // (and reported to the merchant as "Needs attention" by the readiness
+      // flag). The invoice row and its drafts move together: rewrite the stale
+      // URL in every open draft here, in the same pass, changing nothing but
+      // the URL. Never throws; repairs only pending/drafted/reviewed tasks.
+      const repairedLinks = repairStaleHostedLinks(db, merchantId, livemode, log);
+      if (repairedLinks > 0) {
+        result.hostedLinksRepaired += repairedLinks;
+        log(
+          `[scheduler] invoice-sync: merchant ${merchantId} (livemode=${livemode}) — refreshed a rotated hosted payment link in ${repairedLinks} draft(s)`,
+        );
+      }
+
       // Task creation for newly-overdue invoices — the core of the chase
     // promise. Every overdue invoice with no task is considered, oldest
     // first. The Standard cap blocks only when the number of ALREADY-tracked
@@ -542,7 +563,8 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
 
   log(
     `[scheduler] invoice-sync pass: ${result.merchants} merchant(s), ${result.invoicesUpserted} invoice(s) upserted, ` +
-      `${result.tasksCreated} task(s) created, ${result.blocked.standardLimit} cap-blocked, ` +
+      `${result.tasksCreated} task(s) created, ${result.hostedLinksRepaired} hosted link(s) refreshed, ` +
+      `${result.blocked.standardLimit} cap-blocked, ` +
       `${result.blocked.stopped} stopped, ` +
       `${result.disconnected.length} disconnected, ${result.errors.length} error(s)`
   );
