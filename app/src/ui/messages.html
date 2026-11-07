@@ -210,6 +210,28 @@
     }
     .task-status-chip.chip-drafted { background: var(--tm-draft-bg); color: var(--badge-draft-text); }
     .task-status-chip.chip-pending { background: var(--bg); color: var(--muted); }
+    /* Stranded-draft visibility (2026-11-06): a reviewed draft is only
+       "Ready to send" when the merchant's current mode is Semi-Auto / Copilot
+       Mode, the invoice is still overdue AND the reviewer passes — the flag is
+       computed server-side (draft_readiness on GET /tasks). A draft that fails
+       a gate shows "Needs attention" instead, never "Ready to send". */
+    .task-status-chip.chip-ready { background: var(--green-bg); color: var(--green-text); }
+    .task-status-chip.chip-attention { background: var(--red-bg); color: var(--red-text); }
+    .task-note {
+      margin: 0 0 12px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      background: var(--primary-light);
+      color: var(--primary-hover);
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+    .task-note.task-note-attention {
+      background: var(--red-bg);
+      color: var(--red-text);
+    }
+    .task-note ul { margin: 6px 0 0; padding-left: 18px; }
+    .task-note li { margin: 2px 0; }
     .pause-reason-chip {
       display: inline-block; padding: 3px 10px; border-radius: 9999px;
       font-size: 0.68rem; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
@@ -552,10 +574,42 @@
     var currentTrustMode = 'draft';
     var isPaused = false;
     var IS_SUB_ACTIVE = false;
-    function statusChipFor(status) {
-      var map = { reviewed: 'Ready to send', drafted: 'Drafted', pending: 'Queued' };
-      var cls = status === 'reviewed' ? '' : status === 'drafted' ? ' chip-drafted' : status === 'pending' ? ' chip-pending' : '';
+    // Status chip for a task. "Ready to send" is NOT just status === 'reviewed'
+    // any more: it comes from the server's derived draft_readiness flag
+    // (reviewed + merchant now in Semi-Auto/Copilot Mode + invoice still
+    // overdue + reviewer passes). A reviewed draft that fails a gate says
+    // "Needs attention"; a reviewed draft in Draft Mode is just "Reviewed".
+    function statusChipFor(t) {
+      var status = t && t.status;
+      var r = t && t.draft_readiness;
+      if (status === 'reviewed' && r && r.ready_to_send) {
+        return '<span class="task-status-chip chip-ready">Ready to send</span>';
+      }
+      if (status === 'reviewed' && r && r.needs_attention) {
+        return '<span class="task-status-chip chip-attention">Needs attention</span>';
+      }
+      var map = { reviewed: 'Reviewed', drafted: 'Drafted', pending: 'Queued' };
+      var cls = status === 'drafted' ? ' chip-drafted' : status === 'pending' ? ' chip-pending' : '';
       return '<span class="task-status-chip' + cls + '">' + esc(map[status] || status) + '</span>';
+    }
+    // The one plain sentence that explains the stranded draft: the Copilot
+    // switched modes after this draft was written, so it never sent itself.
+    function strandedNoteFor(t) {
+      var r = t && t.draft_readiness;
+      if (!r || !r.stranded) return '';
+      var modeName = r.effective_mode === 'full' ? 'Copilot Mode' : 'Semi-Auto';
+      return '<p class="task-note">Your Copilot switched to ' + esc(modeName) +
+        ' after this draft was written, so it did not send automatically. You can send it now.</p>';
+    }
+    // A reviewed draft the reviewer rejects is never marked ready — say why.
+    function attentionNoteFor(t) {
+      var r = t && t.draft_readiness;
+      if (!r || !r.needs_attention) return '';
+      var issues = (r.issues || []).slice(0, 5);
+      var list = issues.length
+        ? '<ul>' + issues.map(function(i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>'
+        : '';
+      return '<p class="task-note task-note-attention">This draft needs attention before it can be sent.' + list + '</p>';
     }
     function hasReplyPause(t) {
       return !!(t && (t.reply_paused_at || t.reply_status || t.status === 'reply_paused'));
@@ -621,17 +675,29 @@
       var pausedNote = el('inbox-paused-note');
       if (!fullAutoEl || !emptyEl || !listEl || !pausedNote) return;
       pausedNote.style.display = isPaused ? 'block' : 'none';
-      if (currentTrustMode === 'full') {
+      // Drafts the Copilot will never send on its own but that the merchant
+      // can send right now (or that a gate blocks) — see draft_readiness on
+      // GET /tasks. These must stay visible in every mode: a stage-1 draft
+      // written before a switch to Semi-Auto is stranded, and in Copilot Mode
+      // it is the only thing worth showing.
+      var flagged = inboxTasks.filter(function(t) {
+        var r = t && t.draft_readiness;
+        return !!(r && (r.ready_to_send || r.needs_attention));
+      });
+      if (currentTrustMode === 'full' && flagged.length === 0) {
         listEl.style.display = 'none';
         emptyEl.style.display = 'none';
         fullAutoEl.style.display = 'block';
         return;
       }
-      fullAutoEl.style.display = 'none';
+      fullAutoEl.style.display = currentTrustMode === 'full' ? 'block' : 'none';
       listEl.style.display = 'block';
-      var visible = inboxTasks.filter(function(t) {
-        return currentTrustMode === 'semi' ? t.stage >= 2 : true;
-      });
+      var visible = currentTrustMode === 'full'
+        ? flagged
+        : inboxTasks.filter(function(t) {
+            if (currentTrustMode !== 'semi') return true;
+            return t.stage >= 2 || flagged.indexOf(t) !== -1;
+          });
       if (visible.length === 0) {
         emptyEl.style.display = 'block';
         listEl.innerHTML = '';
@@ -678,7 +744,7 @@
             '<div class="task-customer">' + esc(t.customer_name || 'Unknown customer') + '</div>' +
             '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
               '<span class="stage-badge st' + t.stage + '">Stage ' + t.stage + '</span>' +
-              statusChipFor(t.status) +
+              statusChipFor(t) +
               pauseReasonChipFor(t) +
               replyReviewChipFor(t) +
             '</div>' +
@@ -689,6 +755,7 @@
             '<span>⏰ ' + (t.days_overdue != null ? t.days_overdue + (t.days_overdue === 1 ? ' day' : ' days') + ' overdue' : '—') + '</span>' +
             '<span>🕒 ' + formatDateTime(t.created_at) + '</span>' +
           '</div>' +
+          (editing ? '' : strandedNoteFor(t) + attentionNoteFor(t)) +
           bodyHtml +
           actionsHtml +
         '</div>'
