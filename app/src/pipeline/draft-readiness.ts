@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { getInvoiceById, getMerchantById, isActiveProSubscriber, type Invoice } from "../db";
 import { getLateFeeText } from "./late-fee";
 import { reviewDraft } from "./reviewer";
+import { customerCanPayFrom, type CustomerCanPay } from "./payability";
 
 /**
  * Stranded-draft visibility (2026-11-06).
@@ -116,12 +117,18 @@ export function assessDraftReadiness(
  * Annotate task-inbox rows (getAllTasks output) with `draft_readiness`.
  * One invoice lookup + one readiness computation per row; merchants have a
  * handful of open tasks, and the result is never persisted.
+ *
+ * Also carries `customer_can_pay` — 'yes' | 'no' | 'unknown', read straight
+ * from the invoice's stored payability verdict (migration 036, 2026-11-09:
+ * "the customer cannot pay this invoice" signal). Read-only like everything
+ * else here: it explains what the customer will see when they click the
+ * payment link, and it gates nothing.
  */
 export function annotateTaskReadiness<T extends Record<string, unknown>>(
   db: Database,
   merchantId: number,
   rows: T[],
-): Array<T & { draft_readiness: DraftReadiness | null }> {
+): Array<T & { draft_readiness: DraftReadiness | null; customer_can_pay: CustomerCanPay }> {
   const merchant = getMerchantById(db, merchantId);
   const merchantTrustMode = (merchant?.trust_mode as string | undefined) ?? "draft";
   const invoiceCache = new Map<number, Invoice | null>();
@@ -145,7 +152,7 @@ export function annotateTaskReadiness<T extends Record<string, unknown>>(
           merchantTrustMode,
         )
       : null;
-    return { ...row, draft_readiness: readiness };
+    return { ...row, draft_readiness: readiness, customer_can_pay: customerCanPayFrom(invoice?.payability) };
   });
 }
 

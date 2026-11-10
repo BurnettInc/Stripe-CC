@@ -217,6 +217,12 @@
        a gate shows "Needs attention" instead, never "Ready to send". */
     .task-status-chip.chip-ready { background: var(--green-bg); color: var(--green-text); }
     .task-status-chip.chip-attention { background: var(--red-bg); color: var(--red-text); }
+    /* "The customer cannot pay this invoice" (2026-11-09): the stored payability
+       verdict on GET /tasks says the hosted invoice page renders with NO payment
+       panel, so a reminder would reach a customer who has nothing to click.
+       Amber (needs attention), never red — this is a warning, not a block: the
+       merchant can still approve and send. */
+    .task-status-chip.chip-payability { background: var(--amber-bg); color: var(--amber-text); }
     .task-note {
       margin: 0 0 12px;
       padding: 10px 14px;
@@ -229,6 +235,10 @@
     .task-note.task-note-attention {
       background: var(--red-bg);
       color: var(--red-text);
+    }
+    .task-note.task-note-payability {
+      background: var(--amber-bg);
+      color: var(--amber-text);
     }
     .task-note ul { margin: 6px 0 0; padding-left: 18px; }
     .task-note li { margin: 2px 0; }
@@ -582,6 +592,13 @@
     function statusChipFor(t) {
       var status = t && t.status;
       var r = t && t.draft_readiness;
+      // The customer clicking the payment link has no way to pay (the hosted
+      // page renders with no payment panel — server-side verdict on GET /tasks).
+      // Never claim "Ready to send": the send itself is NOT blocked, but the
+      // merchant must see this before they fire the reminder.
+      if (status === 'reviewed' && t && t.customer_can_pay === 'no') {
+        return '<span class="task-status-chip chip-payability">Customer can\'t pay</span>';
+      }
       if (status === 'reviewed' && r && r.ready_to_send) {
         return '<span class="task-status-chip chip-ready">Ready to send</span>';
       }
@@ -600,6 +617,16 @@
       var modeName = r.effective_mode === 'full' ? 'Copilot Mode' : 'Semi-Auto';
       return '<p class="task-note">Your Copilot switched to ' + esc(modeName) +
         ' after this draft was written, so it did not send automatically. You can send it now.</p>';
+    }
+    // The customer cannot pay: Stripe's hosted invoice page renders with no
+    // payment panel, so the customer who clicks the link has nothing to pay
+    // with. Amber warning, never a block — the merchant may still send.
+    function payabilityNoteFor(t) {
+      if (!t || t.customer_can_pay !== 'no') return '';
+      return '<p class="task-note task-note-payability">The customer clicking the payment link has no way to pay: ' +
+        'Stripe\'s invoice page opens without any payment options for this invoice. ' +
+        'Check that your Stripe account setup is complete (payments enabled and payouts verified) before relying on this reminder — ' +
+        'you can still send it.</p>';
     }
     // A reviewed draft the reviewer rejects is never marked ready — say why.
     function attentionNoteFor(t) {
@@ -755,7 +782,7 @@
             '<span>⏰ ' + (t.days_overdue != null ? t.days_overdue + (t.days_overdue === 1 ? ' day' : ' days') + ' overdue' : '—') + '</span>' +
             '<span>🕒 ' + formatDateTime(t.created_at) + '</span>' +
           '</div>' +
-          (editing ? '' : strandedNoteFor(t) + attentionNoteFor(t)) +
+          (editing ? '' : strandedNoteFor(t) + payabilityNoteFor(t) + attentionNoteFor(t)) +
           bodyHtml +
           actionsHtml +
         '</div>'

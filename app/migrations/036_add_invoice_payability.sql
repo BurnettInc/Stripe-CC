@@ -1,0 +1,33 @@
+-- "The customer cannot pay this invoice" signal (2026-11-09).
+--
+-- WHY: two of the three live Stripe accounts render a hosted invoice page with
+-- NO payment panel at all — the page renders fully and ends at "Powered by /
+-- Terms / Privacy", with no card field and no "Choose how you'd like to pay".
+-- The cause is account-level (that Stripe account cannot accept charges yet) and
+-- it is not visible through the API on our OAuth scope (/v1/account,
+-- /v1/charges, /v1/payment_intents, /v1/balance all 403
+-- more_permissions_required_for_application; only /v1/invoices/{id} works).
+-- The approval screen said "Ready to send" anyway, so a merchant sent reminders
+-- their customer could not act on and nothing anywhere said why.
+--
+-- pipeline/payability.ts reads the hosted page (server-side GET, no auth) and
+-- records a verdict here:
+--
+--   payability TEXT            — 'payable' | 'not_payable' | 'unknown', or NULL
+--                                for a row that has never been checked. NULL is
+--                                treated exactly like 'unknown' everywhere.
+--   payability_checked_at TEXT — SQLite datetime (UTC) of the last check. This
+--                                IS the 24 h cache: the sweep only re-fetches a
+--                                row whose stamp is older than 24 h, and it is
+--                                written for 'unknown' verdicts too, so an
+--                                unclassifiable page is not re-fetched every
+--                                tick.
+--
+-- Nullable and additive: every existing row keeps working untouched (NULL =
+-- never checked = the approval screen says nothing), and the column is
+-- deliberately NOT part of any send gate — a wrong 'not_payable' must never
+-- stop a merchant collecting real money.
+--
+-- Applied at most once via the schema_migrations tracker (same pattern as 022).
+ALTER TABLE invoices ADD COLUMN payability TEXT DEFAULT NULL;
+ALTER TABLE invoices ADD COLUMN payability_checked_at TEXT DEFAULT NULL;

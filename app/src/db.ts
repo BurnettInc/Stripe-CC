@@ -1267,6 +1267,15 @@ export interface Invoice {
   hosted_invoice_url?: string | null;
   /** Stripe's invoice PDF link (invoice.invoice_pdf), stored for later use. */
   invoice_pdf?: string | null;
+  /** Can the customer actually pay this invoice? (migration 036, 2026-11-09).
+   *  'payable' | 'not_payable' | 'unknown' — the verdict of
+   *  pipeline/payability.ts reading the hosted invoice page, NULL when the row
+   *  has never been checked (treated exactly like 'unknown'). WARNING ONLY: it
+   *  never gates a send. */
+  payability?: string | null;
+  /** SQLite datetime (UTC) of the last payability check — this IS the 24 h
+   *  cache (see pipeline/payability.ts). */
+  payability_checked_at?: string | null;
   /** ISO timestamp set when a customer reply paused this invoice's sequence (reply-pause, D1a). */
   reply_paused_at: string | null;
   /** ISO timestamp set by the merchant's Pause button in the Stripe App drawer (manual pause). */

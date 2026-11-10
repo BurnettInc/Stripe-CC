@@ -89,6 +89,7 @@ import { getEscalationStage } from "./escalation";
 import { formatElapsed, ownerDigestDueInMs, runDailyOwnerDigest } from "./owner-digest";
 import { runTrialExpiryPass } from "./trial-expiry";
 import { repairStaleHostedLinks } from "./hosted-link-repair";
+import { runPayabilitySweep } from "./payability";
 import { recordFunnelEvent } from "../funnel";
 import {
   cancelTasksForInvoice,
@@ -377,6 +378,9 @@ export interface InvoiceSyncPassResult {
   /** Open drafts whose stale Stripe hosted payment link was rewritten to the
    *  invoice's current one (Stripe rotates the hosted page; 2026-11-07). */
   hostedLinksRepaired: number;
+  /** Open/overdue invoices whose hosted payment page was fetched and
+   *  classified this pass (at most once per invoice per 24 h; 2026-11-09). */
+  payabilityChecked: number;
   blocked: { standardLimit: number; stopped: number };
   disconnected: string[];
   errors: string[];
@@ -416,6 +420,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
     invoicesUpserted: 0,
     tasksCreated: 0,
     hostedLinksRepaired: 0,
+    payabilityChecked: 0,
     blocked: { standardLimit: 0, stopped: 0 },
     disconnected: [],
     errors: [],
@@ -522,6 +527,17 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
         );
       }
 
+      // "The customer cannot pay this invoice" signal (2026-11-09). The only
+      // in-scope evidence that a merchant's Stripe account can actually take
+      // money is the hosted invoice page itself, so fetch it here — same pass,
+      // same place as the link repair above — for invoices that are still
+      // open/overdue, carry a hosted link, and have no verdict younger than
+      // 24 h. At most one fetch per invoice per 24 h (the stamp is the cache);
+      // never throws; logs one line per verdict CHANGE only. Warning only —
+      // nothing here gates a send.
+      const payability = await runPayabilitySweep(db, merchantId, livemode, { now: () => now, log });
+      result.payabilityChecked += payability.checked;
+
       // Task creation for newly-overdue invoices — the core of the chase
     // promise. Every overdue invoice with no task is considered, oldest
     // first. The Standard cap blocks only when the number of ALREADY-tracked
@@ -564,6 +580,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
   log(
     `[scheduler] invoice-sync pass: ${result.merchants} merchant(s), ${result.invoicesUpserted} invoice(s) upserted, ` +
       `${result.tasksCreated} task(s) created, ${result.hostedLinksRepaired} hosted link(s) refreshed, ` +
+      `${result.payabilityChecked} payability check(s), ` +
       `${result.blocked.standardLimit} cap-blocked, ` +
       `${result.blocked.stopped} stopped, ` +
       `${result.disconnected.length} disconnected, ${result.errors.length} error(s)`
