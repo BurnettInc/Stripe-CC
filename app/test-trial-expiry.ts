@@ -12,8 +12,10 @@
  *
  * Coverage:
  *   (a) flag OFF (default) → zero sends, zero mail-log rows, tick still logged
- *   (b) bucket math: every touchpoint window's edges (144/168, 72/96, 24/48,
- *       0/24, -72/0) and the gaps between them
+ *   (b) calendar-day selection: each day-naming touchpoint fires only on its
+ *       own UTC day (T-7 / T-3 / T-1 / T-0 / T+3), the exact UTC midnight edges,
+ *       the days in between that have no touchpoint, and the two regressions
+ *       this fix is about (T-0 early, T+3 minutes after the lapse)
  *   (c) active track → T-7 / T-3 / T-1 / T-0 / T+3, one email each, correct
  *       merge fields, placeholder copy, support@ sender, ledger row per send
  *   (d) idle track → day-10 check-in + T-3 + T-0 + T+3, and NEVER T-7 / T-1
@@ -101,9 +103,20 @@ function deps(at: Date = NOW) {
 function sqliteAt(d: Date): string {
   return d.toISOString().slice(0, 19).replace("T", " ");
 }
-/** created_at such that the trial expires in `hoursToExpiry` hours from NOW. */
-function createdAtForHours(hoursToExpiry: number): string {
-  return sqliteAt(new Date(NOW.getTime() + (hoursToExpiry - TRIAL_DAYS * 24) * HOUR_MS));
+/** Midnight UTC of NOW's own UTC day — the anchor for the calendar-day windows. */
+const TODAY_UTC_MS = Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate());
+/** An instant `dayOffset` UTC days from today's UTC midnight, at `hourUtc:minuteUtc`. */
+function atUtc(dayOffset: number, hourUtc = 0, minuteUtc = 0): number {
+  return TODAY_UTC_MS + dayOffset * DAY_MS + hourUtc * HOUR_MS + minuteUtc * 60_000;
+}
+/** The expiry instant for a trial whose trial_expires_at lands on the UTC day
+ *  `dayOffset` days from NOW's UTC day (default noon UTC). */
+function expiryMsOnDay(dayOffset: number, hourUtc = 12): number {
+  return atUtc(dayOffset, hourUtc);
+}
+/** created_at for a trial that EXPIRES on UTC day `dayOffset` (default noon). */
+function createdAtForExpiryDay(dayOffset: number, hourUtc = 12): string {
+  return sqliteAt(new Date(expiryMsOnDay(dayOffset, hourUtc) - TRIAL_DAYS * DAY_MS));
 }
 let seq = 0;
 function addMerchant(
@@ -149,7 +162,7 @@ function sentTo(email: string): Sent[] {
 }
 
 // ── (a) FLAG OFF (the default) is a total no-op ──
-const flagOffMerchant = addMerchant("flagoff@example.com", createdAtForHours(12));
+const flagOffMerchant = addMerchant("flagoff@example.com", createdAtForExpiryDay(0));
 addInvoice(flagOffMerchant);
 sent.length = 0;
 logs.length = 0;
@@ -173,21 +186,36 @@ check("(a) only an explicit truthy value enables it",
 // flag-on sections' counts exact (it would otherwise be a legitimate 10th send).
 purgeMerchantData(db, flagOffMerchant);
 
-// ── (b) bucket math, including the exact edges ──
-const W = trial.touchpointForHours;
-check("(b) T-7 upper edge 168", W(168) === "t_minus_7");
-check("(b) T-7 just inside 167.9", W(167.9) === "t_minus_7");
-check("(b) T-7 lower edge 144 is OUT", W(144) === null);
-check("(b) gap 100 → no touchpoint", W(100) === null);
-check("(b) T-3 upper edge 96", W(96) === "t_minus_3" && W(90) === "t_minus_3");
-check("(b) T-3 lower edge 72 is OUT", W(72) === null);
-check("(b) gap 60 → no touchpoint", W(60) === null);
-check("(b) T-1 upper edge 48", W(48) === "t_minus_1" && W(30) === "t_minus_1");
-check("(b) T-1 lower edge 24 belongs to T-0", W(24) === "t_zero");
-check("(b) T-0 covers 0..24", W(12) === "t_zero" && W(0) === "t_zero");
-check("(b) T+3 covers -72..0 (exclusive of both 0 and -72)", W(-0.5) === "t_plus_3" && W(-71.9) === "t_plus_3");
-check("(b) T+3 lower edge -72 is OUT", W(-72) === null && W(-80) === null);
-check("(b) far-future trial (200h) has no touchpoint", W(200) === null);
+// ── (b) touchpoint selection: UTC calendar day relative to the expiry day ──
+// The copy names a specific day, so a touchpoint owns exactly one UTC day.
+// NOW is 2026-11-01T14:00:00Z, so day offsets below are from 2026-11-01.
+const W = trial.touchpointForInstants;
+/** Touchpoint for a trial expiring `expiryDayOffset` UTC days from today
+ *  (at `expiryHourUtc`, default noon), observed at `observedMs`. */
+function Wd(expiryDayOffset: number, observedMs: number, expiryHourUtc = 12) {
+  return W(expiryMsOnDay(expiryDayOffset, expiryHourUtc) - TRIAL_DAYS * DAY_MS, observedMs);
+}
+check("(b) T-7 on the 7th UTC day before the expiry day", Wd(7, atUtc(0, 14)) === "t_minus_7");
+check("(b) T-3 on the 3rd UTC day before the expiry day", Wd(3, atUtc(0, 14)) === "t_minus_3");
+check("(b) T-1 on the UTC day before the expiry day", Wd(1, atUtc(0, 14)) === "t_minus_1");
+check("(b) T-0 on the expiry day itself (before and after the instant)",
+  Wd(0, atUtc(0, 0, 1)) === "t_zero" && Wd(0, atUtc(0, 14)) === "t_zero");
+check("(b) T+3 exactly three UTC days after the expiry day",
+  Wd(0, atUtc(3, 0, 1)) === "t_plus_3" && Wd(0, atUtc(3, 23, 59)) === "t_plus_3");
+check("(b) a window is the whole UTC day: 00:00 and 23:59 both count",
+  Wd(7, atUtc(0, 0, 0)) === "t_minus_7" && Wd(7, atUtc(0, 23, 59)) === "t_minus_7");
+check("(b) the next UTC midnight ends the window",
+  Wd(7, atUtc(1, 0, 0)) === null && Wd(0, atUtc(1, 0, 0)) === null && Wd(0, atUtc(4, 0, 0)) === null);
+check("(b) days with no touchpoint", Wd(6, atUtc(0, 14)) === null && Wd(4, atUtc(0, 14)) === null &&
+  Wd(2, atUtc(0, 14)) === null && Wd(0, atUtc(1, 14)) === null && Wd(0, atUtc(2, 14)) === null,
+  JSON.stringify([Wd(6, atUtc(0, 14)), Wd(4, atUtc(0, 14)), Wd(2, atUtc(0, 14))]));
+// The two regressions this fix exists for (merchant 8, 2026-11-09):
+check("(b) 'ends today' is never sent the day before expiry (was: up to 24h early)",
+  Wd(1, atUtc(0, 14)) === "t_minus_1" && Wd(0, atUtc(-1, 23, 59), 0) === "t_minus_1");
+check("(b) 'a few days ago' is never sent minutes after the lapse (was: 6 minutes after)",
+  Wd(0, atUtc(0, 12, 6)) === "t_zero" && Wd(0, atUtc(1, 0, 0)) === null);
+check("(b) far-future trial (16 days out) has no touchpoint", Wd(16, atUtc(0, 14)) === null);
+check("(b) non-finite instants are a miss", W(NaN, NOW.getTime()) === null && W(NOW.getTime(), Infinity) === null);
 check("(b) mid-trial window is exactly [10d, 11d)",
   trial.inMidTrialWindow(NOW.getTime() - 10.5 * DAY_MS, NOW.getTime()) === true &&
     trial.inMidTrialWindow(NOW.getTime() - 9.9 * DAY_MS, NOW.getTime()) === false &&
@@ -200,23 +228,23 @@ sent.length = 0;
 logs.length = 0;
 
 // ACTIVE track (has a synced invoice)
-const a7 = addMerchant("active-t7@example.com", createdAtForHours(160));
+const a7 = addMerchant("active-t7@example.com", createdAtForExpiryDay(7));
 addInvoice(a7);
-const a3 = addMerchant("active-t3@example.com", createdAtForHours(90));
+const a3 = addMerchant("active-t3@example.com", createdAtForExpiryDay(3));
 addInvoice(a3);
-const a1 = addMerchant("active-t1@example.com", createdAtForHours(30));
+const a1 = addMerchant("active-t1@example.com", createdAtForExpiryDay(1));
 addInvoice(a1);
-const a0 = addMerchant("active-t0@example.com", createdAtForHours(12));
+const a0 = addMerchant("active-t0@example.com", createdAtForExpiryDay(0));
 addInvoice(a0);
-const aPlus3 = addMerchant("active-plus3@example.com", createdAtForHours(-10));
+const aPlus3 = addMerchant("active-plus3@example.com", createdAtForExpiryDay(-3));
 addInvoice(aPlus3);
 // IDLE track (nothing synced, nothing drafted)
 const iCheckin = addMerchant("idle-checkin@example.com", sqliteAt(new Date(NOW.getTime() - 10.5 * DAY_MS)));
-const i7 = addMerchant("idle-t7@example.com", createdAtForHours(160));
-const i1 = addMerchant("idle-t1@example.com", createdAtForHours(30));
-const i3 = addMerchant("idle-t3@example.com", createdAtForHours(90));
-const i0 = addMerchant("idle-t0@example.com", createdAtForHours(12));
-const iPlus3 = addMerchant("idle-plus3@example.com", createdAtForHours(-10));
+const i7 = addMerchant("idle-t7@example.com", createdAtForExpiryDay(7));
+const i1 = addMerchant("idle-t1@example.com", createdAtForExpiryDay(1));
+const i3 = addMerchant("idle-t3@example.com", createdAtForExpiryDay(3));
+const i0 = addMerchant("idle-t0@example.com", createdAtForExpiryDay(0));
+const iPlus3 = addMerchant("idle-plus3@example.com", createdAtForExpiryDay(-3));
 
 const onResult = await trial.runTrialExpiryPass(db, deps());
 check("(c) active track fires 5 touchpoints", ledgerFor(a7).some((r) => r.touchpoint === "t_minus_7") &&
@@ -248,7 +276,7 @@ const t7Mail = sentTo("active-t7@example.com")[0];
 check("(c) sender identity is support@ (welcome-email continuity)", t7Mail?.from === "support@getcollectionscopilot.com", String(t7Mail?.from));
 check("(c) CAN-SPAM invoice footer is skipped (merchant email, own opt-out line)",
   t7Mail?.skipCanspam === true && !/stop receiving reminders for this invoice/i.test(t7Mail?.body ?? ""), t7Mail?.body);
-const a7Expiry = copy.formatExpiryDateUtc(new Date(createdAtForHours(160)).getTime() + TRIAL_DAYS * DAY_MS);
+const a7Expiry = copy.formatExpiryDateUtc(expiryMsOnDay(7));
 check("(c) subject is the owner-approved T-7 line (date merged)",
   t7Mail?.subject === `Your free trial ends ${a7Expiry}`, `${t7Mail?.subject} vs ${a7Expiry}`);
 check("(c) merge fields are substituted (no {{tokens}} left)",
@@ -279,11 +307,11 @@ check("(c) every trial email body ends with the approved opt-out line",
 // ── (e) track selection ──
 // Seeded far from every touchpoint window (400h to expiry): this section is
 // about track selection only and must not add sends to the next tick's counts.
-const trackInvoiceOnly = addMerchant("track-invoice@example.com", createdAtForHours(400));
+const trackInvoiceOnly = addMerchant("track-invoice@example.com", createdAtForExpiryDay(16));
 addInvoice(trackInvoiceOnly, false);
-const trackDraft = addMerchant("track-draft@example.com", createdAtForHours(400));
+const trackDraft = addMerchant("track-draft@example.com", createdAtForExpiryDay(16));
 addInvoice(trackDraft, true);
-const trackIdle = addMerchant("track-idle@example.com", createdAtForHours(400));
+const trackIdle = addMerchant("track-idle@example.com", createdAtForExpiryDay(16));
 check("(e) a synced invoice → ACTIVE", trial.trackForMerchant(db, trackInvoiceOnly) === "active");
 check("(e) a draft body → ACTIVE", trial.trackForMerchant(db, trackDraft) === "active");
 check("(e) nothing synced and nothing drafted → IDLE", trial.trackForMerchant(db, trackIdle) === "idle");
@@ -311,16 +339,16 @@ check("(f) three ticks later still nothing (at most once EVER)", await (async ()
 })(), JSON.stringify(sent.map((s) => s.to)));
 
 // ── (g) exclusions ──
-const paying = addMerchant("paying@example.com", createdAtForHours(12));
+const paying = addMerchant("paying@example.com", createdAtForExpiryDay(0));
 addInvoice(paying);
 db.run("INSERT INTO subscriptions (merchant_id, stripe_subscription_id, tier, status) VALUES (?, 'sub_te_paying', 'pro', 'active')", [paying]);
-const devPro = addMerchant("devpro@example.com", createdAtForHours(12), { devPro: true });
+const devPro = addMerchant("devpro@example.com", createdAtForExpiryDay(0), { devPro: true });
 addInvoice(devPro);
-const placeholder = addMerchant("someone@install.local", createdAtForHours(12));
+const placeholder = addMerchant("someone@install.local", createdAtForExpiryDay(0));
 addInvoice(placeholder);
-const disconnected = addMerchant("disconnected@example.com", createdAtForHours(12), { disconnected: true });
+const disconnected = addMerchant("disconnected@example.com", createdAtForExpiryDay(0), { disconnected: true });
 addInvoice(disconnected);
-const optedOut = addMerchant("optedout@example.com", createdAtForHours(12));
+const optedOut = addMerchant("optedout@example.com", createdAtForExpiryDay(0));
 addInvoice(optedOut);
 recordUnsubscribe(db, optedOut, "optedout@example.com");
 sent.length = 0;
@@ -337,7 +365,7 @@ check("(g) counters show why", exclRun.skipped.subscriber >= 1 && exclRun.skippe
 check("(g) nothing else went out on this tick", exclRun.sent === 0 && sent.length === 0, JSON.stringify(exclRun));
 
 // ── (h) dev/test environment never sends, even with the flag on ──
-const envProbe = addMerchant("envprobe@example.com", createdAtForHours(12));
+const envProbe = addMerchant("envprobe@example.com", createdAtForExpiryDay(0));
 addInvoice(envProbe);
 sent.length = 0;
 logs.length = 0;
@@ -401,7 +429,7 @@ check("(k) sends older than 24h stop counting", digest.countTrialExpirySends24h(
 db.run("UPDATE send_logs SET created_at = datetime('now') WHERE type = 'trial_expiry'");
 
 // ── (m) a copy bug can never be mailed: unresolved merge field → no send ──
-const copyBug = addMerchant("copybug@example.com", createdAtForHours(12));
+const copyBug = addMerchant("copybug@example.com", createdAtForExpiryDay(0));
 addInvoice(copyBug);
 const savedTemplate = copy.TRIAL_EXPIRY_COPY.t_zero;
 copy.TRIAL_EXPIRY_COPY.t_zero = { subject: savedTemplate.subject, body: `${savedTemplate.body}\n{{not_a_field}}` };
