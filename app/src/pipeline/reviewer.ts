@@ -91,6 +91,27 @@ export function merchantDashboardUrlIssue(text: string): string | null {
     : null;
 }
 
+/**
+ * An unfilled template placeholder in customer copy. The live defect of
+ * 2026-11-10 (production invoice 356): for any merchant whose
+ * `merchants.sender_name` is NULL the model ended every draft with the literal
+ * prompt scaffolding
+ *
+ *   "Best regards,\n\n[Your Name]\n[Your Business Name]"
+ *
+ * and the reviewer approved that draft class ({"approved":true,"issues":[]}).
+ * Square-bracket / double-brace tokens are never valid email copy: they mean
+ * the email was sent unfinished. The drafter drops such a draft before it gets
+ * here (drafter.ts safety net); this gate is the second line of defence.
+ */
+const UNFILLED_PLACEHOLDER = /\[[^\]\n]{1,80}\]|\{\{[^}\n]{1,80}\}\}/;
+export function unfilledPlaceholderIssue(text: string): string | null {
+  const m = UNFILLED_PLACEHOLDER.exec(text);
+  return m
+    ? `Unfilled placeholder: "${m[0]}" — a draft must never contain a bracketed template token; end with the sign-off as written and no invented name or business name`
+    : null;
+}
+
 export interface ReviewOptions {
   /**
    * The exact late-fee fragment the draft must contain (from late-fee.ts).
@@ -113,6 +134,7 @@ export interface ReviewOptions {
  *  - The draft never contains dashboard.stripe.com (merchant login wall) and,
  *    when the invoice has a Stripe-hosted payment page, carries exactly that URL
  *  - When a late fee applies (opts.lateFeeText), the exact fee fragment is present
+ *  - The draft carries NO unfilled template placeholder ("[Your Name]")
  */
 export function reviewDraft(draft: EmailDraft, invoice: Invoice, opts?: ReviewOptions): ReviewResult {
   const issues: string[] = [];
@@ -188,6 +210,14 @@ export function reviewDraft(draft: EmailDraft, invoice: Invoice, opts?: ReviewOp
         `Unexpected late-fee sentence with no late fee configured: "${segment}"`
       );
     }
+  }
+
+  // Check 6: unfilled template placeholders. Never valid customer copy — an
+  // email carrying "[Your Name]" was sent unfinished (production invoice 356,
+  // 2026-11-10, approved by this reviewer before the gate existed).
+  const placeholderIssue = unfilledPlaceholderIssue(fullText);
+  if (placeholderIssue) {
+    issues.push(placeholderIssue);
   }
 
   return {
