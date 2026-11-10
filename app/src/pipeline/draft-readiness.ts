@@ -149,6 +149,61 @@ export function annotateTaskReadiness<T extends Record<string, unknown>>(
   });
 }
 
+/**
+ * A draft the escalation ladder replaced at a stage boundary (2026-11-10).
+ *
+ * THE GAP THIS CLOSES: `createReminderTask` cancels the invoice's open tasks to
+ * prevent duplicate sends, which includes a `reviewed` draft the merchant has
+ * already been shown as "Ready to send". That cancel used to be silent — the
+ * draft simply vanished (production: reminder_task 72, stage 1, never sent,
+ * cancelled 11/9 19:55:55). `createReminderTask` now writes one send_logs row
+ * (type 'superseded') against the replaced task; this is the READ-ONLY
+ * derivation that shows it to the merchant on the task that replaced it.
+ *
+ * Same rules as `draft_readiness`: derived at read time, no DB column, no
+ * migration, no send path, and nothing here changes whether the ladder advances.
+ */
+export interface SupersededDraft {
+  /** The replaced (now 'cancelled') reminder_tasks row. */
+  task_id: number;
+  /** Its stage — the stage whose draft was destroyed. */
+  stage: number;
+  /** When it was superseded (send_logs.created_at). */
+  at: string;
+}
+
+/**
+ * Annotate task-inbox rows with `superseded_draft`: the earlier approved drafts
+ * on this invoice that the ladder replaced, oldest first. Only drafts from a
+ * LOWER stage are listed, so a superseded task never reports itself, and an
+ * invoice that never lost a draft gets an empty array.
+ */
+export function annotateSupersededDrafts<T extends Record<string, unknown>>(
+  db: Database,
+  rows: T[],
+): Array<T & { superseded_draft: SupersededDraft[] }> {
+  const cache = new Map<string, SupersededDraft[]>();
+  const lookup = db.query(
+    `SELECT sl.reminder_task_id AS task_id, rt.stage AS stage, sl.created_at AS at
+       FROM send_logs sl
+       JOIN reminder_tasks rt ON rt.id = sl.reminder_task_id
+      WHERE sl.type = 'superseded' AND rt.invoice_id = ? AND rt.stage < ?
+      ORDER BY sl.id ASC`,
+  );
+
+  return rows.map((row) => {
+    const invoiceId = Number(row.invoice_id);
+    const stage = Number(row.stage);
+    const key = `${invoiceId}:${stage}`;
+    let superseded = cache.get(key);
+    if (!superseded) {
+      superseded = lookup.all(invoiceId, stage) as SupersededDraft[];
+      cache.set(key, superseded);
+    }
+    return { ...row, superseded_draft: superseded };
+  });
+}
+
 export interface ReadyDraftCounts {
   /** Reviewed drafts the merchant could send right now. */
   ready: number;

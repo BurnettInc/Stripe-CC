@@ -321,7 +321,24 @@ export function recordRecoveryEvent(
 
 // ── Task helpers ──
 
+/** send_logs.type for a draft the ladder cancelled to make room for the next
+ * stage. Distinct from 'reminder' so every send/engagement count over
+ * send_logs stays clean (nothing here was emailed). */
+export const SUPERSEDED_DRAFT_LOG_TYPE = "superseded";
+
 export function createReminderTask(db: Database, invoiceId: number, stage: number) {
+  // A 'reviewed' task is human-facing state: the merchant has been shown that
+  // draft as approved and ready to send, and may have edited it. The cancel
+  // below is the duplicate-send guard, but until 2026-11-10 it was also a
+  // silent destroyer — production task 72 (stage 1, reviewed, never sent) was
+  // cancelled at 11/9 19:55:55 when invoice 356 crossed 7 days overdue, and
+  // left no log line, no audit row and no notification (reminder_tasks has no
+  // updated_at, so the status change left no timestamp of its own). Read the
+  // reviewed rows BEFORE cancelling them so each one can be recorded.
+  const reviewed = db
+    .query("SELECT id, stage FROM reminder_tasks WHERE invoice_id=? AND status='reviewed' ORDER BY id")
+    .all(invoiceId) as Array<{ id: number; stage: number }>;
+
   // Cancel any existing active tasks for this invoice first (including sent tasks to prevent duplicate sends)
   db.run("UPDATE reminder_tasks SET status='cancelled' WHERE invoice_id=? AND status IN ('pending','drafted','reviewed','sent')", [invoiceId]);
 
@@ -329,7 +346,32 @@ export function createReminderTask(db: Database, invoiceId: number, stage: numbe
     "INSERT INTO reminder_tasks (invoice_id, stage, status) VALUES (?, ?, 'pending')",
     [invoiceId, stage]
   );
-  return Number(result.lastInsertRowid);
+  const newTaskId = Number(result.lastInsertRowid);
+
+  // Superseding an approved draft is now observable: one audit row per replaced
+  // draft (attached to the REPLACED task, so its trail names what happened to
+  // it) plus a log line. Logging must never block task creation — the ladder's
+  // behaviour is unchanged.
+  for (const old of reviewed) {
+    const msg =
+      "Stage " + old.stage + " draft (task " + old.id + ") was cancelled unsent when the stage " +
+      stage + " reminder (task " + newTaskId + ") replaced it at the escalation stage boundary. " +
+      "No email was sent.";
+    try {
+      logSend(db, old.id, "skipped", msg, SUPERSEDED_DRAFT_LOG_TYPE);
+      console.log(
+        "[tasks] superseded reviewed draft task " + old.id + " (stage " + old.stage + ", invoice " +
+        invoiceId + ") with task " + newTaskId + " (stage " + stage + ") — cancelled unsent"
+      );
+    } catch (err: unknown) {
+      console.warn(
+        "[tasks] failed to record superseded draft task " + old.id + ": " +
+        (err instanceof Error ? err.message : String(err))
+      );
+    }
+  }
+
+  return newTaskId;
 }
 
 export function cancelTasksForInvoice(db: Database, invoiceId: number) {

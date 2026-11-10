@@ -5,7 +5,7 @@ import { getStripeKey } from "../middleware/auth";
 import { draftEmail, type EmailDraft } from "../pipeline/drafter";
 import { reviewDraft, placeholderLateFeeIssue, merchantDashboardUrlIssue } from "../pipeline/reviewer";
 import { getLateFeeText } from "../pipeline/late-fee";
-import { annotateTaskReadiness, countReadyDrafts } from "../pipeline/draft-readiness";
+import { annotateTaskReadiness, annotateSupersededDrafts, countReadyDrafts } from "../pipeline/draft-readiness";
 import { repairTaskHostedLink } from "../pipeline/hosted-link-repair";
 import { getEscalationStage } from "../pipeline/escalation";
 import { sendEmail, sendEmailForReal } from "../pipeline/sender";
@@ -235,7 +235,16 @@ export async function handleTasks(db: Database, req: Request, pathSuffix: string
     // draft written in Draft Mode before the merchant flipped to Semi-Auto
     // never auto-sends and, until now, was never flagged as sendable).
     // Nothing here sends, mutates, or gates anything.
-    const tasks = annotateTaskReadiness(db, merchantId, getAllTasks(db, merchantId, includeAll, livemode));
+    //
+    // Each row also carries `superseded_draft` — the earlier approved drafts on
+    // the same invoice that the escalation ladder replaced at a stage boundary
+    // (also read-only, derived from the 'superseded' send_logs rows that
+    // createReminderTask now writes). Same read path as draft_readiness, so the
+    // merchant sees a replaced draft where they would have seen it as ready.
+    const tasks = annotateSupersededDrafts(
+      db,
+      annotateTaskReadiness(db, merchantId, getAllTasks(db, merchantId, includeAll, livemode)),
+    );
     return new Response(JSON.stringify(tasks), { status: 200, headers });
   }
 

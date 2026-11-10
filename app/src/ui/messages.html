@@ -611,6 +611,20 @@
         : '';
       return '<p class="task-note task-note-attention">This draft needs attention before it can be sent.' + list + '</p>';
     }
+    // A draft the merchant had approved that the escalation ladder replaced
+    // when the invoice reached the next stage. Until 2026-11-10 that draft
+    // simply disappeared; the server now records each one and reports it as
+    // `superseded_draft` on the task that replaced it. Say so, plainly.
+    function supersededNoteFor(t) {
+      var list = (t && t.superseded_draft) || [];
+      if (!list.length) return '';
+      var lines = list.map(function(s) {
+        var when = s.at ? ' on ' + formatDate(s.at) : '';
+        return '<li>Your approved stage ' + s.stage + ' draft was replaced by a newer reminder' +
+          when + ' — it was never sent to your customer.</li>';
+      }).join('');
+      return '<p class="task-note task-note-attention"><ul>' + lines + '</ul></p>';
+    }
     function hasReplyPause(t) {
       return !!(t && (t.reply_paused_at || t.reply_status || t.status === 'reply_paused'));
     }
@@ -755,7 +769,7 @@
             '<span>⏰ ' + (t.days_overdue != null ? t.days_overdue + (t.days_overdue === 1 ? ' day' : ' days') + ' overdue' : '—') + '</span>' +
             '<span>🕒 ' + formatDateTime(t.created_at) + '</span>' +
           '</div>' +
-          (editing ? '' : strandedNoteFor(t) + attentionNoteFor(t)) +
+          (editing ? '' : strandedNoteFor(t) + attentionNoteFor(t) + supersededNoteFor(t)) +
           bodyHtml +
           actionsHtml +
         '</div>'
