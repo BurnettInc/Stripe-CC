@@ -882,7 +882,7 @@ export type { OwnerDigestData, OwnerDigestResult } from "./owner-digest";
  * and the environment is not dev/test — with the flag unset it is a no-op that
  * only logs its tick. Nothing in the repo sets that flag.
  */
-export { runTrialExpiryPass, isTrialExpiryEnabled, isDevOrTestEnv, touchpointForHours } from "./trial-expiry";
+export { runTrialExpiryPass, isTrialExpiryEnabled, isDevOrTestEnv, touchpointForInstants } from "./trial-expiry";
 export type { TrialExpiryPassResult } from "./trial-expiry";
 
 // ── Boot wiring ──

@@ -30,15 +30,18 @@
  * reads that window and never changes it — the day-30 lock stays strict, and
  * t_plus_3 is a pure win-back note, not a grace period.
  *
- * ─── TOUCHPOINTS (hours-to-expiry buckets, 24h wide) ────────────────────────
- * Anchored to h = hours until trial_expires_at (= created_at + 30 days), in
- * 24h-wide buckets so the pass's 6-hour cadence can never skip one:
- *   t_minus_7  144 < h <= 168
- *   t_minus_3   72 < h <=  96
- *   t_minus_1   24 < h <=  48
- *   t_zero       0 <= h <=  24
- *   t_plus_3   -72 < h <    0     (h == 0 belongs to t_zero: the trial has not
- *                                  lapsed until strictly after the instant)
+ * ─── TOUCHPOINTS (UTC CALENDAR DAYS relative to the expiry day) ────────────
+ * The copy names a specific day ("ends today", "ends tomorrow", "3 days left",
+ * "a few days ago"), so a touchpoint is selected by UTC CALENDAR DAY, not by a
+ * rolling hours-wide window. Wide windows fired the day-naming emails at their
+ * early edge: "your trial ends today" up to 24h early, and "a few days ago
+ * your free trial ended" six minutes after the lapse.
+ * With d = (UTC day of trial_expires_at) − (UTC day of now):
+ *   t_minus_7  d =  7          t_minus_1  d =  1
+ *   t_minus_3  d =  3          t_zero     d =  0   (the expiry day itself)
+ *                              t_plus_3   d = -3   (three calendar days after)
+ * Every window is one full UTC day (24h, no DST in UTC), so the pass's 6-hour
+ * cadence still cannot skip one; the gaps between touchpoints are deliberate.
  * plus one ABSOLUTE window for the idle track only:
  *   mid_trial_checkin  created_at + 10d <= now < created_at + 11d
  *
@@ -83,9 +86,9 @@ export const TRIAL_EXPIRY_FLAG = "TRIAL_EXPIRY_EMAILS_ENABLED";
 export const TRIAL_EXPIRY_LOG_TYPE = "trial_expiry";
 
 /** Canonical days-left figure per touchpoint — the number the copy quotes.
- *  Taken from the touchpoint itself (T-7 → 7, T-3 → 3 …) rather than a raw
- *  ceil() of hours-to-expiry, which inside a 24h-wide bucket can read 4 on a
- *  "3 days left" email. */
+ *  Exact by construction now that a touchpoint is selected by UTC calendar day
+ *  (T-7 → 7, T-3 → 3, T-1 → 1, T-0 → 0); mid_trial_checkin quotes ~19 days left
+ *  on day 10 of a 30-day trial. */
 const DAYS_LEFT_FOR_TOUCHPOINT: Record<TrialTouchpoint, number> = {
   mid_trial_checkin: 19, // ~day 10 of a 30-day trial
   t_minus_7: 7,
@@ -136,19 +139,34 @@ export function hoursToExpiry(createdAtMs: number, nowMs: number): number {
   return (expiresAtMs - nowMs) / HOUR_MS;
 }
 
+/** UTC calendar day number (days since 1970-01-01 UTC) for an instant. */
+function utcDayIndex(ms: number): number {
+  return Math.floor(ms / DAY_MS);
+}
+
 /**
- * The touchpoint whose 24h-wide bucket contains `hoursToExpiry`, or null.
- * Buckets are inclusive of their upper edge and exclusive of their lower edge
- * except t_zero, which owns h === 0 (the trial has not lapsed at that exact
- * instant). Any two windows are disjoint, so a tick can match at most one.
+ * The touchpoint whose UTC CALENDAR DAY — counted from the expiry instant's own
+ * UTC calendar day — `now` falls on, or null.
+ *
+ * Selection is by calendar day, not by a rolling hour window, because the copy
+ * names the day: "Your trial ends today" is true only while `now` and the
+ * expiry instant share a UTC date, "ends tomorrow" only on the day before it,
+ * and "a few days ago your free trial ended" only three days after it. Wide
+ * hours-based buckets fired each of those at their early edge (T-0 up to 24h
+ * early, T+3 six minutes after the lapse).
+ *
+ * Each touchpoint owns exactly one UTC day, so a tick can match at most one,
+ * and each window is 24h wide, so the 6h pass cannot skip one.
  */
-export function touchpointForHours(hours: number): TrialWindowTouchpoint | null {
-  if (!Number.isFinite(hours)) return null;
-  if (hours >= 0 && hours <= 24) return "t_zero";
-  if (hours > -72 && hours < 0) return "t_plus_3";
-  if (hours > 24 && hours <= 48) return "t_minus_1";
-  if (hours > 72 && hours <= 96) return "t_minus_3";
-  if (hours > 144 && hours <= 168) return "t_minus_7";
+export function touchpointForInstants(createdAtMs: number, nowMs: number): TrialWindowTouchpoint | null {
+  if (!Number.isFinite(createdAtMs) || !Number.isFinite(nowMs)) return null;
+  const expiresAtMs = createdAtMs + FREE_TRIAL_DAYS * DAY_MS;
+  const daysLeft = utcDayIndex(expiresAtMs) - utcDayIndex(nowMs);
+  if (daysLeft === 7) return "t_minus_7";
+  if (daysLeft === 3) return "t_minus_3";
+  if (daysLeft === 1) return "t_minus_1";
+  if (daysLeft === 0) return "t_zero";
+  if (daysLeft === -3) return "t_plus_3";
   return null;
 }
 
@@ -210,7 +228,7 @@ export function pickTouchpoint(
   nowMs: number,
   track: TrialTrack,
 ): TrialTouchpoint | null {
-  const window = touchpointForHours(hoursToExpiry(createdAtMs, nowMs));
+  const window = touchpointForInstants(createdAtMs, nowMs);
   if (window && touchpointAppliesToTrack(window, track)) return window;
   // A window we deliberately ignore for this track (idle + T-7/T-1) is a miss
   // for this tick, not a fallback to another touchpoint.
