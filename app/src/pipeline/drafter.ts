@@ -2,6 +2,10 @@ import type { Database } from "bun:sqlite";
 import { getCustomerHistory, getDb, paymentLinkFor, type Invoice, type ReminderTask } from "../db";
 import { getStageSubjectPrefix } from "./escalation";
 import { getLateFeeText } from "./late-fee";
+// One definition of "unfilled placeholder" for both lines of defence: the
+// drafter's safety net (below) and the reviewer's hard gate. `reviewer.ts`
+// imports only the TYPE from this module, so this is not a runtime cycle.
+import { unfilledPlaceholderIssue } from "./reviewer";
 
 export interface EmailDraft { subject: string; body: string; }
 
@@ -168,6 +172,20 @@ RULES:
     {due_date} (format YYYY-MM-DD, e.g. 2026-08-11). Copy it character-for-
     character — never rewrite it as a month name ("August 11, 2026" is wrong,
     "2026-08-11" is required).
+11. SIGN-OFF — the body MUST end with exactly the lines below, verbatim, and
+    nothing after them:
+
+{sign_off}
+
+    Copy that sign-off character-for-character. Never add a name, job title,
+    company name, phone number or contact block that is not in it.
+12. NEVER write a placeholder. Bracketed tokens — "[Your Name]",
+    "[Your Business Name]", "[Company]", "[Position]", "[Phone]", "[Email]",
+    "[insert amount]" and anything else in square brackets — are prompt
+    scaffolding, not copy. You do not know the sender's personal or business
+    name, so never guess or invent one and never leave a blank for one: the
+    sign-off above is already complete as written. A body containing any
+    bracketed placeholder is discarded.
 
 OUTPUT FORMAT (JSON):
 {
@@ -363,6 +381,13 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, senderNam
     // reminder_task 71, 2026-10-24. The reviewer gate rejects that string now
     // (reviewer.ts), and this wording stops the model producing it.
     late_fee: lateFeeText ?? "none (no late fee is configured — do NOT mention a late fee, penalty, interest, or any fee amount anywhere in this email)",
+    // THE sign-off the model must end on, verbatim (rule 11). Before this the
+    // prompt never said what to sign with, so with merchants.sender_name NULL
+    // the model emitted the literal template scaffolding instead: production
+    // invoice 356, 2026-11-10 — "Best regards,\n\n[Your Name]\n[Your Business
+    // Name]" — and the reviewer approved it. Same string the template uses, so
+    // AI and fallback copy sign identically.
+    sign_off: signOff(task.stage, senderName),
   };
   const system = SYSTEM_TEMPLATE.replace(/\{(\w+)\}/g, (_, name: string) => values[name] ?? "");
   let response: Response;
@@ -403,6 +428,16 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, senderNam
   // reviewer's hard gate is the second line of defence.
   if (/dashboard\.stripe\.com/i.test(`${parsed.subject}\n${parsed.body}`)) {
     noteFallback("merchant_dashboard_link", "reason=merchant_dashboard_link (model wrote the merchant's own dashboard URL)");
+    return fallbackDraft;
+  }
+  // Safety net: an email with an unfilled bracketed placeholder is unfinished
+  // copy that must never reach a customer — production invoice 356, 2026-11-10
+  // ("Best regards,\n\n[Your Name]\n[Your Business Name]"). The template is
+  // complete by construction, so it is the correct substitute. The reviewer's
+  // hard gate (reviewer.ts) is the second line of defence.
+  const placeholder = unfilledPlaceholderIssue(`${parsed.subject}\n${parsed.body}`);
+  if (placeholder) {
+    noteFallback("unfilled_placeholder", `reason=unfilled_placeholder (${placeholder.slice(0, 120)})`);
     return fallbackDraft;
   }
   noteSuccess();
