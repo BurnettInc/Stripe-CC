@@ -1139,6 +1139,7 @@ function mapBackfilledInvoice(
   status: string;
   hosted_invoice_url: string | null;
   invoice_pdf: string | null;
+  invoice_number: string | null;
 } | null {
   if (!inv || typeof inv.id !== "string" || !inv.id) return null;
   const status = typeof inv.status === "string" ? inv.status : "";
@@ -1154,6 +1155,11 @@ function mapBackfilledInvoice(
   const hosted_invoice_url =
     typeof inv.hosted_invoice_url === "string" && inv.hosted_invoice_url ? inv.hosted_invoice_url : null;
   const invoice_pdf = typeof inv.invoice_pdf === "string" && inv.invoice_pdf ? inv.invoice_pdf : null;
+  // Customer-facing invoice number (Stripe's invoice.number, e.g. "INV-0042").
+  // Stripe assigns it at FINALIZATION, so it is null on drafts and on any
+  // payload that predates it — reminder copy then omits the number entirely.
+  // Stripe's internal id (inv.id, "in_…") is NEVER a substitute for it.
+  const invoice_number = typeof inv.number === "string" && inv.number ? inv.number : null;
 
   if (status === "paid") {
     return {
@@ -1167,6 +1173,7 @@ function mapBackfilledInvoice(
       status: "paid",
       hosted_invoice_url,
       invoice_pdf,
+      invoice_number,
     };
   }
   if (status !== "open") {
@@ -1185,6 +1192,7 @@ function mapBackfilledInvoice(
       status: status === "uncollectible" ? "uncollectible" : "void",
       hosted_invoice_url,
       invoice_pdf,
+      invoice_number,
     };
   }
 
@@ -1200,6 +1208,7 @@ function mapBackfilledInvoice(
     status: dueDate * 1000 < Date.now() ? "overdue" : "open",
     hosted_invoice_url,
     invoice_pdf,
+    invoice_number,
   };
 }
 

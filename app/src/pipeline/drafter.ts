@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { getCustomerHistory, getDb, paymentLinkFor, type Invoice, type ReminderTask } from "../db";
+import { getCustomerHistory, getDb, invoiceNumberFor, paymentLinkFor, type Invoice, type ReminderTask } from "../db";
 import { getStageSubjectPrefix } from "./escalation";
 import { getLateFeeText } from "./late-fee";
 // One definition of "unfilled placeholder" for both lines of defence: the
@@ -93,6 +93,18 @@ function fallback(task: ReminderTask, invoice: Invoice, senderName?: string | nu
   const name = usableName(invoice.customer_name);
   const sign = signOff(task.stage, usableName(senderName));
   const fee = lateFeeSentence(lateFeeText);
+  // The number a CUSTOMER recognises: Stripe's invoice.number ("INV-0042").
+  // Stripe's internal id (in_1UMHv…) used to be printed here and in every
+  // subject line — the customer has never seen that token, and printing it
+  // leaks an internal Stripe identifier into their inbox. With no number
+  // (Stripe assigns it at finalization) the copy OMITS it entirely; it never
+  // falls back to the id.
+  const number = invoiceNumberFor(invoice);
+  // Mid-sentence and sentence-initial forms. With no number the copy says
+  // "your invoice" — never a bare "invoice" with a gap where the number was,
+  // and never the internal id.
+  const invoiceRef = number ? `invoice ${number}` : "your invoice";
+  const invoiceRefCap = number ? `Invoice ${number}` : "Your invoice";
   let body: string;
   if (task.stage === 1) {
     // Named customer: unchanged stage-1 copy. No usable name (empty, "Customer"
@@ -101,18 +113,23 @@ function fallback(task: ReminderTask, invoice: Invoice, senderName?: string | nu
     const opener = name
       ? `Hey ${name} — just a quick nudge`
       : `Hi there,\n\nJust a quick nudge`;
-    body = `${opener} that invoice #${invoice.stripe_invoice_id} for ${amount} was due on ${invoice.due_date}.${link ? `\n\nNo worries if it's already on the way — here's the link if you need it:\n${link}` : ""}\n\n${sign}`;
+    body = `${opener} that ${invoiceRef} for ${amount} was due on ${invoice.due_date}.${link ? `\n\nNo worries if it's already on the way — here's the link if you need it:\n${link}` : ""}\n\n${sign}`;
   } else if (task.stage === 2) {
     const greet = name ? `Hi ${name},` : "Hi there,";
-    body = `${greet}\n\nFollowing up on invoice #${invoice.stripe_invoice_id} (${amount}, due ${invoice.due_date}). It's now ${days} days past due — is there anything blocking payment on your end? Happy to help if so.${fee}${link ? `\n\nHere's the payment link: ${link}` : ""}\n\n${sign}`;
+    body = `${greet}\n\nFollowing up on ${invoiceRef} (${amount}, due ${invoice.due_date}). It's now ${days} days past due — is there anything blocking payment on your end? Happy to help if so.${fee}${link ? `\n\nHere's the payment link: ${link}` : ""}\n\n${sign}`;
   } else if (task.stage === 3) {
     const greet = name ? `Hi ${name},` : "Hi there,";
-    body = `${greet}\n\nInvoice #${invoice.stripe_invoice_id} for ${amount} has been outstanding since ${invoice.due_date} (${days} days). This is our final notice before we flag it for further follow-up.${fee}${link ? `\n\nPlease settle at your earliest convenience: ${link}` : ""}\n\n${sign}`;
+    body = `${greet}\n\n${invoiceRefCap} for ${amount} has been outstanding since ${invoice.due_date} (${days} days). This is our final notice before we flag it for further follow-up.${fee}${link ? `\n\nPlease settle at your earliest convenience: ${link}` : ""}\n\n${sign}`;
   } else {
     const greet = name ? `Hi ${name},` : "Hi there,";
-    body = `${greet}\n\nThis is a reminder about invoice #${invoice.stripe_invoice_id} for ${amount}, due on ${invoice.due_date}.${link ? `\n\nYou can view and pay the invoice here: ${link}` : ""}\n\n${sign}`;
+    body = `${greet}\n\nThis is a reminder about ${invoiceRef} for ${amount}, due on ${invoice.due_date}.${link ? `\n\nYou can view and pay the invoice here: ${link}` : ""}\n\n${sign}`;
   }
-  return { subject: `${getStageSubjectPrefix(task.stage)}: Invoice #${invoice.stripe_invoice_id}`, body };
+  // Subject: the customer's own invoice number, or — when Stripe has not
+  // assigned one yet — no number at all. Never Stripe's internal id.
+  const subject = number
+    ? `${getStageSubjectPrefix(task.stage)}: Invoice ${number}`
+    : `${getStageSubjectPrefix(task.stage)}: your overdue invoice`;
+  return { subject, body };
 }
 
 const SYSTEM_TEMPLATE = `You are writing an invoice reminder email on behalf of {sender_business_name}.
@@ -168,7 +185,13 @@ RULES:
    none", never write a placeholder or invented amount, and never mention late
    fees, penalties or interest anywhere in the email. Never invent or change a
    fee amount, and never claim the fee has been added or charged.
-10. ALWAYS state the invoice due date in the body as the exact ISO date string
+10. Invoice number: when the "Invoice number" line in CONTEXT shows a real
+    number (e.g. INV-0042), state it VERBATIM exactly once in the body — never
+    reformat it and never invent one. When that line says there is none, write
+    NO invoice number, invoice id or reference of any kind: an id like
+    in_1AbC23 is an internal Stripe token the customer has never seen, so it
+    must never appear in the email.
+11. ALWAYS state the invoice due date in the body as the exact ISO date string
     {due_date} (format YYYY-MM-DD, e.g. 2026-08-11). Copy it character-for-
     character — never rewrite it as a month name ("August 11, 2026" is wrong,
     "2026-08-11" is required).
@@ -369,7 +392,12 @@ export async function draftEmail(task: ReminderTask, invoice: Invoice, senderNam
   const paymentLink = paymentLinkFor(invoice);
   const values: Record<string, string> = {
     sender_business_name: senderName || "the business", customer_name: invoice.customer_name, amount, currency: invoice.currency.toUpperCase(),
-    invoice_number: invoice.stripe_invoice_id, due_date: invoice.due_date, days_overdue: String(days), stage: String(task.stage), ...history,
+    // A real invoice number when Stripe has assigned one; otherwise an
+    // INSTRUCTION (never the internal id, and not a bare "none" the model
+    // would copy) so the model writes no number at all.
+    invoice_number: invoiceNumberFor(invoice) ??
+      "none (this invoice has no customer-facing number — do NOT mention any invoice number, invoice id or reference anywhere in this email)",
+    due_date: invoice.due_date, days_overdue: String(days), stage: String(task.stage), ...history,
     prior_reminder_count: String(prior.length), prior_tones: prior.map(p => p.draft_subject).join("; ") || "none",
     // An empty instruction (not a bare "none") so the model never invents a
     // link or reaches for the merchant's dashboard URL when the invoice has no

@@ -131,6 +131,11 @@ function runMigrations(db: Database) {
   if (!invoiceColsAfterMigrations.some(c => c.name === "invoice_pdf")) {
     db.exec("ALTER TABLE invoices ADD COLUMN invoice_pdf TEXT DEFAULT NULL");
   }
+  // Customer-facing invoice number (Stripe's invoice.number). Migration 036 adds
+  // it; this guard keeps a pre-036 database usable in the same boot.
+  if (!invoiceColsAfterMigrations.some(c => c.name === "invoice_number")) {
+    db.exec("ALTER TABLE invoices ADD COLUMN invoice_number TEXT DEFAULT NULL");
+  }
 }
 
 // ── Merchant helpers ──
@@ -167,6 +172,24 @@ export function paymentLinkFor(invoice: Pick<Invoice, "hosted_invoice_url">): st
   return nonEmpty(invoice.hosted_invoice_url);
 }
 
+/**
+ * The invoice number a CUSTOMER can recognise — Stripe's `invoice.number`
+ * (e.g. "INV-0042") — or null when there is none.
+ *
+ * Null is the normal case for anything Stripe has not finalized yet (the number
+ * is assigned at finalization) and for rows not re-synced since the column was
+ * added. Customer copy must then OMIT the number entirely: Stripe's internal id
+ * (in_1UMHv…) is never a substitute — the customer has never seen it, and
+ * printing it leaks an internal token into a customer's inbox (the defect this
+ * exists for; every reminder subject used to carry it). Anything shaped like an
+ * internal id is rejected here too, so a bad write can never reach an email.
+ */
+export function invoiceNumberFor(invoice: Pick<Invoice, "invoice_number">): string | null {
+  const number = nonEmpty(invoice.invoice_number);
+  if (!number) return null;
+  return number.startsWith("in_") ? null : number;
+}
+
 export function upsertInvoice(
   db: Database,
   params: {
@@ -189,11 +212,17 @@ export function upsertInvoice(
     /** Stripe's invoice PDF (invoice.invoice_pdf). Same call, same row — stored
      * for later use; not used in copy yet. */
     invoice_pdf?: string | null;
+    /** Stripe's customer-facing invoice number (invoice.number, e.g.
+     * "INV-0042"). Null until Stripe finalizes the invoice and on legacy
+     * payloads — customer copy then omits the number (see invoiceNumberFor);
+     * it never falls back to stripe_invoice_id. */
+    invoice_number?: string | null;
   }
 ) {
   const livemode = params.livemode === 0 ? 0 : 1;
   const hostedInvoiceUrl = nonEmpty(params.hosted_invoice_url);
   const invoicePdf = nonEmpty(params.invoice_pdf);
+  const invoiceNumber = nonEmpty(params.invoice_number);
   const existing = db
     .query("SELECT id FROM invoices WHERE stripe_invoice_id = ? AND livemode = ?")
     .get(params.stripe_invoice_id, livemode) as { id: number } | null;
@@ -210,21 +239,26 @@ export function upsertInvoice(
     // hosted page), while a payload with no link (voided invoice, a legacy
     // event without the field) never WIPES a link we already have — the
     // reminder must keep working.
+    //
+    // invoice_number follows the same rule for the same reason: Stripe assigns
+    // the number at finalization, so early payloads carry null — that must
+    // never erase a number we already stored.
     db.run(
       `UPDATE invoices SET customer_name=?, customer_email=?, amount_cents=?, currency=?, due_date=?, status=?,
        ever_overdue = CASE WHEN ? = 'overdue' THEN 1 ELSE ever_overdue END,
        hosted_invoice_url = COALESCE(?, hosted_invoice_url),
-       invoice_pdf = COALESCE(?, invoice_pdf)
+       invoice_pdf = COALESCE(?, invoice_pdf),
+       invoice_number = COALESCE(?, invoice_number)
        WHERE id=?`,
-      [params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status, hostedInvoiceUrl, invoicePdf, existing.id]
+      [params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status, hostedInvoiceUrl, invoicePdf, invoiceNumber, existing.id]
     );
     return existing.id;
   }
 
   const result = db.run(
-    `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, ever_overdue, livemode, hosted_invoice_url, invoice_pdf)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [params.stripe_invoice_id, params.merchant_id, params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status === "overdue" ? 1 : 0, livemode, hostedInvoiceUrl, invoicePdf]
+    `INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, ever_overdue, livemode, hosted_invoice_url, invoice_pdf, invoice_number)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [params.stripe_invoice_id, params.merchant_id, params.customer_name, params.customer_email, params.amount_cents, params.currency, params.due_date, params.status, params.status === "overdue" ? 1 : 0, livemode, hostedInvoiceUrl, invoicePdf, invoiceNumber]
   );
   return Number(result.lastInsertRowid);
 }
@@ -1309,6 +1343,12 @@ export interface Invoice {
   hosted_invoice_url?: string | null;
   /** Stripe's invoice PDF link (invoice.invoice_pdf), stored for later use. */
   invoice_pdf?: string | null;
+  /** Stripe's CUSTOMER-FACING invoice number (invoice.number, e.g. "INV-0042")
+   *  — the only number reminder copy may quote. NULL until Stripe finalizes
+   *  the invoice (or on a row not re-synced since migration 036): copy then
+   *  omits the number entirely, never falling back to stripe_invoice_id.
+   *  Read it through invoiceNumberFor(). */
+  invoice_number?: string | null;
   /** ISO timestamp set when a customer reply paused this invoice's sequence (reply-pause, D1a). */
   reply_paused_at: string | null;
   /** ISO timestamp set by the merchant's Pause button in the Stripe App drawer (manual pause). */

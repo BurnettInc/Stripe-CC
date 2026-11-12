@@ -406,6 +406,10 @@ export async function handleWebhookEvent(db: Database, event: WebhookEvent): Pro
         // invoices with no hosted page — the drafter then emits no link at all.
         hosted_invoice_url: typeof inv.hosted_invoice_url === "string" ? inv.hosted_invoice_url : null,
         invoice_pdf: typeof inv.invoice_pdf === "string" ? inv.invoice_pdf : null,
+        // Customer-facing invoice number (invoice.number, e.g. "INV-0042").
+        // Null until Stripe finalizes the invoice — reminder copy then omits
+        // the number entirely; the internal id (in_…) is never a substitute.
+        invoice_number: typeof inv.number === "string" ? inv.number : null,
       });
       const invoice = getInvoiceById(db, invoiceId);
       if (!invoice) {
