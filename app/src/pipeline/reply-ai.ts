@@ -39,7 +39,7 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { getInvoiceById, getMerchantById, logSend, isUnsubscribed, cancelTasksForInvoice, paymentLinkFor } from "../db";
+import { getInvoiceById, getMerchantById, logSend, isUnsubscribed, cancelTasksForInvoice, paymentLinkFor, invoiceNumberFor } from "../db";
 import type { Invoice } from "../db";
 import { appendCanspamFooter } from "./canspam";
 import { sendEmailForReal } from "./sender";
@@ -155,14 +155,27 @@ export function decideReplySendPolicy(
 
 // ── Template fallback (no OPENAI_API_KEY, or the model misbehaves) ──
 
+/**
+ * The invoice reference a CUSTOMER recognises: Stripe's invoice.number
+ * ("INV-0042"), read through invoiceNumberFor() — which returns null for a row
+ * whose number Stripe has not assigned yet AND for anything shaped like an
+ * internal id (in_1UMHv…). Customer copy then OMITS the number entirely
+ * ("your invoice") instead of printing a token the customer has never seen.
+ * Same rule as drafter.ts.
+ */
+function invoiceRef(invoice: Invoice): string {
+  const number = invoiceNumberFor(invoice);
+  return number ? `invoice #${number}` : "your invoice";
+}
+
 function templateReplyDraft(reply: InboundReplyRow, invoice: Invoice): { subject: string; body: string } {
   const amount = (invoice.amount_cents / 100).toFixed(2);
   const name = invoice.customer_name && invoice.customer_name !== "Customer" ? invoice.customer_name : "there";
   return {
-    subject: `Re: your message about invoice #${invoice.stripe_invoice_id}`,
+    subject: `Re: your message about ${invoiceRef(invoice)}`,
     body:
       `Hi ${name},\n\n` +
-      `Thanks for your message about invoice #${invoice.stripe_invoice_id} (${amount}, due ${invoice.due_date}).\n\n` +
+      `Thanks for your message about ${invoiceRef(invoice)} (${amount}, due ${invoice.due_date}).\n\n` +
       `We're looking into it and will get back to you shortly.\n\nBest,`,
   };
 }
@@ -210,7 +223,8 @@ RULES:
 3. Subject should normally start with "Re:" and be short.
 4. The body must NOT include an unsubscribe link or compliance footer — the system adds those.
 5. Never invent facts about payments, refunds, or fees that the context does not support. The ONLY link you may include is the "Hosted payment link" from CONTEXT — that is the customer's own Stripe payment page. If it says there is none, include no link at all. NEVER write a dashboard.stripe.com URL: that is the merchant's own dashboard behind a login wall and the customer cannot pay through it.
-6. Keep the body under ~150 words.`;
+6. Never write an internal Stripe id (anything starting "in_") or any other internal identifier. If the "Invoice number" line says there is no customer-facing number, do not mention any invoice number, invoice id or reference at all — say "your invoice".
+7. Keep the body under ~150 words.`;
 
 interface ReplyAiValues extends Record<string, string> {
   sender_business_name: string;
@@ -261,7 +275,11 @@ export async function classifyAndDraftReply(
     customer_name: invoice.customer_name,
     amount: (invoice.amount_cents / 100).toFixed(2),
     currency: invoice.currency.toUpperCase(),
-    invoice_number: invoice.stripe_invoice_id,
+    // A real invoice number when Stripe has assigned one; otherwise an
+    // INSTRUCTION (never the internal id, and not a bare "none" the model would
+    // copy) so the model writes no number at all. Same as drafter.ts.
+    invoice_number: invoiceNumberFor(invoice) ??
+      "none (this invoice has no customer-facing number — do NOT mention any invoice number, invoice id or reference anywhere in this reply)",
     due_date: invoice.due_date,
     days_overdue: String(days),
     stage: "1",
@@ -303,7 +321,7 @@ export async function classifyAndDraftReply(
     // Safety net: a customer-facing reply must never carry the merchant's own
     // dashboard URL (login wall, unpayable) — hold it for a human instead.
     if (/dashboard\.stripe\.com/i.test(body)) return fallbackClassified(reply, invoice);
-    return { classification, confidence, subject: subject ?? `Re: your message about invoice #${invoice.stripe_invoice_id}`, body };
+    return { classification, confidence, subject: subject ?? `Re: your message about ${invoiceRef(invoice)}`, body };
   } catch {
     return fallbackClassified(reply, invoice);
   } finally {
@@ -430,7 +448,8 @@ async function sendOwnerAutoSendCopy(
 
 // ── Opt-out handling (owner spec item 6) ──
 
-export const OPT_OUT_CONFIRMATION_SUBJECT = (invoiceId: string) => `Re: your request about invoice #${invoiceId}`;
+export const OPT_OUT_CONFIRMATION_SUBJECT = (invoiceNumber: string | null) =>
+  invoiceNumber ? `Re: your request about invoice #${invoiceNumber}` : "Re: your request about your invoice";
 
 /**
  * The scoped opt-out confirmation body. Deliberately per-invoice language:
@@ -439,9 +458,12 @@ export const OPT_OUT_CONFIRMATION_SUBJECT = (invoiceId: string) => `Re: your req
  */
 export function optOutConfirmationBody(invoice: Invoice): string {
   const name = invoice.customer_name && invoice.customer_name !== "Customer" ? invoice.customer_name : "there";
+  // Customer-facing number only; with none the copy says "this invoice" —
+  // never Stripe's internal id (the customer has never seen it).
+  const ref = invoiceNumberFor(invoice);
   return (
     `Hi ${name},\n\n` +
-    `You won't receive further reminders about invoice #${invoice.stripe_invoice_id}.\n\n` +
+    `You won't receive further reminders about ${ref ? `invoice #${ref}` : "this invoice"}.\n\n` +
     `Thanks for letting us know — if anything changes, we're here to help.\n\nBest,`
   );
 }
@@ -468,7 +490,7 @@ async function handleOptOut(
   cancelTasksForInvoice(db, invoice.id);
 
   const confirmation: EmailDraft = {
-    subject: OPT_OUT_CONFIRMATION_SUBJECT(invoice.stripe_invoice_id),
+    subject: OPT_OUT_CONFIRMATION_SUBJECT(invoiceNumberFor(invoice)),
     body: optOutConfirmationBody(invoice),
   };
   // checkStopped:false — the opt-out flag was JUST set on this invoice; the
@@ -550,7 +572,7 @@ export async function processReplyAI(db: Database, replyId: number): Promise<Rep
       return { status: "pending_approval", classification: classified.classification, confidence: classified.confidence, action: "hold", reason: "hard rule: never auto-send payment_claim/dispute" };
     }
     const draft: EmailDraft = {
-      subject: classified.subject ?? `Re: your message about invoice #${invoice.stripe_invoice_id}`,
+      subject: classified.subject ?? `Re: your message about ${invoiceRef(invoice)}`,
       body: classified.body ?? "",
     };
     const sent = await sendReplyToCustomer(db, invoice, draft, { logType: "reply_send" });
