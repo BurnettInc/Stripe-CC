@@ -95,6 +95,9 @@ function makeInvoice(over: Record<string, unknown> = {}): any {
   invoiceSeq++;
   const row = {
     stripe_invoice_id: `in_DRAFTER${String(invoiceSeq).padStart(3, "0")}`,
+    // Stripe's CUSTOMER-FACING invoice number — the only number reminder copy
+    // may quote (the internal id above must never reach a customer).
+    invoice_number: `INV-${String(invoiceSeq).padStart(4, "0")}`,
     merchant_id: merchantId,
     customer_name: "Jenny Rosen",
     customer_email: "jenny@example.com",
@@ -106,8 +109,8 @@ function makeInvoice(over: Record<string, unknown> = {}): any {
     ...over,
   };
   db.run(
-    "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, hosted_invoice_url) VALUES (?, ?, ?, ?, ?, ?, ?, 'overdue', ?)",
-    [row.stripe_invoice_id, row.merchant_id, row.customer_name, row.customer_email, row.amount_cents, row.currency, row.due_date, row.hosted_invoice_url]
+    "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, hosted_invoice_url, invoice_number) VALUES (?, ?, ?, ?, ?, ?, ?, 'overdue', ?, ?)",
+    [row.stripe_invoice_id, row.merchant_id, row.customer_name, row.customer_email, row.amount_cents, row.currency, row.due_date, row.hosted_invoice_url, row.invoice_number]
   );
   return db.query("SELECT * FROM invoices WHERE stripe_invoice_id=?").get(row.stripe_invoice_id) as any;
 }
@@ -138,7 +141,9 @@ const invUsd = makeInvoice();
 const stage1 = await draftEmail(task(invUsd, 1), invUsd, undefined, db);
 check('B1 stage-1 fallback carries "$27.00"', stage1.body.includes("$27.00"), stage1.body);
 check("B1b the body no longer says 'for 27.00' with no currency", !/\bfor 27\.00\b/.test(stage1.body), stage1.body);
-check("B1c the body names the invoice number", stage1.body.includes(invUsd.stripe_invoice_id), stage1.body);
+check("B1c the body names the CUSTOMER-FACING invoice number", stage1.body.includes(invUsd.invoice_number), stage1.body);
+check("B1c2 …and never Stripe's internal id", !stage1.body.includes(invUsd.stripe_invoice_id), stage1.body);
+check("B1c3 the subject carries the invoice number, not the internal id", stage1.subject.includes(invUsd.invoice_number) && !stage1.subject.includes(invUsd.stripe_invoice_id), stage1.subject);
 check("B1d the body carries the invoice's hosted payment link", stage1.body.includes(HOSTED), stage1.body);
 
 const invSek = makeInvoice({ currency: "sek" });
@@ -192,7 +197,21 @@ const invNoLink = makeInvoice({ hosted_invoice_url: null });
 const noLinkDraft = await draftEmail(task(invNoLink, 2), invNoLink, undefined, db);
 check("B7 no hosted link → no URL in the body", !/https?:\/\//i.test(noLinkDraft.body), noLinkDraft.body);
 check("B7b no hosted link → never dashboard.stripe.com", !/dashboard\.stripe\.com/i.test(noLinkDraft.body), noLinkDraft.body);
-check("B7c no hosted link → still names the invoice and the amount", noLinkDraft.body.includes(invNoLink.stripe_invoice_id) && noLinkDraft.body.includes("$27.00"), noLinkDraft.body);
+check("B7c no hosted link → still names the invoice and the amount", noLinkDraft.body.includes(invNoLink.invoice_number) && noLinkDraft.body.includes("$27.00"), noLinkDraft.body);
+
+// Stripe assigns invoice.number at FINALIZATION, so an invoice can legitimately
+// have none yet: the copy then OMITS the number entirely — it must never fall
+// back to the internal id (the defect this change exists for).
+const invNoNumber = makeInvoice({ invoice_number: null });
+const noNumberDraft = await draftEmail(task(invNoNumber, 1), invNoNumber, undefined, db);
+check(
+  "B7d no invoice number yet → the copy omits it and never prints the internal id",
+  !noNumberDraft.subject.includes(invNoNumber.stripe_invoice_id) &&
+    !noNumberDraft.body.includes(invNoNumber.stripe_invoice_id) &&
+    noNumberDraft.body.includes("your invoice") &&
+    noNumberDraft.body.includes("$27.00"),
+  `${noNumberDraft.subject} | ${noNumberDraft.body}`
+);
 
 // The no-key path is recorded too (that IS "AI drafting is off").
 check(
@@ -240,7 +259,7 @@ const failed = await draftEmail(task(invLLM, 2), invLLM, undefined, db);
 releaseWarnings();
 
 check("C1 a 429 still returns a draft (drafting never throws, sending never blocks)", typeof failed.body === "string" && failed.body.length > 40, failed.body);
-check("C1b the returned draft is the template, complete and sendable", failed.body.includes(invLLM.stripe_invoice_id) && failed.body.includes("$27.00") && failed.body.includes(HOSTED), failed.body);
+check("C1b the returned draft is the template, complete and sendable", failed.body.includes(invLLM.invoice_number) && failed.body.includes("$27.00") && failed.body.includes(HOSTED), failed.body);
 check("C1c the fallback draft passes the reviewer", reviewDraft(failed, invLLM, { lateFeeText: null }).approved === true, JSON.stringify(reviewDraft(failed, invLLM, { lateFeeText: null }).issues));
 
 const failureLine = warnings.find((w) => w.startsWith("[drafter] LLM unavailable — using template fallback:"));
@@ -269,7 +288,7 @@ captureWarnings();
 const dashboardDraft = await draftEmail(task(invLLM, 2), invLLM, undefined, db);
 releaseWarnings();
 check("C5 a model draft carrying dashboard.stripe.com is dropped with its own reason", drafterHealth().last_fallback?.reason === "merchant_dashboard_link", JSON.stringify(drafterHealth().last_fallback));
-check("C5b …and the template was used instead", !/dashboard\.stripe\.com/i.test(dashboardDraft.body) && dashboardDraft.body.includes(invLLM.stripe_invoice_id), dashboardDraft.body);
+check("C5b …and the template was used instead", !/dashboard\.stripe\.com/i.test(dashboardDraft.body) && dashboardDraft.body.includes(invLLM.invoice_number), dashboardDraft.body);
 
 mode = "garbage";
 captureWarnings();

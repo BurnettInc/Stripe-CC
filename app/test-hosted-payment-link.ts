@@ -51,7 +51,7 @@ delete process.env.RESEND_API_KEY;
 delete process.env.SENDGRID_API_KEY;
 delete process.env.OPENAI_API_KEY; // force the deterministic template fallback
 
-const { getDb, upsertInvoice, paymentLinkFor } = await import("./src/db");
+const { getDb, upsertInvoice, paymentLinkFor, invoiceNumberFor } = await import("./src/db");
 const { draftEmail } = await import("./src/pipeline/drafter");
 const { reviewDraft, merchantDashboardUrlIssue } = await import("./src/pipeline/reviewer");
 const { refreshHostedLinkText, repairStaleHostedLinks, repairTaskHostedLink } = await import(
@@ -130,6 +130,21 @@ check(
 check("A4 paymentLinkFor returns the stored link", paymentLinkFor(row3) === HOSTED_ROTATED);
 check("A5 paymentLinkFor returns null for an empty/absent link", paymentLinkFor({ hosted_invoice_url: null }) === null);
 
+// A6/A7 — the customer-facing invoice number (Stripe's invoice.number) is
+// stored at sync, and a later payload WITHOUT one never wipes it: Stripe
+// assigns the number at finalization, so early payloads carry null.
+const numId = upsertInvoice(db, baseParams("in_HOSTED004", { invoice_number: "INV-0042" }));
+const numRow = db.query("SELECT * FROM invoices WHERE id=?").get(numId) as any;
+check("A6 upsertInvoice stores invoice_number on INSERT", numRow.invoice_number === "INV-0042", JSON.stringify({ number: numRow.invoice_number }));
+upsertInvoice(db, baseParams("in_HOSTED004"));
+const numRow2 = db.query("SELECT * FROM invoices WHERE id=?").get(numId) as any;
+check("A7 a re-sync with no number keeps the stored invoice_number", numRow2.invoice_number === "INV-0042", JSON.stringify({ number: numRow2.invoice_number }));
+check("A8 invoiceNumberFor returns the stored number", invoiceNumberFor(numRow2) === "INV-0042", String(invoiceNumberFor(numRow2)));
+check(
+  "A8b invoiceNumberFor never returns Stripe's internal id, and null when there is none",
+  invoiceNumberFor({ invoice_number: "in_HOSTED004" }) === null && invoiceNumberFor({ invoice_number: null }) === null
+);
+
 console.log("── B. Drafter output ──");
 
 // B1 — every stage's template fallback carries the hosted link, never the dashboard.
@@ -151,7 +166,7 @@ for (const stage of [1, 2, 3]) {
 }
 
 // B2 — no hosted link stored → NO URL at all (never a fallback).
-const bareInvId = upsertInvoice(db, baseParams("in_HOSTED003"));
+const bareInvId = upsertInvoice(db, baseParams("in_HOSTED003", { invoice_number: "INV-0003" }));
 const bareInv = db.query("SELECT * FROM invoices WHERE id=?").get(bareInvId) as any;
 check("B2 the row really has no hosted link", bareInv.hosted_invoice_url === null);
 for (const stage of [1, 2, 3]) {
@@ -164,7 +179,7 @@ for (const stage of [1, 2, 3]) {
   );
   check(
     `B2c stage ${stage} draft with hosted_invoice_url NULL still names the invoice + amount`,
-    d.body.includes("in_HOSTED003") && d.body.includes("27.00"),
+    d.body.includes("INV-0003") && !d.body.includes("in_HOSTED003") && d.body.includes("27.00"),
     d.body
   );
 }

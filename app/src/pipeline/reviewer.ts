@@ -1,4 +1,4 @@
-import { paymentLinkFor, type Invoice } from "../db";
+import { invoiceNumberFor, paymentLinkFor, type Invoice } from "../db";
 import type { EmailDraft } from "./drafter";
 
 export interface ReviewResult {
@@ -107,7 +107,8 @@ export interface ReviewOptions {
  *
  * This performs REAL comparison checks — it's not a simple pass-through.
  * Checks performed:
- *  - Invoice number (stripe_invoice_id) appears in the body
+ *  - Invoice number (the customer-facing invoice.number, or — for a draft
+ *    written before that change — the legacy stripe_invoice_id) appears
  *  - Amount (formatted as dollars) appears in the body
  *  - Due date (YYYY-MM-DD format) appears in the body or subject
  *  - The draft never contains dashboard.stripe.com (merchant login wall) and,
@@ -118,9 +119,18 @@ export function reviewDraft(draft: EmailDraft, invoice: Invoice, opts?: ReviewOp
   const issues: string[] = [];
   const fullText = `${draft.subject}\n${draft.body}`;
 
-  // Check 1: invoice number present
-  if (!fullText.includes(invoice.stripe_invoice_id)) {
-    issues.push(`Missing invoice number: expected "${invoice.stripe_invoice_id}" not found in draft`);
+  // Check 1: the invoice is identifiable in the copy.
+  //
+  // New drafts quote the CUSTOMER-FACING number — Stripe's invoice.number
+  // (e.g. "INV-0042"). Stripe's internal id (in_…) is no longer written to
+  // customers at all (drafter.ts): the customer has never seen that token.
+  // A draft written BEFORE that change still carries the internal id and must
+  // not become unapprovable/un-sendable now, so either reference satisfies
+  // this check. When Stripe has assigned no number yet (it is null until the
+  // invoice is finalized) neither is required — the copy omits the number.
+  const customerNumber = invoiceNumberFor(invoice);
+  if (customerNumber && !fullText.includes(customerNumber) && !fullText.includes(invoice.stripe_invoice_id)) {
+    issues.push(`Missing invoice number: expected "${customerNumber}" not found in draft`);
   }
 
   // Check 2: amount present (both formats: $X.XX and raw substring)
