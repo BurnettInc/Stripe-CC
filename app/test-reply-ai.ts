@@ -99,12 +99,12 @@ function countUnsubscribes(): number {
 }
 
 /** Seed an overdue invoice for the dedicated merchant. Returns its internal id. */
-function seedInvoice(sid: string, opts: { trustOverride?: string | null; taskStatus?: string | null } = {}): number {
+function seedInvoice(sid: string, opts: { trustOverride?: string | null; taskStatus?: string | null; invoiceNumber?: string | null } = {}): number {
   const d = db();
   const due = new Date(Date.now() - 3 * 86400e3).toISOString();
   const r = d.run(
-    "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, trust_mode_override) VALUES (?, ?, 'Jane Customer', 'jane@customer.com', 5000, 'usd', ?, 'overdue', ?)",
-    [sid, MERCHANT, due, opts.trustOverride ?? null]
+    "INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, trust_mode_override, invoice_number) VALUES (?, ?, 'Jane Customer', 'jane@customer.com', 5000, 'usd', ?, 'overdue', ?, ?)",
+    [sid, MERCHANT, due, opts.trustOverride ?? null, opts.invoiceNumber ?? null]
   );
   const id = Number(r.lastInsertRowid);
   if (opts.taskStatus) {
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
 
   // ══ (d) question + high confidence + Draft override → held ══
   {
-    const invId = seedInvoice("rai_d", { trustOverride: "draft" });
+    const invId = seedInvoice("rai_d", { trustOverride: "draft", invoiceNumber: "INV-0007" });
     const replyId = insertCapturedReply(invId, "When is the new date?", "key-d");
     const sendBefore = countLogType("reply_send");
     process.env.REPLY_AI_MOCK_CLASSIFICATION = "question:0.95";
@@ -261,6 +261,9 @@ async function main(): Promise<void> {
     check("(d) question+0.95+Draft → held (pending_approval)", outcome?.status === "pending_approval" && outcome?.action === "hold", JSON.stringify(outcome));
     check("(d) no send logged", countLogType("reply_send") === sendBefore, `n=${countLogType("reply_send")}`);
     check("(d) draft persisted for the review queue", typeof r.draft_reply_body === "string" && (r.draft_reply_body as string).length > 0, JSON.stringify(r.draft_reply_body));
+    const dSubj = String(r.draft_reply_subject ?? ""), dBody = String(r.draft_reply_body ?? "");
+    check("(d) reply copy quotes the CUSTOMER-FACING invoice number", dSubj.includes("INV-0007") && dBody.includes("INV-0007"), `subject=${dSubj} body=${dBody}`);
+    check("(d) reply copy never prints the internal stripe id", !dSubj.includes("rai_d") && !dBody.includes("rai_d"), `subject=${dSubj} body=${dBody}`);
   }
 
   // ══ (e) question + high confidence + Semi override → held ══
@@ -318,7 +321,7 @@ async function main(): Promise<void> {
 
   // ══ (i) opt_out → per-invoice flag + scoped confirmation + tasks cancelled, NOT account-level ══
   {
-    const invId = seedInvoice("rai_i", { taskStatus: "reviewed" });
+    const invId = seedInvoice("rai_i", { taskStatus: "reviewed", invoiceNumber: "INV-0010" });
     const replyId = insertCapturedReply(invId, "Please stop emailing me about this invoice.", "key-i");
     const tasksBefore = openTasks(invId);
     const unsubBefore = countUnsubscribes();
@@ -333,7 +336,12 @@ async function main(): Promise<void> {
     check("(i) reminder tasks cancelled", tasksBefore === 1 && openTasks(invId) === 0, `before=${tasksBefore} after=${openTasks(invId)}`);
     check("(i) scoped confirmation sent (reply_optout log success)", optLogs.some((l) => l.status === "success" && l.provider_message.includes("Reply sent to jane@customer.com")), JSON.stringify(optLogs));
     check("(i) confirmation copy is SCOPED per-invoice, not generic unsubscribe",
-      optLogs.some((l) => l.provider_message.includes("You won't receive further reminders about invoice #rai_i")), JSON.stringify(optLogs));
+      optLogs.some((l) => l.provider_message.includes("You won't receive further reminders about invoice #INV-0010")), JSON.stringify(optLogs));
+    // Only the CUSTOMER send row matters here — the separate "Opt-out handled
+    // for invoice <id>" row is our own audit log, never seen by the customer.
+    const optCustomerSends = optLogs.filter((l) => l.provider_message.includes("Reply sent to jane@customer.com"));
+    check("(i) confirmation copy never prints the internal stripe id",
+      optCustomerSends.length > 0 && optCustomerSends.every((l) => !l.provider_message.includes("rai_i")), JSON.stringify(optLogs));
     check("(i) reply row handled + handled_at", r.reply_status === "handled" && typeof r.handled_at === "string", JSON.stringify(r));
     check("(i) NOT an account-level opt-out (unsubscribes table untouched)", countUnsubscribes() === unsubBefore, `unsub=${countUnsubscribes()}`);
   }
@@ -466,6 +474,19 @@ async function main(): Promise<void> {
     const taskId = rb.task_id ?? 0;
     const t = db().query("SELECT status, draft_body FROM reminder_tasks WHERE id=?").get(taskId) as { status: string; draft_body: string } | null;
     check("(l) resumed task is reviewed with a draft", t !== null && t.status === "reviewed" && t.draft_body.length > 0, JSON.stringify(t));
+  }
+
+  // ══ (o) invoice with NO customer-facing number → reply copy omits it entirely ══
+  {
+    const invId = seedInvoice("rai_o", { trustOverride: "draft", invoiceNumber: null });
+    const replyId = insertCapturedReply(invId, "When is this due again?", "key-o");
+    process.env.REPLY_AI_MOCK_CLASSIFICATION = "question:0.95";
+    await processReplyAI(db(), replyId);
+    process.env.REPLY_AI_MOCK_CLASSIFICATION = "";
+    const r = replyRow(replyId);
+    const oSubj = String(r.draft_reply_subject ?? ""), oBody = String(r.draft_reply_body ?? "");
+    check("(o) no number on the invoice → draft says \"your invoice\"", oSubj.includes("your invoice") && oBody.includes("your invoice"), `subject=${oSubj} body=${oBody}`);
+    check("(o) no number → draft prints no internal stripe id", !oSubj.includes("rai_o") && !oBody.includes("rai_o") && !/in_[A-Za-z0-9]/.test(`${oSubj}${oBody}`), `subject=${oSubj} body=${oBody}`);
   }
 
   // ══ (m) /tasks payload now carries the reply columns (PR #56 chip contract) ══
