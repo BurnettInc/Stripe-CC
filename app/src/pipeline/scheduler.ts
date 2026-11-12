@@ -53,6 +53,12 @@
  *      the idle track, optional T+3 win-back). DISABLED BY DEFAULT: the pass is
  *      a logged no-op unless TRIAL_EXPIRY_EMAILS_ENABLED is exactly "true", and
  *      it never runs in a dev/test environment. See pipeline/trial-expiry.ts.
+ *   7. AI-DRAFTING HEALTH ALERT (default hourly check, at most one email per
+ *      24h) — reads drafterHealth() and emails OWNER_NOTIFY_EMAIL when the
+ *      OpenAI key is missing or consecutive template fallbacks are non-zero,
+ *      naming the last fallback reason. Internal owner alert only; the 24h cap
+ *      is DURABLE (send_logs type 'drafter_alert'), so a restart cannot re-send.
+ *      See pipeline/drafter-alert.ts.
  *
  * Every pass is factored as a pure-ish (db, deps) function — deps.now() and
  * deps.log() are injectable so tests drive the passes with seeded data and
@@ -69,6 +75,7 @@
  *   SCHEDULER_SUMMARY_INTERVAL_MS     — 86400000 (24 h)
  *   SCHEDULER_PURGE_INTERVAL_MS       — 86400000 (24 h)
  *   SCHEDULER_OWNER_DIGEST_INTERVAL_MS — 86400000 (24 h)
+ *   SCHEDULER_DRAFTER_ALERT_INTERVAL_MS — 3600000 (1 h check; email capped at 1/24h)
  */
 import type { Database } from "bun:sqlite";
 import { getAppOAuthTokens, refreshAppAccessToken, syncMerchantInvoices } from "../routes/oauth-app-install";
@@ -88,6 +95,7 @@ import { isPlaceholderMerchant, notifyMerchant } from "./notify";
 import { getEscalationStage } from "./escalation";
 import { formatElapsed, ownerDigestDueInMs, runDailyOwnerDigest } from "./owner-digest";
 import { runTrialExpiryPass } from "./trial-expiry";
+import { runDrafterHealthAlertPass } from "./drafter-alert";
 import { repairStaleHostedLinks } from "./hosted-link-repair";
 import { recordFunnelEvent } from "../funnel";
 import {
@@ -885,6 +893,17 @@ export type { OwnerDigestData, OwnerDigestResult } from "./owner-digest";
 export { runTrialExpiryPass, isTrialExpiryEnabled, isDevOrTestEnv, touchpointForInstants } from "./trial-expiry";
 export type { TrialExpiryPassResult } from "./trial-expiry";
 
+// ── Pass 7: AI-drafting health alert ──
+
+/**
+ * The AI-drafting health alert (2026-11-13) lives in pipeline/drafter-alert.ts.
+ * Re-exported here so the scheduler module stays the single entry point for
+ * every pass. Internal owner alert only (OWNER_NOTIFY_EMAIL), never a customer,
+ * and capped at one email per 24h by its own durable send_logs guard.
+ */
+export { runDrafterHealthAlertPass, evaluateDrafterAlert, evaluateDrafterAlertGuard } from "./drafter-alert";
+export type { DrafterAlertResult, DrafterAlertDecision } from "./drafter-alert";
+
 // ── Boot wiring ──
 
 export interface SchedulerConfig {
@@ -896,6 +915,10 @@ export interface SchedulerConfig {
   /** Free-trial expiry emails (pipeline/trial-expiry.ts) — off by default, so
    *  the cadence only matters once the lead flips the flag in production. */
   trialExpiryIntervalMs: number;
+  /** AI-drafting health alert (pipeline/drafter-alert.ts). How often the health
+   *  reading is CHECKED; the email itself is capped at one per 24h by the pass's
+   *  own durable ledger guard. */
+  drafterAlertIntervalMs: number;
   /** First tick of the daily passes after boot (lets the HTTP server come up). */
   startDelayMs: number;
   /** First sync tick after boot — invoices created while the server was down
@@ -913,6 +936,10 @@ export const DEFAULT_SCHEDULER_CONFIG: SchedulerConfig = {
   // between two windows and miss one; the 14:00 UTC tick is the natural
   // "US morning" slot (no timezone logic in v1 — deliberate).
   trialExpiryIntervalMs: 6 * 60 * 60 * 1000,
+  // 1 hour. The CHECK is hourly so a fresh outage is noticed within the hour;
+  // the alert EMAIL is still capped at one per 24h by the pass's own durable
+  // ledger guard (pipeline/drafter-alert.ts), which is the part that matters.
+  drafterAlertIntervalMs: 60 * 60 * 1000,
   startDelayMs: 60 * 1000,
   syncInitialDelayMs: 30 * 1000,
 };
@@ -939,6 +966,7 @@ export function startScheduler(
     purgeIntervalMs: envMs("SCHEDULER_PURGE_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.purgeIntervalMs),
     ownerDigestIntervalMs: envMs("SCHEDULER_OWNER_DIGEST_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.ownerDigestIntervalMs),
     trialExpiryIntervalMs: envMs("SCHEDULER_TRIAL_EXPIRY_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.trialExpiryIntervalMs),
+    drafterAlertIntervalMs: envMs("SCHEDULER_DRAFTER_ALERT_INTERVAL_MS", DEFAULT_SCHEDULER_CONFIG.drafterAlertIntervalMs),
     startDelayMs: envMs("SCHEDULER_START_DELAY_MS", DEFAULT_SCHEDULER_CONFIG.startDelayMs),
     syncInitialDelayMs: envMs("SCHEDULER_SYNC_INITIAL_DELAY_MS", DEFAULT_SCHEDULER_CONFIG.syncInitialDelayMs),
     ...config,
@@ -989,11 +1017,23 @@ export function startScheduler(
   // single-flight wrapper — so it logs `[scheduler] trial-expiry pass …` even
   // while it is a no-op. OFF unless TRIAL_EXPIRY_EMAILS_ENABLED is "true".
   schedule(cfg.startDelayMs, cfg.trialExpiryIntervalMs, singleFlightPass("trial-expiry", () => runTrialExpiryPass(db, deps), log));
+  // AI-drafting health alert (2026-11-13). An invalid OPENAI_API_KEY silently
+  // degrades every draft to the template and nobody was told; this pass reads
+  // drafterHealth() hourly and emails OWNER_NOTIFY_EMAIL when the key is missing
+  // or consecutive fallbacks are non-zero, naming the last fallback reason. The
+  // EMAIL is capped at one per 24h by the pass's own durable ledger guard, so a
+  // restart or an auto-deploy cannot re-send. Registered like the other passes.
+  schedule(
+    cfg.startDelayMs,
+    cfg.drafterAlertIntervalMs,
+    singleFlightPass("drafter-alert", () => runDrafterHealthAlertPass(db, deps), log)
+  );
 
   log(
     `[scheduler] started: invoice-sync every ${cfg.syncIntervalMs}ms (first in ${cfg.syncInitialDelayMs}ms), ` +
       `escalation-advance every ${cfg.advanceIntervalMs}ms, weekly-summary every ${cfg.summaryIntervalMs}ms, purge every ${cfg.purgeIntervalMs}ms, ` +
-      `owner-digest every ${cfg.ownerDigestIntervalMs}ms, trial-expiry every ${cfg.trialExpiryIntervalMs}ms`
+      `owner-digest every ${cfg.ownerDigestIntervalMs}ms, trial-expiry every ${cfg.trialExpiryIntervalMs}ms` +
+      `, drafter-alert every ${cfg.drafterAlertIntervalMs}ms`
   );
 
   return { stop: () => { for (const t of timers) clearTimeout(t); } };
