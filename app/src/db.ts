@@ -360,18 +360,61 @@ export function recordRecoveryEvent(
  * send_logs stays clean (nothing here was emailed). */
 export const SUPERSEDED_DRAFT_LOG_TYPE = "superseded";
 
-export function createReminderTask(db: Database, invoiceId: number, stage: number) {
+/** send_logs.type for a ladder advance that was HELD because an unsent
+ * 'reviewed' draft was waiting (owner decision 2026-11-16). Distinct from
+ * 'reminder' so every send/engagement count over send_logs stays clean —
+ * nothing was emailed and no task was created. */
+export const LADDER_HELD_LOG_TYPE = "ladder_held";
+
+/**
+ * Create a reminder task at `stage` for an invoice.
+ *
+ * Returns the new task id, or `null` when the ladder HELD: the invoice still
+ * has an unsent 'reviewed' draft, so no task was created and nothing was
+ * cancelled. Never throws — every caller keeps processing other invoices.
+ */
+export function createReminderTask(db: Database, invoiceId: number, stage: number): number | null {
   // A 'reviewed' task is human-facing state: the merchant has been shown that
-  // draft as approved and ready to send, and may have edited it. The cancel
-  // below is the duplicate-send guard, but until 2026-11-10 it was also a
-  // silent destroyer — production task 72 (stage 1, reviewed, never sent) was
-  // cancelled at 11/9 19:55:55 when invoice 356 crossed 7 days overdue, and
-  // left no log line, no audit row and no notification (reminder_tasks has no
-  // updated_at, so the status change left no timestamp of its own). Read the
-  // reviewed rows BEFORE cancelling them so each one can be recorded.
+  // draft as approved and ready to send, and may have edited it. Read those
+  // rows BEFORE any write — this used to be the PR #254 audit read (the cancel
+  // below destroyed the draft), and since the owner decision of 2026-11-16 it
+  // is the HOLD gate: an unsent approved draft stops the ladder instead of
+  // being replaced.
   const reviewed = db
     .query("SELECT id, stage FROM reminder_tasks WHERE invoice_id=? AND status='reviewed' ORDER BY id")
     .all(invoiceId) as Array<{ id: number; stage: number }>;
+
+  // ── Ladder hold (owner decision 2026-11-16) ──
+  // An unsent 'reviewed' draft belongs to the merchant: it may have been
+  // hand-edited and may be about to be sent. A background timer must never
+  // destroy it. Hold instead: create nothing, cancel nothing, rewrite no
+  // status. Record the hold once per attempt (one 'ladder_held' audit row per
+  // blocking draft, so that draft's own trail names what happened, plus one
+  // log line) and report the hold to the caller as a null task id. The hold
+  // lifts by itself: once the draft is sent or cancelled, the next escalation
+  // pass creates the stage task normally.
+  if (reviewed.length > 0) {
+    const blockingIds = reviewed.map((r) => r.id);
+    for (const old of reviewed) {
+      const msg =
+        "The stage " + stage + " reminder was held back at the escalation stage boundary " +
+        "because this stage " + old.stage + " draft (task " + old.id + ") is still waiting to " +
+        "be sent. No email was sent and no new task was created.";
+      try {
+        logSend(db, old.id, "skipped", msg, LADDER_HELD_LOG_TYPE);
+      } catch (err: unknown) {
+        console.warn(
+          "[tasks] failed to record ladder hold on draft task " + old.id + ": " +
+          (err instanceof Error ? err.message : String(err))
+        );
+      }
+    }
+    console.log(
+      "[tasks] ladder held for invoice " + invoiceId + ": stage " + stage +
+      " not created — unsent reviewed draft task(s) " + blockingIds.join(", ") + " still waiting"
+    );
+    return null;
+  }
 
   // Cancel any existing active tasks for this invoice first (including sent tasks to prevent duplicate sends)
   db.run("UPDATE reminder_tasks SET status='cancelled' WHERE invoice_id=? AND status IN ('pending','drafted','reviewed','sent')", [invoiceId]);
@@ -382,10 +425,12 @@ export function createReminderTask(db: Database, invoiceId: number, stage: numbe
   );
   const newTaskId = Number(result.lastInsertRowid);
 
-  // Superseding an approved draft is now observable: one audit row per replaced
+  // Superseding an approved draft is observable: one audit row per replaced
   // draft (attached to the REPLACED task, so its trail names what happened to
-  // it) plus a log line. Logging must never block task creation — the ladder's
-  // behaviour is unchanged.
+  // it) plus a log line. Logging must never block task creation. Since the
+  // 2026-11-16 hold this is defensive-only — a 'reviewed' draft returns above
+  // instead of being replaced — but the audit path stays so no replacement can
+  // ever be silent again.
   for (const old of reviewed) {
     const msg =
       "Stage " + old.stage + " draft (task " + old.id + ") was cancelled unsent when the stage " +
