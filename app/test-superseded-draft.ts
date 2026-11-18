@@ -10,14 +10,17 @@
  * when the invoice crossed 7 days overdue, and only task 74's creation time
  * showed anything had happened.
  *
+ * UPDATE 2026-11-16 (owner decision): the ladder now HOLDS on an unsent
+ * `reviewed` draft instead of replacing it — no task is created and nothing is
+ * cancelled. `superseded` rows are therefore historical only (pre-11/16); the
+ * full hold proof lives in test-ladder-hold.ts. This suite keeps the audit and
+ * the merchant-facing surface honest:
+ *
  * THIS SUITE PROVES:
- *   (a) superseding a `reviewed` draft writes ONE send_logs audit row, attached
- *       to the REPLACED task, of type 'superseded', status 'skipped', naming the
- *       replaced task id, its stage and the replacing task id + stage;
- *   (b) a log line is emitted naming both tasks;
- *   (c) the ladder's behaviour is UNCHANGED — the old task is 'cancelled', the
- *       new task exists at the requested stage, and nothing is emailed (no
- *       send_logs row of type 'reminder');
+ *   (a) a `reviewed` draft is NO LONGER superseded — the stage boundary holds,
+ *       writes no 'superseded' row and leaves the draft in place;
+ *   (b) nothing is emailed and no second task appears for that invoice;
+ *   (c) the pre-11/16 'superseded' audit row is still read and surfaced;
  *   (d) superseding tasks that were never 'reviewed' (pending/drafted) writes no
  *       superseded row — no audit noise for drafts no human ever saw as ready;
  *   (e) `annotateSupersededDrafts` surfaces the replaced draft on the replacing
@@ -38,7 +41,7 @@ delete process.env.RESEND_API_KEY;
 delete process.env.SENDGRID_API_KEY;
 delete process.env.OPENAI_API_KEY;
 
-const { getDb, ensureDefaultMerchant, upsertInvoice, createReminderTask } = await import("./src/db");
+const { getDb, ensureDefaultMerchant, upsertInvoice, createReminderTask, logSend } = await import("./src/db");
 const { annotateSupersededDrafts } = await import("./src/pipeline/draft-readiness");
 
 let pass = 0;
@@ -83,8 +86,10 @@ function supersededRows(taskId: number): Array<{ id: number; status: string; pro
 }
 
 // ── (a)(b)(c) the production case: a reviewed stage-1 draft, ladder advances ──
+// Owner decision 2026-11-16: the ladder HOLDS here. Nothing is created, nothing
+// is cancelled, nothing is superseded.
 const invoiceId = makeInvoice("356");
-const stage1 = createReminderTask(db, invoiceId, 1);
+const stage1 = createReminderTask(db, invoiceId, 1) as number;
 db.run("UPDATE reminder_tasks SET status='reviewed', draft_subject='Invoice due', draft_body='Please pay.' WHERE id=?", [stage1]);
 
 const logged: string[] = [];
@@ -93,50 +98,60 @@ console.log = (...args: unknown[]) => {
   logged.push(args.map(String).join(" "));
   realLog(...args);
 };
-const stage2 = createReminderTask(db, invoiceId, 2);
+const held = createReminderTask(db, invoiceId, 2);
 console.log = realLog;
 
-const oldTask = db.query("SELECT status, stage FROM reminder_tasks WHERE id=?").get(stage1) as { status: string; stage: number };
-const newTask = db.query("SELECT status, stage FROM reminder_tasks WHERE id=?").get(stage2) as { status: string; stage: number };
+const oldTask = db.query("SELECT status, stage, draft_body FROM reminder_tasks WHERE id=?").get(stage1) as { status: string; stage: number; draft_body: string | null };
+const taskCount = (db.query("SELECT COUNT(*) AS n FROM reminder_tasks WHERE invoice_id=?").get(invoiceId) as { n: number }).n;
 
-check("(c) ladder unchanged: replaced draft is cancelled", oldTask.status === "cancelled", `status=${oldTask.status}`);
-check("(c) ladder unchanged: new task exists at the requested stage", newTask.stage === 2 && newTask.status === "pending", JSON.stringify(newTask));
-
-const rows = supersededRows(stage1);
-check("(a) exactly one superseded audit row on the replaced task", rows.length === 1, `rows=${rows.length}`);
-const row = rows[0];
-check("(a) audit row status is 'skipped' (nothing was sent)", row?.status === "skipped", `status=${row?.status}`);
-const msg = row?.provider_message ?? "";
-check("(a) audit row names the replaced task", msg.includes(`task ${stage1}`), msg);
-check("(a) audit row names the replaced stage", msg.includes("Stage 1 draft"), msg);
-check("(a) audit row names the replacing task", msg.includes(`task ${stage2}`), msg);
-check("(a) audit row names the replacing stage", msg.includes("stage 2 reminder"), msg);
-check("(c) nothing was emailed — no reminder-type log row", (
+check("(a) the hold creates no task", held === null, `result=${String(held)}`);
+check("(a) the reviewed draft is NOT cancelled", oldTask.status === "reviewed", `status=${oldTask.status}`);
+check("(a) the reviewed draft's body is untouched", oldTask.draft_body === "Please pay.", String(oldTask.draft_body));
+check("(a) no second task exists for the invoice", taskCount === 1, `count=${taskCount}`);
+check("(a) no 'superseded' audit row is written any more", supersededRows(stage1).length === 0, `rows=${supersededRows(stage1).length}`);
+check("(b) nothing was emailed — no reminder-type log row", (
   db.query("SELECT COUNT(*) AS n FROM send_logs WHERE type='reminder'").get() as { n: number }
 ).n === 0);
-
-check("(b) a log line names both tasks", logged.some((l) =>
-  l.includes(`superseded reviewed draft task ${stage1}`) && l.includes(`task ${stage2}`)), logged.join(" | "));
+check("(b) the hold is recorded instead", (
+  db.query("SELECT COUNT(*) AS n FROM send_logs WHERE reminder_task_id=? AND type='ladder_held'").get(stage1) as { n: number }
+).n === 1);
+check("(b) a log line names the invoice, stage and blocking draft", logged.some((l) =>
+  l.includes(`ladder held for invoice ${invoiceId}`) && l.includes("stage 2") && l.includes(String(stage1))), logged.join(" | "));
 
 // ── (d) tasks no human ever saw as 'ready' stay quiet ──
 const invoiceB = makeInvoice("quiet");
-const pendingB = createReminderTask(db, invoiceB, 1);
+const pendingB = createReminderTask(db, invoiceB, 1) as number;
 createReminderTask(db, invoiceB, 2);
 check("(d) a 'pending' task supersede writes no audit row", supersededRows(pendingB).length === 0);
 
 const invoiceC = makeInvoice("drafted");
-const draftedC = createReminderTask(db, invoiceC, 1);
+const draftedC = createReminderTask(db, invoiceC, 1) as number;
 setStatus(draftedC, "drafted");
 createReminderTask(db, invoiceC, 2);
 check("(d) a 'drafted' task supersede writes no audit row", supersededRows(draftedC).length === 0);
 
-// ── (e) the read-only merchant surface ──
+// ── (e) the read-only merchant surface (historical superseded rows) ──
+// The ladder no longer supersedes a reviewed draft, so the row that PR #254
+// wrote for one is seeded here directly — the merchant surface must still read
+// and show the superseded drafts that already exist in production.
 const invoiceD = makeInvoice("untouched");
-const loneTask = createReminderTask(db, invoiceD, 1);
+const loneTask = createReminderTask(db, invoiceD, 1) as number;
+
+const invoiceE = makeInvoice("historical");
+const replacedE = createReminderTask(db, invoiceE, 1) as number;
+setStatus(replacedE, "cancelled");
+const replacementE = createReminderTask(db, invoiceE, 2) as number;
+logSend(
+  db,
+  replacedE,
+  "skipped",
+  `Stage 1 draft (task ${replacedE}) was cancelled unsent when the stage 2 reminder (task ${replacementE}) replaced it at the escalation stage boundary. No email was sent.`,
+  "superseded",
+);
 
 const rowsToAnnotate = [
-  { id: stage2, invoice_id: invoiceId, stage: 2 },
-  { id: stage1, invoice_id: invoiceId, stage: 1 },
+  { id: replacementE, invoice_id: invoiceE, stage: 2 },
+  { id: replacedE, invoice_id: invoiceE, stage: 1 },
   { id: loneTask, invoice_id: invoiceD, stage: 1 },
 ];
 const before = (db.query("SELECT COUNT(*) AS n FROM send_logs").get() as { n: number }).n;
@@ -144,14 +159,14 @@ const annotated = annotateSupersededDrafts(db, rowsToAnnotate);
 const after = (db.query("SELECT COUNT(*) AS n FROM send_logs").get() as { n: number }).n;
 
 const onReplacement = annotated[0].superseded_draft;
-check("(e) the replacing task reports the draft it replaced", onReplacement.length === 1 && onReplacement[0].task_id === stage1, JSON.stringify(onReplacement));
+check("(e) the replacing task reports the draft it replaced", onReplacement.length === 1 && onReplacement[0].task_id === replacedE, JSON.stringify(onReplacement));
 check("(e) it reports the replaced stage", onReplacement[0]?.stage === 1, JSON.stringify(onReplacement));
 check("(e) it reports when", typeof onReplacement[0]?.at === "string" && onReplacement[0].at.length >= 10, JSON.stringify(onReplacement));
 check("(e) a superseded task does not report itself", annotated[1].superseded_draft.length === 0, JSON.stringify(annotated[1].superseded_draft));
 check("(e) an invoice that never lost a draft reports none", annotated[2].superseded_draft.length === 0, JSON.stringify(annotated[2].superseded_draft));
 check("(e) the derivation is read-only (no send_logs rows added)", before === after, `${before} -> ${after}`);
 check("(e) the derivation changes no task status", (
-  db.query("SELECT status FROM reminder_tasks WHERE id=?").get(stage2) as { status: string }
+  db.query("SELECT status FROM reminder_tasks WHERE id=?").get(replacementE) as { status: string }
 ).status === "pending");
 
 // ── (f) merchant markup carries the surface next to the stranded-draft note ──

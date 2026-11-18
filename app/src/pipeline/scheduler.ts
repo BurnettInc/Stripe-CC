@@ -585,7 +585,7 @@ export interface AdvancePassResult {
   merchants: number;
   advanced: number;
   alreadyLatest: number;
-  skipped: { stopped: number; cancelled: number; noTask: number };
+  skipped: { stopped: number; cancelled: number; noTask: number; held: number };
   errors: string[];
 }
 
@@ -609,7 +609,7 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
     merchants: 0,
     advanced: 0,
     alreadyLatest: 0,
-    skipped: { stopped: 0, cancelled: 0, noTask: 0 },
+    skipped: { stopped: 0, cancelled: 0, noTask: 0, held: 0 },
     errors: [],
   };
 
@@ -674,6 +674,11 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
         log(`[scheduler] escalation-advance: invoice ${invoice.stripe_invoice_id} stage ${latest.stage} → ${expected} (${daysOverdue} days overdue, task ${created.taskId})`);
       } else if (created.skipped === "stopped") {
         result.skipped.stopped++;
+      } else if (created.skipped === "ladder-held") {
+        // An unsent 'reviewed' draft holds this invoice's ladder (owner
+        // decision 2026-11-16). Nothing was created or cancelled; the pass
+        // moves on to the next invoice.
+        result.skipped.held++;
       } else {
         result.skipped.noTask++;
       }
@@ -683,7 +688,8 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
   log(
     `[scheduler] escalation-advance pass: ${result.merchants} merchant(s), ${result.advanced} sequence(s) advanced, ` +
       `${result.alreadyLatest} already at latest stage, ${result.skipped.stopped} stopped, ` +
-      `${result.skipped.cancelled} cancelled-latest, ${result.skipped.noTask} no-task`
+      `${result.skipped.cancelled} cancelled-latest, ${result.skipped.noTask} no-task, ` +
+      `${result.skipped.held} held (unsent reviewed draft)`
   );
   return result;
 }

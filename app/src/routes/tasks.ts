@@ -187,6 +187,15 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
   // sequence starts clean with exactly one fresh task.
   db.run("UPDATE reminder_tasks SET status='cancelled' WHERE invoice_id=? AND status='paused'", [invoiceId]);
   const taskId = createReminderTask(db, invoiceId, stage);
+  if (taskId === null) {
+    // Owner decision 2026-11-16: an unsent 'reviewed' draft holds the ladder,
+    // so nothing was created and nothing was cancelled. The pause is already
+    // cleared; tell the merchant their existing draft is still waiting.
+    return new Response(JSON.stringify({
+      ok: true, invoice_id: invoiceId, paused: false, task_created: false, held: true, stage, cleared,
+      message: "Sequence resumed — your existing approved draft is still waiting to be sent, so the ladder is holding until you send or cancel it.",
+    }), { status: 200, headers });
+  }
 
   // Auto-draft + review like the watcher; on failure leave the task 'pending'
   // (never fail the resume — the pause is already cleared).

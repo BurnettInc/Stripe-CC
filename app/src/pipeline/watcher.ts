@@ -198,6 +198,16 @@ export async function createTaskForOverdueInvoice(
     return { action: `skipped invoice ${invoice.stripe_invoice_id}: Standard 50-invoice limit reached (upgrade to Pro)`, invoiceId: invoice.id, skipped: "standard-limit" };
   }
   const taskId = createReminderTask(db, invoice.id, stage);
+  if (taskId === null) {
+    // Owner decision 2026-11-16: an unsent 'reviewed' draft HOLDS the ladder —
+    // no task was created and nothing was cancelled. Not an error: report the
+    // hold so the caller can count it and carry on with other invoices.
+    return {
+      action: `held reminder for invoice ${invoice.stripe_invoice_id}: an unsent reviewed draft is waiting`,
+      invoiceId: invoice.id,
+      skipped: "ladder-held",
+    };
+  }
 
   // Auto-draft at creation: tasks arrive with a visible draft (AI when
   // OPENAI_API_KEY is set, template fallback otherwise) and a reviewer
