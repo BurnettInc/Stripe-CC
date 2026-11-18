@@ -7,7 +7,7 @@ import { reviewDraft, placeholderLateFeeIssue, merchantDashboardUrlIssue } from 
 import { getLateFeeText } from "../pipeline/late-fee";
 import { annotateTaskReadiness, annotateSupersededDrafts, countReadyDrafts } from "../pipeline/draft-readiness";
 import { repairTaskHostedLink } from "../pipeline/hosted-link-repair";
-import { getEscalationStage } from "../pipeline/escalation";
+import { getEscalationStage, resolveContactStage } from "../pipeline/escalation";
 import { sendEmail, sendEmailForReal } from "../pipeline/sender";
 
 const headers = { "Content-Type": "application/json" };
@@ -181,7 +181,26 @@ async function handleResume(db: Database, req: Request, merchantId: number): Pro
 
   const timing = db.query("SELECT stage1_days, stage2_days FROM merchants WHERE id=?").get(merchantId) as { stage1_days: number; stage2_days: number } | null;
   const daysOverdue = Math.max(0, Math.floor((Date.now() - new Date(invoice.due_date).getTime()) / (1000 * 60 * 60 * 24)));
-  const stage = getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+  const stage1Max = timing?.stage1_days ?? 6;
+  const stage2Max = timing?.stage2_days ?? 20;
+  // Owner decision 2026-11-18: resuming must not invent a notice the customer
+  // never received either. The shared helper (same one the watcher and the
+  // escalation-advance pass use) caps the stage at (reminders actually sent + 1)
+  // — the per-invoice override included — and reports pacing when the ladder's
+  // gap since the last successful send has not elapsed yet.
+  const decision = resolveContactStage(db, invoice.id, {
+    requestedStage: invoice.stage_override ?? getEscalationStage(daysOverdue, stage1Max, stage2Max),
+    stage1Max,
+    stage2Max,
+  });
+  if (decision.paced) {
+    console.log(`[tasks] merchant ${merchantId} resume invoice ${invoiceId} -> not re-opened (${decision.reason})`);
+    return new Response(JSON.stringify({
+      ok: true, invoice_id: invoiceId, paused: false, task_created: false, paced: true, stage: decision.stage, cleared,
+      message: `Sequence resumed — the next reminder isn't due yet (the ladder waits ${decision.gapDays} days after the last one). Nothing was re-opened; the ladder picks it up when the gap has elapsed.`,
+    }), { status: 200, headers });
+  }
+  const stage = decision.stage;
   // Cancel any tasks the manual pause parked in 'paused' (the reply-pause path
   // cancels its tasks outright, manual pause parks them) so the re-opened
   // sequence starts clean with exactly one fresh task.

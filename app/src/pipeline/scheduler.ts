@@ -92,7 +92,7 @@ import type { WeeklySummary } from "./summary";
 import { formatSummaryEmail } from "./summary-email";
 import { sendEmailForReal } from "./sender";
 import { isPlaceholderMerchant, notifyMerchant } from "./notify";
-import { getEscalationStage } from "./escalation";
+import { getEscalationStage, resolveContactStage } from "./escalation";
 import { formatElapsed, ownerDigestDueInMs, runDailyOwnerDigest } from "./owner-digest";
 import { runTrialExpiryPass } from "./trial-expiry";
 import { runDrafterHealthAlertPass } from "./drafter-alert";
@@ -385,7 +385,7 @@ export interface InvoiceSyncPassResult {
   /** Open drafts whose stale Stripe hosted payment link was rewritten to the
    *  invoice's current one (Stripe rotates the hosted page; 2026-11-07). */
   hostedLinksRepaired: number;
-  blocked: { standardLimit: number; stopped: number };
+  blocked: { standardLimit: number; stopped: number; paced: number };
   disconnected: string[];
   errors: string[];
 }
@@ -424,7 +424,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
     invoicesUpserted: 0,
     tasksCreated: 0,
     hostedLinksRepaired: 0,
-    blocked: { standardLimit: 0, stopped: 0 },
+    blocked: { standardLimit: 0, stopped: 0, paced: 0 },
     disconnected: [],
     errors: [],
   };
@@ -562,6 +562,8 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
         tracked++;
       } else if (created.skipped === "standard-limit") {
         result.blocked.standardLimit++;
+      } else if (created.skipped === "paced") {
+        result.blocked.paced++;
       } else {
         result.blocked.stopped++;
       }
@@ -573,7 +575,7 @@ export async function runInvoiceSyncPass(db: Database, deps: SchedulerDeps = {})
     `[scheduler] invoice-sync pass: ${result.merchants} merchant(s), ${result.invoicesUpserted} invoice(s) upserted, ` +
       `${result.tasksCreated} task(s) created, ${result.hostedLinksRepaired} hosted link(s) refreshed, ` +
       `${result.blocked.standardLimit} cap-blocked, ` +
-      `${result.blocked.stopped} stopped, ` +
+      `${result.blocked.stopped} stopped, ${result.blocked.paced} paced, ` +
       `${result.disconnected.length} disconnected, ${result.errors.length} error(s)`
   );
   return result;
@@ -585,7 +587,7 @@ export interface AdvancePassResult {
   merchants: number;
   advanced: number;
   alreadyLatest: number;
-  skipped: { stopped: number; cancelled: number; noTask: number; held: number };
+  skipped: { stopped: number; cancelled: number; noTask: number; held: number; paced: number };
   errors: string[];
 }
 
@@ -609,7 +611,7 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
     merchants: 0,
     advanced: 0,
     alreadyLatest: 0,
-    skipped: { stopped: 0, cancelled: 0, noTask: 0, held: 0 },
+    skipped: { stopped: 0, cancelled: 0, noTask: 0, held: 0, paced: 0 },
     errors: [],
   };
 
@@ -651,14 +653,33 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
         continue;
       }
       const daysOverdue = Math.floor((now.getTime() - new Date(invoice.due_date).getTime()) / DAY_MS);
-      const autoStage = getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+      const stage1Max = timing?.stage1_days ?? 6;
+      const stage2Max = timing?.stage2_days ?? 20;
+      const autoStage = getEscalationStage(daysOverdue, stage1Max, stage2Max);
       // A manual per-invoice override (migration 031) layers on top of auto
       // progression: the override pins the expected stage while set (escalate
       // early or hold back), and clearing it restores pure days-overdue auto
       // progression. Because createTaskForOverdueInvoice honors the same
       // override in its own stage computation, the recreated task lands at
       // exactly this expected stage.
-      const expected = invoice.stage_override ?? autoStage;
+      //
+      // Owner decision 2026-11-18: the same shared helper the watcher uses caps
+      // that stage by the reminders actually sent (min(requested,
+      // sentCount + 1), override included) and reports pacing, so the pass
+      // never asks for a notice the customer never earned and never fires the
+      // next notice before the ladder's gap has elapsed.
+      const decision = resolveContactStage(db, invoice.id, {
+        requestedStage: invoice.stage_override ?? autoStage,
+        stage1Max,
+        stage2Max,
+        now,
+      });
+      if (decision.paced) {
+        result.skipped.paced++;
+        log(`[scheduler] escalation-advance: invoice ${invoice.stripe_invoice_id} not advanced — ${decision.reason}`);
+        continue;
+      }
+      const expected = decision.stage;
       if (expected <= latest.stage) {
         result.alreadyLatest++;
         continue;
@@ -689,7 +710,7 @@ export async function runEscalationAdvancePass(db: Database, deps: SchedulerDeps
     `[scheduler] escalation-advance pass: ${result.merchants} merchant(s), ${result.advanced} sequence(s) advanced, ` +
       `${result.alreadyLatest} already at latest stage, ${result.skipped.stopped} stopped, ` +
       `${result.skipped.cancelled} cancelled-latest, ${result.skipped.noTask} no-task, ` +
-      `${result.skipped.held} held (unsent reviewed draft)`
+      `${result.skipped.held} held (unsent reviewed draft), ${result.skipped.paced} paced (ladder gap not elapsed)`
   );
   return result;
 }
