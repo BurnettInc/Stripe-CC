@@ -39,7 +39,7 @@ delete process.env.RESEND_API_KEY;
 delete process.env.SENDGRID_API_KEY;
 delete process.env.OPENAI_API_KEY;
 
-const { getDb, ensureDefaultMerchant, upsertInvoice, createReminderTask } = await import("./src/db");
+const { getDb, ensureDefaultMerchant, upsertInvoice, createReminderTask, logSend } = await import("./src/db");
 const { runEscalationAdvancePass } = await import("./src/pipeline/scheduler");
 
 let pass = 0;
@@ -76,6 +76,13 @@ function makeInvoice(dueDate = daysAgo(3)): number {
     status: "overdue",
     livemode: 1,
   });
+}
+
+/** Record that a reminder really reached the customer `daysAgo` days ago. */
+function markSent(taskId: number, daysAgo: number): void {
+  const when = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  db.run("UPDATE reminder_tasks SET status='sent', sent_at=? WHERE id=?", [when.toISOString(), taskId]);
+  logSend(db, taskId, "success", "reminder sent", "reminder", null, when);
 }
 
 function setStatus(taskId: number, status: string): void {
@@ -172,13 +179,20 @@ const cleanTask = createReminderTask(db, invoiceClean, 1);
 check("(5) a clean invoice still gets its stage-1 task", typeof cleanTask === "number", String(cleanTask));
 
 // ── (6) the escalation-advance pass survives the hold ──
-// invoiceC: 10 days overdue (auto stage 2) with a reviewed stage-1 draft → HOLD.
+// invoiceC: 10 days overdue, notice 1 really sent 7 days ago, and a later
+// duplicate re-draft (stage 1) still waiting for approval → the ladder may now
+// offer stage 2, so it must HOLD on that unsent draft.
 const invoiceC = makeInvoice(daysAgo(10));
+markSent(createReminderTask(db, invoiceC, 1) as number, 7);
 const c1 = createReminderTask(db, invoiceC, 1) as number;
 db.run("UPDATE reminder_tasks SET status='reviewed', draft_subject='Still due', draft_body='Please pay now.' WHERE id=?", [c1]);
-// invoiceD: 30 days overdue (auto stage 3) with a pending stage-1 task → ADVANCES.
+// invoiceD: 30 days overdue (auto stage 3) with TWO notices really sent (the
+// 6-day and 15-day ladder gaps both elapsed) → ADVANCES to stage 3 while
+// invoiceC is held (owner decision 2026-11-18: a stage is only earned by the
+// reminders actually sent).
 const invoiceD = makeInvoice(daysAgo(30));
-createReminderTask(db, invoiceD, 1);
+markSent(createReminderTask(db, invoiceD, 1) as number, 25);
+markSent(createReminderTask(db, invoiceD, 2) as number, 16);
 
 // Make the earlier fixtures inert for the pass (already at their latest stage).
 db.run("UPDATE invoices SET due_date=? WHERE id IN (?, ?)", [daysAgo(0), invoiceA, invoiceB]);
@@ -194,8 +208,9 @@ try {
 check("(6) the escalation pass never throws on a hold", passError === null, passError instanceof Error ? passError.message : String(passError));
 check("(6) the pass counted the hold", (advanceResult?.skipped.held ?? 0) === 1, JSON.stringify(advanceResult?.skipped));
 check("(6) the pass kept going and advanced another invoice", (advanceResult?.advanced ?? 0) >= 1, JSON.stringify(advanceResult));
-check("(6) the held invoice still has exactly its one reviewed draft", taskRows(invoiceC).length === 1 && taskRows(invoiceC)[0].status === "reviewed", JSON.stringify(taskRows(invoiceC)));
-check("(6) the held draft's body is untouched by the pass", taskRows(invoiceC)[0].draft_body === "Please pay now.", String(taskRows(invoiceC)[0].draft_body));
+check("(6) the held invoice still has exactly its one reviewed draft", taskRows(invoiceC).filter((t) => t.status === "reviewed").length === 1 && taskRows(invoiceC).some((t) => t.id === c1 && t.status === "reviewed"), JSON.stringify(taskRows(invoiceC)));
+check("(6) the hold created no new task for the held invoice", taskRows(invoiceC).length === 2, JSON.stringify(taskRows(invoiceC)));
+check("(6) the held draft's body is untouched by the pass", taskRows(invoiceC).find((t) => t.id === c1)?.draft_body === "Please pay now.", String(taskRows(invoiceC).find((t) => t.id === c1)?.draft_body));
 check("(6) the other invoice advanced to stage 3", taskRows(invoiceD).some((t) => t.stage === 3), JSON.stringify(taskRows(invoiceD)));
 check("(6) the pass summary mentions the hold", passLogs.some((l) => l.includes("held (unsent reviewed draft)")), passLogs.join(" | "));
 

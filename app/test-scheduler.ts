@@ -62,7 +62,7 @@ process.env.FROM_EMAIL = "test@example.com";
 Bun.spawnSync(["rm", "-f", `${DB_PATH}`, `${DB_PATH}-wal`, `${DB_PATH}-shm`]);
 
 // ── Dynamic imports (env above must be set first) ──
-const { getDb, createReminderTask, purgeMerchantData, isInvoiceSequenceStopped } = await import("./src/db");
+const { getDb, createReminderTask, purgeMerchantData, isInvoiceSequenceStopped, logSend } = await import("./src/db");
 const sched = await import("./src/pipeline/scheduler");
 const watcher = await import("./src/pipeline/watcher");
 const sender = await import("./src/pipeline/sender");
@@ -198,6 +198,16 @@ function taskCount(merchantId: number): number {
   ).get(merchantId) as { n: number };
   return row.n;
 }
+/**
+ * Record that a reminder really reached the customer `daysAgo` days before
+ * FAKE_NOW: a successful send_logs row (the contact history the stage cap and
+ * the pacing rule read) on a task marked 'sent'.
+ */
+function markSent(taskId: number, daysAgo: number): void {
+  const when = new Date(FAKE_NOW.getTime() - daysAgo * DAY_MS);
+  db.run("UPDATE reminder_tasks SET status='sent', sent_at=? WHERE id=?", [sqliteFromDate(when), taskId]);
+  logSend(db, taskId, "success", "reminder sent", "reminder", null, when);
+}
 function latestTaskForInvoice(invoiceId: number) {
   return db.query("SELECT * FROM reminder_tasks WHERE invoice_id=? ORDER BY created_at DESC, id DESC LIMIT 1").get(invoiceId);
 }
@@ -210,7 +220,9 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
 // (a)+(b)+(c) sync pass — task creation, Trust Mode, Standard cap
 // ════════════════════════════════════════════════════════════════════════
 {
-  // m1: free, draft mode → task created at stage 2 (10 days overdue), reviewed (no auto-send in draft).
+  // m1: free, draft mode → task created at stage 1 (10 days overdue but never
+  // contacted: the stage is capped at sentCount+1 — owner decision 2026-11-18),
+  // reviewed (no auto-send in draft).
   const m1 = seedMerchant("acct_m1", { trustMode: "draft" });
   seedConnection(m1, "rk_m1");
   stubState.invoiceSets["rk_m1"] = [openInvoice("in_m1_ovd", DAYS(10), 12345)];
@@ -235,7 +247,7 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   const m1InvId = findInvoiceId(m1, "in_m1_ovd");
   const m1Task = latestTaskForInvoice(m1InvId);
   check("(a) sync pass created a task for the newly-overdue invoice", r1.tasksCreated >= 1 && !!m1Task, JSON.stringify(r1));
-  check("(a) task stage = 2 (10 days overdue, default 6/20 ladder)", m1Task?.stage === 2, `stage=${m1Task?.stage}`);
+  check("(a) task stage = 1 (10 days overdue, but no reminder was ever sent)", m1Task?.stage === 1, `stage=${m1Task?.stage}`);
   check("(a) draft-mode task lands 'reviewed' (auto-drafted, NOT auto-sent)", m1Task?.status === "reviewed", `status=${m1Task?.status}`);
   check("(a) invoice marked overdue", db.query("SELECT status FROM invoices WHERE id=?").get(m1InvId)?.status === "overdue", "");
 
@@ -333,29 +345,29 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
 // (g) escalation advance — default ladder day 7/21 + Pro custom timing
 // ════════════════════════════════════════════════════════════════════════
 {
-  // m7: Pro custom timing stage1=10 stage2=20; invoice 25 days overdue →
-  // expected stage 3; existing task at stage 1 must advance straight to 3.
+  // m7: Pro custom timing stage1=10 stage2=20; invoice 25 days overdue with
+  // TWO real notices behind it (gaps 10 and 11 days, both elapsed) → stage 3.
   const m7 = seedMerchant("acct_m7", { trustMode: "draft", stage1Days: 10, stage2Days: 20 });
   seedStandardSub(m7, "pro");
   db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m7_adv', ?, 'C7', 'c7@example.com', 11000, 'usd', ?, 'overdue')", [m7, sqliteFromDate(new Date(FAKE_NOW.getTime() - 25 * DAY_MS)).slice(0, 10)]);
   const m7Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m7_adv'").get() as { id: number };
-  createReminderTask(db, m7Inv.id, 1);
+  markSent(createReminderTask(db, m7Inv.id, 1) as number, 15);
+  markSent(createReminderTask(db, m7Inv.id, 2) as number, 12);
 
   // m8: default ladder; invoice 8 days overdue → stage 2; sent stage-1 task.
   const m8 = seedMerchant("acct_m8", { trustMode: "draft" });
   seedStandardSub(m8, "standard");
   db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m8_adv', ?, 'C8', 'c8@example.com', 12000, 'usd', ?, 'overdue')", [m8, sqliteFromDate(new Date(FAKE_NOW.getTime() - 8 * DAY_MS)).slice(0, 10)]);
   const m8Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m8_adv'").get() as { id: number };
-  const m8T1 = createReminderTask(db, m8Inv.id, 1);
-  db.run("UPDATE reminder_tasks SET status='sent', sent_at=datetime('now') WHERE id=?", [m8T1]);
+  markSent(createReminderTask(db, m8Inv.id, 1) as number, 7);
 
   // m9: default ladder; invoice 30 days overdue → stage 3; sent stage-2 task.
   const m9 = seedMerchant("acct_m9", { trustMode: "draft" });
   seedStandardSub(m9, "standard");
   db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status) VALUES ('in_m9_adv', ?, 'C9', 'c9@example.com', 13000, 'usd', ?, 'overdue')", [m9, sqliteFromDate(new Date(FAKE_NOW.getTime() - 30 * DAY_MS)).slice(0, 10)]);
   const m9Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_m9_adv'").get() as { id: number };
-  const m9T2 = createReminderTask(db, m9Inv.id, 2);
-  db.run("UPDATE reminder_tasks SET status='sent', sent_at=datetime('now') WHERE id=?", [m9T2]);
+  markSent(createReminderTask(db, m9Inv.id, 1) as number, 20);
+  markSent(createReminderTask(db, m9Inv.id, 2) as number, 16);
 
   // m10: still stage-1 (5 days overdue) → must NOT advance.
   const m10 = seedMerchant("acct_m10", { trustMode: "draft" });
@@ -376,7 +388,7 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
 
   const m7Latest = latestTaskForInvoice(m7Inv.id) as { stage: number; status: string };
   const m7Old = db.query("SELECT stage, status FROM reminder_tasks WHERE invoice_id=? ORDER BY id ASC").all(m7Inv.id) as { stage: number; status: string }[];
-  check("(g) Pro custom timing: stage 1 → 3 on day 25 (stage1=10/stage2=20)", m7Latest.stage === 3, `stage=${m7Latest.stage}`);
+  check("(g) Pro custom timing: two notices sent → stage 3 on day 25 (stage1=10/stage2=20)", m7Latest.stage === 3, `stage=${m7Latest.stage}`);
   check("(g) old stage-1 task cancelled by the advance", m7Old.some((t) => t.stage === 1 && t.status === "cancelled"), JSON.stringify(m7Old));
   check("(g) advanced task is drafted 'reviewed' (draft mode, no auto-send)", m7Latest.status === "reviewed", `status=${m7Latest.status}`);
 
@@ -405,7 +417,7 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   seedStandardSub(s1, "standard");
   db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, stage_override) VALUES ('in_s1_pin', ?, 'S1', 's1@example.com', 21000, 'usd', ?, 'overdue', 2)", [s1, sqliteFromDate(new Date(FAKE_NOW.getTime() - 40 * DAY_MS)).slice(0, 10)]);
   const s1Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_s1_pin'").get() as { id: number };
-  createReminderTask(db, s1Inv.id, 1);
+  markSent(createReminderTask(db, s1Inv.id, 1) as number, 7);
   // s2: 40 days overdue (auto stage 3) with override pinned to 1 → hold back:
   // the pass must NOT advance the stage-2 task (expected 1 <= latest 2).
   const s2 = seedMerchant("acct_s2", { trustMode: "draft" });
@@ -419,7 +431,8 @@ function findInvoiceId(merchantId: number, stripeInvoiceId: string): number {
   seedStandardSub(s3, "standard");
   db.run("INSERT INTO invoices (stripe_invoice_id, merchant_id, customer_name, customer_email, amount_cents, currency, due_date, status, stage_override) VALUES ('in_s3_jmp', ?, 'S3', 's3@example.com', 23000, 'usd', ?, 'overdue', 3)", [s3, sqliteFromDate(new Date(FAKE_NOW.getTime() - 25 * DAY_MS)).slice(0, 10)]);
   const s3Inv = db.query("SELECT id FROM invoices WHERE stripe_invoice_id='in_s3_jmp'").get() as { id: number };
-  createReminderTask(db, s3Inv.id, 1);
+  markSent(createReminderTask(db, s3Inv.id, 1) as number, 22);
+  markSent(createReminderTask(db, s3Inv.id, 2) as number, 16);
 
   const rg2 = await sched.runEscalationAdvancePass(db, { now: fakeNow, log: () => {} });
   const s1Latest = latestTaskForInvoice(s1Inv.id) as { stage: number; status: string };

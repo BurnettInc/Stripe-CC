@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { upsertInvoice, createReminderTask, cancelTasksForInvoice, ensureDefaultMerchant, resolveMerchant, hasActiveSubscription, freeDraftsRemaining, countOverdueInvoices, getTaskForInvoice, invoiceLimitFor, logSend, getTaskById, getInvoiceById, getMerchantById, isMerchantPaused, isMerchantDisconnected, isActiveProSubscriber, isInvoiceSequenceStopped, recordRecoveryEvent } from "../db";
 import { recordFunnelEvent, recordFunnelEventForTask } from "../funnel";
 import type { Invoice } from "../db";
-import { getEscalationStage } from "./escalation";
+import { getEscalationStage, resolveContactStage } from "./escalation";
 import { getStripeKey } from "../middleware/auth";
 import { notifyMerchant } from "./notify";
 import { draftEmail } from "./drafter";
@@ -130,7 +130,13 @@ function matchInvoiceByAmountAndCustomer(
  * advance passes so every path behaves identically:
  *
  *   - Stage: days-overdue against the merchant's ladder timing (default
- *     1–6 / 7–20 / 21+; Pro custom stage1_days / stage2_days).
+ *     1–6 / 7–20 / 21+; Pro custom stage1_days / stage2_days), then CAPPED by
+ *     the reminders actually sent for the invoice — min(requested,
+ *     sentCount + 1), override included — so a first contact never opens with
+ *     a "Final notice" (owner decision 2026-11-18).
+ *   - Pacing: a new notice waits out the ladder's own gap after the last
+ *     successful send; too soon ⇒ no task is created and the caller is told
+ *     `skipped: "paced"`.
  *   - Free-tier gate: no active subscription + 0 drafts remaining → the task
  *     is skipped (the invoice itself stays visible on the dashboard).
  *   - Standard cap: an invoice with NO existing task is blocked only when the
@@ -171,7 +177,20 @@ export async function createTaskForOverdueInvoice(
   // Manual per-invoice stage override (migration 031) layers on top of auto
   // progression: an override PINS the effective stage while set; NULL keeps
   // the automatic days-overdue calculation.
-  const stage = invoice.stage_override ?? getEscalationStage(daysOverdue, timing?.stage1_days ?? 6, timing?.stage2_days ?? 20);
+  const stage1Max = timing?.stage1_days ?? 6;
+  const stage2Max = timing?.stage2_days ?? 20;
+  const requestedStage = invoice.stage_override ?? getEscalationStage(daysOverdue, stage1Max, stage2Max);
+  // Owner decision 2026-11-18: days-overdue alone may not claim a notice the
+  // customer never received. The shared helper caps the stage at
+  // (reminders actually sent + 1) — an override included — and reports whether
+  // the ladder's day gap since the last send has elapsed (pacing).
+  const decision = resolveContactStage(db, invoice.id, {
+    requestedStage,
+    stage1Max,
+    stage2Max,
+    now,
+  });
+  const stage = decision.stage;
 
   const limit = invoiceLimitFor(db, merchantId);
   let overdueBefore = opts.overdueBefore;
@@ -196,6 +215,19 @@ export async function createTaskForOverdueInvoice(
   if (limit !== null && overdueBefore >= limit && !getTaskForInvoice(db, invoice.id)) {
     console.log(`[watcher] Merchant ${merchantId} at Standard 50-invoice limit — invoice ${invoice.stripe_invoice_id} not tracked. Upgrade to Pro for unlimited.`);
     return { action: `skipped invoice ${invoice.stripe_invoice_id}: Standard 50-invoice limit reached (upgrade to Pro)`, invoiceId: invoice.id, skipped: "standard-limit" };
+  }
+  // Pacing (owner decision 2026-11-18): the next notice may not go out sooner
+  // than the ladder's own gap after the last successful send, so an invoice
+  // that aged while nothing was being sent does not fire 1-2-3 on consecutive
+  // days. Nothing is created, cancelled or rewritten — the invoice is simply
+  // not due yet and the caller counts it as paced.
+  if (decision.paced) {
+    console.log(`[watcher] task creation paced for invoice ${invoice.stripe_invoice_id} — ${decision.reason}`);
+    return {
+      action: `paced reminder for invoice ${invoice.stripe_invoice_id}: ${decision.reason}`,
+      invoiceId: invoice.id,
+      skipped: "paced",
+    };
   }
   const taskId = createReminderTask(db, invoice.id, stage);
   if (taskId === null) {
